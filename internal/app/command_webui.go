@@ -155,13 +155,7 @@ func runWebUIWithOptions(args []string, runtimeOpts webUIRuntimeOptions) error {
 	} else {
 		fmt.Println("Web UI:", url)
 	}
-	if *open {
-		if err := openBrowser(url); err != nil {
-			if !runtimeOpts.HideConsole {
-				fmt.Println("open browser failed:", err)
-			}
-		}
-	}
+
 	server := &http.Server{Handler: mux}
 	stopTray := startWebUITray(url, func() {
 		_ = server.Close()
@@ -169,6 +163,18 @@ func runWebUIWithOptions(args []string, runtimeOpts webUIRuntimeOptions) error {
 	if stopTray != nil {
 		defer stopTray()
 	}
+
+	go func() {
+		if *open {
+			time.Sleep(500 * time.Millisecond)
+			if err := openBrowser(url); err != nil {
+				if !runtimeOpts.HideConsole {
+					fmt.Println("open browser failed:", err)
+				}
+			}
+		}
+	}()
+
 	err = server.Serve(ln)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

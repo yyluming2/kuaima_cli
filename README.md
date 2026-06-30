@@ -10,8 +10,39 @@ gpt-image-2 的cli生图工具，支持文生图、参考图、涂抹局部编�
 
 ## 构建
 
-```powershell
+详细的构建说明请参考：[BUILD.md](./BUILD.md)
+
+### 快速开始
+
+```bash
+# macOS/Linux/Windows
 make build
+
+# 运行程序
+make run
+
+# 启动 WebUI
+make run_web
+```
+
+### macOS 应用包构建
+
+```bash
+# 构建 macOS DMG 安装包
+bash scripts/build_macos_dmg.sh
+
+# 或指定版本号
+VERSION=1.0.0 bash scripts/build_macos_dmg.sh
+```
+
+### Windows 构建
+
+```powershell
+# 构建命令行版本
+make build
+
+# 在 Windows 上构建 macOS 应用（使用 GitHub Actions）
+.\scripts\build_macos_dmg_win.ps1 -Version "1.0.0"
 ```
 
 ## 使用
