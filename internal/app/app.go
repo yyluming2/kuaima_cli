@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	defaultBaseURL    = "https://ai.szkmjb.com"
+	defaultBaseURL    = "https://img.szkmjb.com"
 	defaultModel      = "gpt-5.4-mini"
 	defaultImageModel = "gpt-image-2"
 
