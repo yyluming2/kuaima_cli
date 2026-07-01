@@ -166,6 +166,19 @@
   background: #fff;
 }
 
+button.chat-image {
+  padding: 0;
+  color: inherit;
+  cursor: zoom-in;
+}
+
+button.chat-image:hover,
+button.chat-image:focus-visible {
+  border-color: rgba(37, 99, 235, 0.38);
+  box-shadow: 0 10px 22px rgba(20, 33, 61, 0.12);
+  outline: none;
+}
+
 .chat-image img,
 .agent-attachment img {
   width: 100%;

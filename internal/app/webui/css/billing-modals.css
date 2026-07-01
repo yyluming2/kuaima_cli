@@ -198,6 +198,25 @@
     rgba(255, 255, 255, 0.86);
 }
 
+button.billing-promo {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topbar-promo {
+  margin-top: 0;
+  padding: 8px 11px;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(20, 33, 61, 0.07);
+}
+
+.topbar-promo:hover,
+.topbar-promo:focus-visible {
+  border-color: rgba(37, 99, 235, 0.36);
+}
+
 .billing-promo [data-lucide] {
   width: 18px;
   height: 18px;
@@ -205,7 +224,8 @@
   color: var(--accent-2);
 }
 
-.billing-promo div {
+.billing-promo div,
+.billing-promo>span {
   display: grid;
   gap: 3px;
   min-width: 0;
@@ -221,6 +241,13 @@
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.billing-promo small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 

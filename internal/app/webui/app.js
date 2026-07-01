@@ -264,6 +264,19 @@
       return;
     }
 
+    const promoContact = event.target.closest("#promoContact");
+    if (promoContact) {
+      const modal = $("#workflowContactModal");
+      const close = $("#closeWorkflowContactModal");
+      if (modal) {
+        modal.hidden = false;
+        if (close) {
+          close.focus();
+        }
+      }
+      return;
+    }
+
     const historyButton = event.target.closest("[data-history-action]");
     if (historyButton) {
       const action = historyButton.dataset.historyAction;

@@ -65,10 +65,12 @@
         '<div class="chat-role">' + esc(role === "assistant" ? "assistant" : role) + '</div>' +
         (textParts.length ? '<div class="chat-text">' + esc(textParts.join("\n")) + '</div>' : "") +
         (imageParts.length ? '<div class="chat-images">' + imageParts.map((part) => (
-          '<div class="chat-image"><img src="' + esc(part.image_url) + '" alt="image"></div>'
+          '<button class="chat-image" type="button" data-preview-image="' + esc(part.image_url) + '">' +
+          '<img src="' + esc(part.image_url) + '" alt="图片预览"></button>'
         )).join("") + '</div>' : "") +
         (outputImages.length ? '<div class="chat-images">' + outputImages.map((url) => (
-          '<div class="chat-image"><img src="' + esc(url) + '" alt="image"></div>'
+          '<button class="chat-image" type="button" data-preview-image="' + esc(url) + '">' +
+          '<img src="' + esc(url) + '" alt="图片预览"></button>'
         )).join("") + '</div>' : "") +
       '</div>'
     );
@@ -123,9 +125,11 @@
     if (Array.from(imagesEl.querySelectorAll("img")).some((img) => img.getAttribute("src") === url)) {
       return;
     }
-    const holder = document.createElement("div");
+    const holder = document.createElement("button");
     holder.className = "chat-image";
-    holder.innerHTML = '<img src="' + esc(url) + '" alt="image">';
+    holder.type = "button";
+    holder.dataset.previewImage = url;
+    holder.innerHTML = '<img src="' + esc(url) + '" alt="图片预览">';
     imagesEl.appendChild(holder);
     const log = $("#agentChatLog");
     if (log) {

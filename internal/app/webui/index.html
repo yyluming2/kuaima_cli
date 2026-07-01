@@ -26,104 +26,106 @@
         <div id="workflowTabs" class="workflow-tabs" role="tablist" aria-label="工作流切换"></div>
       </div>
     </div>
-    <div class="billing-menu">
-      <button id="toggleBillingTop" class="wallet-pill" type="button" aria-expanded="false">
-        <i data-lucide="wallet-cards" aria-hidden="true"></i>
-        <span class="wallet-copy">
-          <small id="accountIdentityTop">普通用户</small>
-          <strong id="balanceTop">读取中...</strong>
+    <div class="topbar-actions">
+      <button id="promoContact" class="billing-promo topbar-promo" type="button">
+        <i data-lucide="gift" aria-hidden="true"></i>
+        <span>
+          <strong>限时优惠</strong>
+          <small>添加客服免费获取100张图片额度</small>
         </span>
-        <i class="wallet-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
       </button>
-      <div id="billingDropdown" class="billing-dropdown" hidden>
-        <div class="menu-row">
-          <span>账号</span>
-          <strong id="accountName">-</strong>
-        </div>
-        <div class="menu-row">
-          <span>级别</span>
-          <strong id="accountIdentity">-</strong>
-        </div>
-        <div id="accountBalanceSummary" class="balance-summary">
-          <div class="balance-summary-head">
-            <div class="balance-kpi">
-              <span>可用额度</span>
-              <strong id="balanceTop2">-</strong>
-            </div>
-            <div class="balance-kpi balance-kpi-used">
-              <span>已消耗</span>
-              <strong id="usedTop">-</strong>
-            </div>
-          </div>
-          <div class="balance-progress" aria-hidden="true">
-            <div id="usageProgressUsed" class="balance-progress-used"></div>
-          </div>
-          <div class="balance-progress-labels">
-            <span id="usageProgressAvailableLabel">可用 0%</span>
-            <span id="usageProgressUsedLabel">已用 0%</span>
-          </div>
-        </div>
-        <a id="usageDetailLink" class="detail-link" href="#" target="_blank" rel="noreferrer">
-          <i data-lucide="external-link" aria-hidden="true"></i>
-          <span>查看使用详情</span>
-        </a>
 
-        <div class="billing-promo" role="note">
-          <i data-lucide="gift" aria-hidden="true"></i>
-          <div>
-            <strong>限时优惠</strong>
-            <span>添加客服并提供账号名，免费获取100张图片额度</span>
+      <div class="billing-menu">
+        <button id="toggleBillingTop" class="wallet-pill" type="button" aria-expanded="false">
+          <i data-lucide="wallet-cards" aria-hidden="true"></i>
+          <span class="wallet-copy">
+            <small id="accountIdentityTop">普通用户</small>
+            <strong id="balanceTop">读取中...</strong>
+          </span>
+          <i class="wallet-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
+        </button>
+        <div id="billingDropdown" class="billing-dropdown" hidden>
+          <div class="menu-row">
+            <span>账号</span>
+            <strong id="accountName">-</strong>
           </div>
-        </div>
+          <div class="menu-row">
+            <span>级别</span>
+            <strong id="accountIdentity">-</strong>
+          </div>
+          <div id="accountBalanceSummary" class="balance-summary">
+            <div class="balance-summary-head">
+              <div class="balance-kpi">
+                <span>可用额度</span>
+                <strong id="balanceTop2">-</strong>
+              </div>
+              <div class="balance-kpi balance-kpi-used">
+                <span>已消耗</span>
+                <strong id="usedTop">-</strong>
+              </div>
+            </div>
+            <div class="balance-progress" aria-hidden="true">
+              <div id="usageProgressUsed" class="balance-progress-used"></div>
+            </div>
+            <div class="balance-progress-labels">
+              <span id="usageProgressAvailableLabel">可用 0%</span>
+              <span id="usageProgressUsedLabel">已用 0%</span>
+            </div>
+          </div>
+          <a id="usageDetailLink" class="detail-link" href="#" target="_blank" rel="noreferrer">
+            <i data-lucide="external-link" aria-hidden="true"></i>
+            <span>查看使用详情</span>
+          </a>
 
-        <div class="subscription">
+          <div class="subscription">
+            <div class="section-title">
+              <span><i data-lucide="badge-check" aria-hidden="true"></i>已订阅套餐</span>
+              <span id="subscriptionCount" class="status"></span>
+            </div>
+            <div id="subscriptionList" class="subscription-list"></div>
+          </div>
+
+          <div class="menu-divider"></div>
+
+          <div class="billing-tabs" role="tablist" aria-label="充值方式">
+            <button id="billingTabAmount" class="billing-tab active" type="button" role="tab" aria-selected="true"
+              data-billing-tab="amount">金额充值</button>
+            <button id="billingTabPlan" class="billing-tab" type="button" role="tab" aria-selected="false"
+              data-billing-tab="plan">套餐订阅</button>
+            <button id="billingTabCode" class="billing-tab" type="button" role="tab" aria-selected="false"
+              data-billing-tab="code">兑换码</button>
+          </div>
+
+          <div class="field">
+            <label>直接充值</label>
+            <div id="amountOptions" class="chip-grid"></div>
+            <div class="amount-row">
+              <input id="amount" type="number" min="1" step="0.01" placeholder="输入金额">
+              <button id="amountPay" class="btn primary small" type="button">
+                <i data-lucide="scan-line" aria-hidden="true"></i>
+                <span>支付</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="exchangeCodePanel" class="field">
+            <label>兑换码充值</label>
+            <div class="amount-row">
+              <input id="exchangeCode" type="text" autocomplete="off" spellcheck="false" placeholder="输入兑换码">
+              <button id="exchangeCodeSubmit" class="btn primary small" type="button">
+                <i data-lucide="ticket-check" aria-hidden="true"></i>
+                <span>兑换</span>
+              </button>
+            </div>
+            <div id="exchangeCodeStatus" class="status"></div>
+          </div>
+
           <div class="section-title">
-            <span><i data-lucide="badge-check" aria-hidden="true"></i>已订阅套餐</span>
-            <span id="subscriptionCount" class="status"></span>
+            <span><i data-lucide="layers-3" aria-hidden="true"></i>套餐</span>
+            <span id="rechargeStatus" class="status"></span>
           </div>
-          <div id="subscriptionList" class="subscription-list"></div>
+          <div id="plans" class="plans"></div>
         </div>
-
-        <div class="menu-divider"></div>
-
-        <div class="billing-tabs" role="tablist" aria-label="充值方式">
-          <button id="billingTabAmount" class="billing-tab active" type="button" role="tab" aria-selected="true"
-            data-billing-tab="amount">金额充值</button>
-          <button id="billingTabPlan" class="billing-tab" type="button" role="tab" aria-selected="false"
-            data-billing-tab="plan">套餐订阅</button>
-          <button id="billingTabCode" class="billing-tab" type="button" role="tab" aria-selected="false"
-            data-billing-tab="code">兑换码</button>
-        </div>
-
-        <div class="field">
-          <label>直接充值</label>
-          <div id="amountOptions" class="chip-grid"></div>
-          <div class="amount-row">
-            <input id="amount" type="number" min="1" step="0.01" placeholder="输入金额">
-            <button id="amountPay" class="btn primary small" type="button">
-              <i data-lucide="scan-line" aria-hidden="true"></i>
-              <span>支付</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="exchangeCodePanel" class="field">
-          <label>兑换码充值</label>
-          <div class="amount-row">
-            <input id="exchangeCode" type="text" autocomplete="off" spellcheck="false" placeholder="输入兑换码">
-            <button id="exchangeCodeSubmit" class="btn primary small" type="button">
-              <i data-lucide="ticket-check" aria-hidden="true"></i>
-              <span>兑换</span>
-            </button>
-          </div>
-          <div id="exchangeCodeStatus" class="status"></div>
-        </div>
-
-        <div class="section-title">
-          <span><i data-lucide="layers-3" aria-hidden="true"></i>套餐</span>
-          <span id="rechargeStatus" class="status"></span>
-        </div>
-        <div id="plans" class="plans"></div>
       </div>
     </div>
   </header>

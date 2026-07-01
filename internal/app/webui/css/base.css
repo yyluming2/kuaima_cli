@@ -154,6 +154,14 @@ textarea {
   transform: rotate(180deg);
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
 .billing-menu {
   position: relative;
 }

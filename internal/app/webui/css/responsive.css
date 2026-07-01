@@ -7,7 +7,7 @@
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .billing-menu {
+  .topbar-actions {
     grid-column: 2;
     justify-self: end;
   }
@@ -42,13 +42,32 @@
     grid-template-columns: 1fr;
   }
 
-  .billing-menu {
+  .topbar-actions {
     grid-column: 1;
     justify-self: stretch;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .billing-menu {
+    flex: 1 1 180px;
+  }
+
+  .topbar-promo {
+    flex: 1 1 220px;
+    white-space: normal;
+  }
+
+  .topbar-promo,
+  .wallet-pill {
+    width: 100%;
+  }
+
+  .billing-promo {
+    align-items: center;
   }
 
   .wallet-pill {
-    width: 100%;
     justify-content: space-between;
   }
 
