@@ -173,8 +173,8 @@
     container.innerHTML = workflowButtons +
       '<button class="workflow-tab' + (agentActive ? " active" : "") + '" type="button" role="tab" aria-selected="' +
       String(agentActive) + '" data-mode-tab="agent" data-workflow-id="agent">' + iconHTML("bot-message-square") + '<span>Agent 模式</span></button>' +
-      '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-mode-tab="generate" data-workflow-id="workflow-custom">' +
-      iconHTML("sparkles") + '<span>联系客服</span></button>' +
+      //'<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-mode-tab="generate" data-workflow-id="workflow-custom">' +
+      //iconHTML("sparkles") + '<span>联系客服</span></button>' +
       catalogButtons;
   }
 
