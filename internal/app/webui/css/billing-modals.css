@@ -121,6 +121,32 @@
   background: rgba(248, 250, 252, 0.82);
 }
 
+.subscription-item.subscription-expired {
+  border-color: rgba(180, 35, 24, 0.2);
+  background: rgba(254, 242, 242, 0.82);
+}
+
+.subscription-item.subscription-expired .subscription-bar {
+  background: rgba(180, 35, 24, 0.12);
+}
+
+.subscription-item.subscription-expired .subscription-bar-used {
+  background: rgba(180, 35, 24, 0.72);
+}
+
+.subscription-item.subscription-expired .subscription-head strong {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  padding: 2px 7px;
+  border: 1px solid rgba(180, 35, 24, 0.18);
+  border-radius: 999px;
+  color: var(--danger);
+  background: rgba(255, 255, 255, 0.64);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .subscription-head {
   display: flex;
   justify-content: space-between;
@@ -156,6 +182,46 @@
 .subscription-bar-used {
   height: 100%;
   background: linear-gradient(90deg, rgba(15, 159, 143, 0.9), rgba(37, 99, 235, 0.9));
+}
+
+.billing-promo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 159, 143, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(15, 159, 143, 0.1), rgba(37, 99, 235, 0.07)),
+    rgba(255, 255, 255, 0.86);
+}
+
+.billing-promo [data-lucide] {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--accent-2);
+}
+
+.billing-promo div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.billing-promo strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.billing-promo span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .chip-grid {

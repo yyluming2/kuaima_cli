@@ -43,12 +43,14 @@ function renderSubscriptions(subscriptions) {
   const list = Array.isArray(subscriptions) ? subscriptions : [];
   $("#subscriptionCount").textContent = list.length ? String(list.length) : "";
   $("#subscriptionList").innerHTML = list.length ? list.map((item) => {
+    const status = String((item && item.status) || "subscription").toLowerCase();
+    const statusClass = status.replace(/[^a-z0-9_-]/g, "-");
     const available = Number(item.available) || 0;
     const used = Number(item.used) || 0;
     const total = Number(item.total) || (available + used);
     const usedPercent = total > 0 ? Math.max(0, Math.min(100, used / total * 100)) : 0;
     return (
-      '<div class="subscription-item">' +
+      '<div class="subscription-item subscription-' + esc(statusClass) + '">' +
       '<div class="subscription-head">' +
       '<strong>' + esc(item.status || "subscription") + '</strong>' +
       '<span>' + esc(item.start || "-") + ' - ' + esc(item.end || "-") + '</span>' +
