@@ -172,6 +172,44 @@ async function pay(body) {
     esc(payment.trade_no || "-") + '</strong></div></a>');
 }
 
+async function exchangeCode() {
+  const input = $("#exchangeCode");
+  const button = $("#exchangeCodeSubmit");
+  const status = $("#exchangeCodeStatus");
+  const key = String(input.value || "").trim();
+  if (!key) {
+    status.textContent = "请输入兑换码";
+    status.className = "status error";
+    input.focus();
+    return;
+  }
+  const originalHTML = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = iconHTML("loader-circle") + "<span>兑换中...</span>";
+  status.textContent = "";
+  status.className = "status";
+  try {
+    await api("/api/recharge/exchange", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    input.value = "";
+    status.textContent = "兑换成功，余额已刷新";
+    status.className = "status success";
+    await loadBalance();
+  } catch (error) {
+    status.textContent = error.message;
+    status.className = "status error";
+  } finally {
+    button.disabled = false;
+    button.innerHTML = originalHTML;
+    if (window.KuaimaIcons) {
+      window.KuaimaIcons.render();
+    }
+  }
+}
+
 function openPaymentModal(content) {
   $("#paymentModalBody").innerHTML = content;
   $("#paymentModal").hidden = false;

@@ -23,6 +23,10 @@ type doSubscriptionRequest struct {
 	PaymentMethod string `json:"payment_method"`
 }
 
+type exchangeTokenRequest struct {
+	Key string `json:"key"`
+}
+
 func (c *client) getRechargeInfo(ctx context.Context) (*rechargeInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/user/dogetinfo", nil)
 	if err != nil {
@@ -72,6 +76,52 @@ func (c *client) createSubscriptionPayment(ctx context.Context, planID int, paym
 		PlanID:        planID,
 		PaymentMethod: paymentMethod,
 	})
+}
+
+func (c *client) exchangeToken(ctx context.Context, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("exchange key is required")
+	}
+	body, err := json.Marshal(exchangeTokenRequest{Key: key})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/usage/token/exchange", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	c.logRequest(req, body)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	c.logResponse(resp, data)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("exchange request failed: %s: %s", resp.Status, strings.TrimSpace(string(data)))
+	}
+
+	var payload simpleAPIResponse
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("decode exchange response: %w", err)
+	}
+	if !payload.Success {
+		if strings.TrimSpace(payload.Message) == "" {
+			payload.Message = "exchange request failed"
+		}
+		return errors.New(payload.Message)
+	}
+	return nil
 }
 
 func (c *client) createPayment(ctx context.Context, path string, request any) (*paymentData, error) {

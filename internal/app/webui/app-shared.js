@@ -202,10 +202,12 @@ async function addReferenceFiles(files, sourceText) {
 }
 
 function setRechargeTab(tab) {
-  activeRechargeTab = tab === "plan" ? "plan" : "amount";
+  activeRechargeTab = tab === "plan" || tab === "code" ? tab : "amount";
   const amountTab = $("#billingTabAmount");
   const planTab = $("#billingTabPlan");
+  const codeTab = $("#billingTabCode");
   const amountPanel = $("#amountOptions") && $("#amountOptions").closest(".field");
+  const codePanel = $("#exchangeCodePanel");
   const planTitle = $("#rechargeStatus") && $("#rechargeStatus").closest(".section-title");
   const plansPanel = $("#plans");
   if (amountTab) {
@@ -216,8 +218,15 @@ function setRechargeTab(tab) {
     planTab.classList.toggle("active", activeRechargeTab === "plan");
     planTab.setAttribute("aria-selected", String(activeRechargeTab === "plan"));
   }
+  if (codeTab) {
+    codeTab.classList.toggle("active", activeRechargeTab === "code");
+    codeTab.setAttribute("aria-selected", String(activeRechargeTab === "code"));
+  }
   if (amountPanel) {
     amountPanel.hidden = activeRechargeTab !== "amount";
+  }
+  if (codePanel) {
+    codePanel.hidden = activeRechargeTab !== "code";
   }
   if (planTitle) {
     planTitle.hidden = activeRechargeTab !== "plan";

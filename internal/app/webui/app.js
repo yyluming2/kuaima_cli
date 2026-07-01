@@ -110,6 +110,14 @@
     }
   };
 
+  $("#exchangeCodeSubmit").onclick = exchangeCode;
+  $("#exchangeCode").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      exchangeCode();
+    }
+  });
+
   document.querySelectorAll("[data-billing-tab]").forEach((button) => {
     button.onclick = () => setRechargeTab(button.dataset.billingTab);
   });

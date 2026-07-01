@@ -83,6 +83,8 @@
             data-billing-tab="amount">金额充值</button>
           <button id="billingTabPlan" class="billing-tab" type="button" role="tab" aria-selected="false"
             data-billing-tab="plan">套餐订阅</button>
+          <button id="billingTabCode" class="billing-tab" type="button" role="tab" aria-selected="false"
+            data-billing-tab="code">兑换码</button>
         </div>
 
         <div class="field">
@@ -95,6 +97,18 @@
               <span>支付</span>
             </button>
           </div>
+        </div>
+
+        <div id="exchangeCodePanel" class="field">
+          <label>兑换码充值</label>
+          <div class="amount-row">
+            <input id="exchangeCode" type="text" autocomplete="off" spellcheck="false" placeholder="输入兑换码">
+            <button id="exchangeCodeSubmit" class="btn primary small" type="button">
+              <i data-lucide="ticket-check" aria-hidden="true"></i>
+              <span>兑换</span>
+            </button>
+          </div>
+          <div id="exchangeCodeStatus" class="status"></div>
         </div>
 
         <div class="section-title">

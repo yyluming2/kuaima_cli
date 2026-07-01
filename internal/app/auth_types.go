@@ -8,6 +8,11 @@ type userLoginResponse struct {
 	} `json:"data"`
 }
 
+type simpleAPIResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
 type tokenUsage struct {
 	Object         string              `json:"object"`
 	Name           string              `json:"name"`

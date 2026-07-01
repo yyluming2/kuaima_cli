@@ -41,6 +41,15 @@ func TestRechargeAPI(t *testing.T) {
 				t.Fatalf("unexpected subscription request: %#v", req)
 			}
 			_, _ = w.Write([]byte(`{"success":true,"message":"success","data":{"scancode_url":"https://pay.example/2","trade_no":"T2"}}`))
+		case "/api/usage/token/exchange":
+			var req exchangeTokenRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.Key != "code-1" {
+				t.Fatalf("unexpected exchange request: %#v", req)
+			}
+			_, _ = w.Write([]byte(`{"success":true,"message":""}`))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -69,7 +78,10 @@ func TestRechargeAPI(t *testing.T) {
 	if sub.TradeNo != "T2" || sub.ScanCodeURL != "https://pay.example/2" {
 		t.Fatalf("unexpected subscription response: %#v", sub)
 	}
-	if len(seen) != 3 {
+	if err := c.exchangeToken(t.Context(), " code-1 "); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 4 {
 		t.Fatalf("unexpected requests: %#v", seen)
 	}
 }

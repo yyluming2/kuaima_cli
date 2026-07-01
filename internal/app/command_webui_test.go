@@ -23,6 +23,54 @@ func webUITestUsageHandler(group string, next http.HandlerFunc) http.HandlerFunc
 	}
 }
 
+func TestWebUIHandleRechargeExchange(t *testing.T) {
+	var got exchangeTokenRequest
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/usage/token/exchange" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "Bearer secret-token" {
+			t.Fatalf("unexpected auth header: %q", r.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":""}`))
+	}))
+	defer apiServer.Close()
+
+	ui := &webUIServer{
+		clientOpts: clientOptions{
+			model:      stringPtr("gpt-5.4-mini"),
+			imageModel: stringPtr("test-model"),
+			baseURL:    stringPtr(apiServer.URL),
+			ossURL:     stringPtr(""),
+			apiKey:     stringPtr("secret-token"),
+			username:   stringPtr(""),
+			password:   stringPtr(""),
+			verbose:    boolPtr(false),
+			logFile:    stringPtr(""),
+		},
+		saveDir: t.TempDir(),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/recharge/exchange", strings.NewReader(`{"key":" code-2 "}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	ui.handleRechargeExchange(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got.Key != "code-2" {
+		t.Fatalf("unexpected exchange key: %#v", got)
+	}
+}
+
 func TestWebUIHandleGenerateRepeatsImageRequestsForCount(t *testing.T) {
 	var callCount int
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

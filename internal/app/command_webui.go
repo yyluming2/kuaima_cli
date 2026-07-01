@@ -188,6 +188,7 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/account/link", s.handleAccountLink)
 	mux.HandleFunc("/api/recharge/info", s.handleRechargeInfo)
 	mux.HandleFunc("/api/recharge/pay", s.handleRechargePay)
+	mux.HandleFunc("/api/recharge/exchange", s.handleRechargeExchange)
 	mux.HandleFunc("/api/qr", s.handleQR)
 	mux.HandleFunc("/api/history/upload", s.handleHistoryReferenceUpload)
 	mux.HandleFunc("/api/output/set", s.handleSetOutputDir)
@@ -1046,6 +1047,36 @@ func (s *webUIServer) handleRechargePay(w http.ResponseWriter, r *http.Request) 
 		"url":      payment.ScanCodeURL,
 		"qr":       "/api/qr?data=" + url.QueryEscape(payment.ScanCodeURL),
 	})
+}
+
+func (s *webUIServer) handleRechargeExchange(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Key string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	key := strings.TrimSpace(req.Key)
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "兑换码不能为空")
+		return
+	}
+	c, err := s.clientOpts.newClient()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer c.Close()
+	if err := c.exchangeToken(r.Context(), key); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func (s *webUIServer) handleQR(w http.ResponseWriter, r *http.Request) {
