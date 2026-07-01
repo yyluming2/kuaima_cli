@@ -82,7 +82,8 @@ function renderBalance(usage) {
   $("#usedTop").textContent = usage.total_used_text || "-";
   $("#accountName").textContent = usage.name || "-";
   $("#accountIdentity").textContent = accountIdentity(usage);
-  $("#accountBalanceSummary").hidden = !!active;
+  //$("#accountBalanceSummary").hidden = !!active;
+  $("#accountBalanceSummary").hidden = false;
   renderSubscriptions(subscriptions);
 
   const available = Number(usage.total_available) || 0;
