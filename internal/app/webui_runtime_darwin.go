@@ -40,6 +40,10 @@ var (
 	trayReady    chan struct{}
 )
 
+func init() {
+	runtime.LockOSThread()
+}
+
 func hideWebUIConsole() {}
 
 func startWebUITray(rawURL string, stop func()) func() {
@@ -49,18 +53,9 @@ func startWebUITray(rawURL string, stop func()) func() {
 	trayReady = ready
 	trayReadyMu.Unlock()
 
-	go runWebUITray(rawURL, stop, ready, done)
-	<-ready
-
-	return func() {
-		trayStateMu.Lock()
-		current := trayState
-		trayStateMu.Unlock()
-		if current != nil && current.stop != nil {
-			current.stop()
-		}
-		<-done
-	}
+	runWebUITray(rawURL, stop, ready, done)
+	<-done
+	return nil
 }
 
 func runWebUITray(rawURL string, stop func(), ready, done chan struct{}) {

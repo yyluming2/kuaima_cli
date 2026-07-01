@@ -163,17 +163,7 @@ func runWebUIWithOptions(args []string, runtimeOpts webUIRuntimeOptions) error {
 		}
 	}
 	server := &http.Server{Handler: mux}
-	stopTray := startWebUITray(url, func() {
-		_ = server.Close()
-	})
-	if stopTray != nil {
-		defer stopTray()
-	}
-	err = server.Serve(ln)
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
+	return serveWebUI(server, ln, url)
 }
 
 func (s *webUIServer) routes(mux *http.ServeMux) {
