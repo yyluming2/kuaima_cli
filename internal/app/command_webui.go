@@ -183,6 +183,7 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/prompt/auto", s.handleAutoPrompt)
 	mux.HandleFunc("/api/generate", s.handleGenerate)
 	mux.HandleFunc("/api/generate/stream", s.handleGenerateStream)
+	mux.HandleFunc("/api/agent/upload", s.handleAgentUpload)
 	mux.HandleFunc("/api/agent/stream", s.handleAgentStream)
 	mux.HandleFunc("/api/balance", s.handleBalance)
 	mux.HandleFunc("/api/account/link", s.handleAccountLink)
@@ -557,29 +558,138 @@ func (s *webUIServer) handleAgentStream(w http.ResponseWriter, r *http.Request) 
 	}
 	defer c.Close()
 
-	messages := append([]inputMessage(nil), req.Messages...)
-	if strings.TrimSpace(s.responseSystem) != "" && (len(messages) == 0 || strings.TrimSpace(messages[0].Role) != "system") {
+	messages := normalizeAgentMessages(req.Messages)
+	agentSystem := s.agentSystemPrompt()
+	if agentSystem != "" && (len(messages) == 0 || strings.TrimSpace(messages[0].Role) != "system") {
 		messages = append([]inputMessage{{
 			Role: "system",
 			Content: []inputContent{{
 				Type: "input_text",
-				Text: strings.TrimSpace(s.responseSystem),
+				Text: agentSystem,
 			}},
 		}}, messages...)
 	}
 
 	stream := newWebUIEventStream(w)
 	stream.send("status", map[string]string{"message": "正在回复..."})
+	imageOpts := s.agentImageOptions()
 	resp, err := c.createResponseStream(r.Context(), responseRequest{
-		Model:  model,
-		Input:  messages,
-		Stream: true,
+		Model:     model,
+		Input:     messages,
+		Tools:     []map[string]any{imageOpts.responseTool()},
+		Reasoning: defaultImageReasoning,
+		Stream:    true,
 	}, stream.textWriter())
 	if err != nil {
 		stream.send("error", map[string]string{"error": err.Error()})
 		return
 	}
-	stream.send("done", map[string]string{"text": strings.TrimSpace(resp.OutputText)})
+	saved, err := newResponseImageSaver(r.Context(), c.httpClient, s.saveDirectory(), boolValue(imageOpts.upscale, s.defaults.ImageUpscale), stringValue(imageOpts.size)).saveResponse(resp)
+	if err != nil {
+		stream.send("error", map[string]string{"error": err.Error()})
+		return
+	}
+	imageURLs := s.publicImageURLs(saved, s.saveDirectory())
+	for _, imageURL := range imageURLs {
+		stream.send("image", map[string]string{"url": imageURL})
+	}
+	stream.send("done", map[string]any{"text": strings.TrimSpace(resp.OutputText), "images": imageURLs, "saved": saved})
+}
+
+func (s *webUIServer) agentImageOptions() imageOptions {
+	action := "auto"
+	size := s.defaults.ImageSize
+	quality := s.defaults.ImageQuality
+	outputFormat := s.defaults.OutputFormat
+	outputCompression := s.defaults.OutputCompression
+	background := s.defaults.Background
+	moderation := s.defaults.Moderation
+	upscale := s.defaults.ImageUpscale
+	return imageOptions{
+		size:              &size,
+		quality:           &quality,
+		outputFormat:      &outputFormat,
+		outputCompression: &outputCompression,
+		background:        &background,
+		moderation:        &moderation,
+		action:            &action,
+		upscale:           &upscale,
+	}
+}
+
+func (s *webUIServer) agentSystemPrompt() string {
+	base := "You are a helpful multimodal assistant. Answer normal conversation directly. When the user asks you to create, generate, draw, or edit an image, use the image_generation tool instead of only describing an image prompt. If the user provides reference images, use them as visual references. Do not call the image tool for ordinary non-image questions."
+	if size := strings.TrimSpace(s.defaults.ImageSize); size != "" {
+		base += " Preferred image size: " + size + "."
+	}
+	custom := strings.TrimSpace(s.responseSystem)
+	if custom == "" || strings.HasPrefix(custom, "Just generate the image; do not return a prompt or SVG") {
+		return base
+	}
+	return base + "\n\nAdditional user system instructions:\n" + custom
+}
+
+func normalizeAgentMessages(messages []inputMessage) []inputMessage {
+	normalized := make([]inputMessage, 0, len(messages))
+	for _, message := range messages {
+		role := strings.ToLower(strings.TrimSpace(message.Role))
+		if role == "" {
+			role = "user"
+		}
+		next := inputMessage{Role: role}
+		for _, part := range message.Content {
+			part.Type = strings.TrimSpace(part.Type)
+			switch role {
+			case "assistant":
+				if part.Type == "input_text" {
+					part.Type = "output_text"
+				}
+			case "user", "system", "developer":
+				if part.Type == "output_text" {
+					part.Type = "input_text"
+				}
+			}
+			next.Content = append(next.Content, part)
+		}
+		normalized = append(normalized, next)
+	}
+	return normalized
+}
+
+func (s *webUIServer) handleAgentUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if err := r.ParseMultipartForm(80 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var (
+		c   *client
+		err error
+	)
+	if r.MultipartForm != nil && len(r.MultipartForm.File["images"]) > 0 && strings.EqualFold(strings.TrimSpace(s.fileFormat), fileFormatURL) {
+		c, err = s.clientOpts.newClient()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer c.Close()
+	}
+	refs, err := uploadedImageRefs(r, c, s.fileFormat)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items := make([]map[string]string, 0, len(refs))
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.ImageURL) == "" {
+			continue
+		}
+		items = append(items, map[string]string{"url": ref.ImageURL})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"images": items})
 }
 
 func (s *webUIServer) handleGenerateWithImageEndpoint(ctx context.Context, c *client, opts imageOptions, imageModel, prompt string, refs []imageRef, mask *imageRef, maxConcurrency ...int) (*responsePayload, error) {

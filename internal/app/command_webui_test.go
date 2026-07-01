@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -966,6 +967,190 @@ func TestWebUIHandleGenerateFallsBackToBase64WhenUploadFails(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(saveDir); err != nil || len(entries) != 1 {
 		t.Fatalf("expected 1 saved image in %s, entries=%v err=%v", saveDir, entries, err)
+	}
+}
+
+func TestWebUIHandleAgentStreamNormalizesAssistantContent(t *testing.T) {
+	var gotRequest struct {
+		Model  string           `json:"model"`
+		Input  []inputMessage   `json:"input"`
+		Tools  []map[string]any `json:"tools"`
+		Stream bool             `json:"stream"`
+	}
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"output_text\":\"ok\",\"output\":[]}}\n\n",
+		))
+	}))
+	defer apiServer.Close()
+
+	ui := &webUIServer{
+		clientOpts: clientOptions{
+			model:      stringPtr("gpt-5.4-mini"),
+			imageModel: stringPtr("test-model"),
+			baseURL:    stringPtr(apiServer.URL),
+			ossURL:     stringPtr(""),
+			apiKey:     stringPtr("secret-token"),
+			username:   stringPtr(""),
+			password:   stringPtr(""),
+			verbose:    boolPtr(false),
+			logFile:    stringPtr(""),
+		},
+		fileFormat: fileFormatBase64,
+	}
+
+	body := `{"messages":[{"role":"user","content":[{"type":"input_text","text":"hello"}]},{"role":"assistant","content":[{"type":"input_text","text":"old reply"}]},{"role":"user","content":[{"type":"input_text","text":"again"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/stream", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	ui.handleAgentStream(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !gotRequest.Stream {
+		t.Fatal("expected stream=true")
+	}
+	if len(gotRequest.Input) != 4 {
+		t.Fatalf("unexpected input: %#v", gotRequest.Input)
+	}
+	if gotRequest.Input[0].Role != "system" || !strings.Contains(gotRequest.Input[0].Content[0].Text, "image_generation") {
+		t.Fatalf("expected agent system prompt, got %#v", gotRequest.Input[0])
+	}
+	if got := gotRequest.Input[2].Content[0].Type; got != "output_text" {
+		t.Fatalf("expected assistant output_text, got %q", got)
+	}
+	if len(gotRequest.Tools) != 1 || gotRequest.Tools[0]["type"] != "image_generation" {
+		t.Fatalf("expected image generation tool, got %#v", gotRequest.Tools)
+	}
+}
+
+func TestWebUIHandleAgentStreamSavesGeneratedImages(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString(tinyPNG())
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var gotRequest struct {
+			Tools []map[string]any `json:"tools"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
+			t.Fatal(err)
+		}
+		if len(gotRequest.Tools) != 1 || gotRequest.Tools[0]["type"] != "image_generation" {
+			t.Fatalf("expected image generation tool, got %#v", gotRequest.Tools)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"ig_1\",\"type\":\"image_generation_call\",\"status\":\"completed\",\"result\":\"" + encoded + "\"}}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"output_text\":\"done\",\"output\":[{\"id\":\"ig_1\",\"type\":\"image_generation_call\",\"status\":\"completed\",\"result\":\"" + encoded + "\"}]}}\n\n",
+		))
+	}))
+	defer apiServer.Close()
+
+	saveDir := t.TempDir()
+	ui := &webUIServer{
+		clientOpts: clientOptions{
+			model:      stringPtr("gpt-5.4-mini"),
+			imageModel: stringPtr("test-model"),
+			baseURL:    stringPtr(apiServer.URL),
+			ossURL:     stringPtr(""),
+			apiKey:     stringPtr("secret-token"),
+			username:   stringPtr(""),
+			password:   stringPtr(""),
+			verbose:    boolPtr(false),
+			logFile:    stringPtr(""),
+		},
+		fileFormat: fileFormatBase64,
+		defaults: webUIDefaults{
+			ImageSize:    "1024x1024",
+			ImageQuality: "auto",
+			ImageUpscale: false,
+		},
+		saveDir: saveDir,
+	}
+
+	body := `{"messages":[{"role":"user","content":[{"type":"input_text","text":"画一张图"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/stream", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	ui.handleAgentStream(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Body.String(); !strings.Contains(got, "event: image") || !strings.Contains(got, "/outputs/response-image-01.png") {
+		t.Fatalf("expected image event, got %s", got)
+	}
+	if entries, err := os.ReadDir(saveDir); err != nil || len(entries) != 1 {
+		t.Fatalf("expected 1 saved image in %s, entries=%v err=%v", saveDir, entries, err)
+	}
+}
+
+func TestWebUIHandleAgentUploadUsesOSSURLWhenFileFormatURL(t *testing.T) {
+	var ossServer *httptest.Server
+	ossServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/go/oss/prepare_upload_local/":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"errno":0,"file":{"file_url":"` + ossServer.URL + `/agent-uploaded.png"}}`))
+		default:
+			t.Fatalf("unexpected OSS path: %s", r.URL.Path)
+		}
+	}))
+	defer ossServer.Close()
+
+	ui := &webUIServer{
+		clientOpts: clientOptions{
+			model:      stringPtr("gpt-5.4-mini"),
+			imageModel: stringPtr("test-model"),
+			baseURL:    stringPtr("http://example.test"),
+			ossURL:     stringPtr(ossServer.URL),
+			apiKey:     stringPtr("secret-token"),
+			username:   stringPtr(""),
+			password:   stringPtr(""),
+			verbose:    boolPtr(false),
+			logFile:    stringPtr(""),
+		},
+		fileFormat: fileFormatURL,
+		saveDir:    t.TempDir(),
+	}
+
+	body := &strings.Builder{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="images"; filename="ref.png"`},
+		"Content-Type":        {"image/png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write(tinyPNG())
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/upload", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	ui.handleAgentUpload(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Body.String(); !strings.Contains(got, ossServer.URL+"/agent-uploaded.png") || strings.Contains(got, "data:image/") {
+		t.Fatalf("unexpected response body: %s", got)
 	}
 }
 

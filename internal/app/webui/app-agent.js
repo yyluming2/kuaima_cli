@@ -57,14 +57,18 @@
   function renderMessageHTML(message, index) {
     const role = String(message.role || "assistant");
     const parts = Array.isArray(message.content) ? message.content : [];
-    const textParts = parts.filter((part) => part && part.type === "input_text" && part.text).map((part) => part.text);
+    const textParts = parts.filter((part) => part && (part.type === "input_text" || part.type === "output_text") && part.text).map((part) => part.text);
     const imageParts = parts.filter((part) => part && part.type === "input_image" && part.image_url);
+    const outputImages = (Array.isArray(message.images) ? message.images : []).filter(Boolean);
     return (
       '<div class="chat-message ' + esc(role) + '" data-message-index="' + index + '">' +
         '<div class="chat-role">' + esc(role === "assistant" ? "assistant" : role) + '</div>' +
         (textParts.length ? '<div class="chat-text">' + esc(textParts.join("\n")) + '</div>' : "") +
         (imageParts.length ? '<div class="chat-images">' + imageParts.map((part) => (
           '<div class="chat-image"><img src="' + esc(part.image_url) + '" alt="image"></div>'
+        )).join("") + '</div>' : "") +
+        (outputImages.length ? '<div class="chat-images">' + outputImages.map((url) => (
+          '<div class="chat-image"><img src="' + esc(url) + '" alt="image"></div>'
         )).join("") + '</div>' : "") +
       '</div>'
     );
@@ -100,6 +104,35 @@
     }
   }
 
+  function appendPendingAssistantImage(url) {
+    if (!url) {
+      return;
+    }
+    if (!state.pendingAssistant) {
+      state.pendingAssistant = appendPendingAssistant();
+    }
+    if (!state.pendingAssistant) {
+      return;
+    }
+    let imagesEl = state.pendingAssistant.querySelector(".chat-images");
+    if (!imagesEl) {
+      imagesEl = document.createElement("div");
+      imagesEl.className = "chat-images";
+      state.pendingAssistant.appendChild(imagesEl);
+    }
+    if (Array.from(imagesEl.querySelectorAll("img")).some((img) => img.getAttribute("src") === url)) {
+      return;
+    }
+    const holder = document.createElement("div");
+    holder.className = "chat-image";
+    holder.innerHTML = '<img src="' + esc(url) + '" alt="image">';
+    imagesEl.appendChild(holder);
+    const log = $("#agentChatLog");
+    if (log) {
+      log.scrollTop = log.scrollHeight;
+    }
+  }
+
   function clearAttachments() {
     state.attachments = [];
     const input = $("#agentImageInput");
@@ -109,31 +142,34 @@
     renderAttachmentList();
   }
 
-  async function fileToDataURL(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error || new Error("failed to read image"));
-      reader.readAsDataURL(file);
-    });
-  }
-
   async function addAttachments(files) {
     const list = Array.from(files || []);
     if (list.length === 0) {
       return;
     }
-    const mapped = [];
+    const form = new FormData();
     for (const file of list) {
       if (!file || !file.type || !file.type.startsWith("image/")) {
         continue;
       }
-      mapped.push({
-        name: file.name || "image",
-        url: await fileToDataURL(file),
-      });
+      form.append("images", file, file.name || "image");
     }
-    state.attachments = state.attachments.concat(mapped);
+    if (!Array.from(form.keys()).length) {
+      return;
+    }
+    const resp = await fetch("/api/agent/upload", {
+      method: "POST",
+      body: form,
+    });
+    const payload = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(payload.error || "upload failed");
+    }
+    const uploaded = Array.isArray(payload.images) ? payload.images : [];
+    state.attachments = state.attachments.concat(uploaded.map((item, index) => ({
+      name: list[index] && list[index].name || "image",
+      url: item.url,
+    })).filter((item) => item.url));
     renderAttachmentList();
   }
 
@@ -193,6 +229,7 @@
     setStreaming(true);
 
     let responseText = "";
+    const responseImages = [];
     try {
       await apiStream("/api/agent/stream", {
         method: "POST",
@@ -209,17 +246,30 @@
             setPendingAssistantText(responseText);
           }
         },
+        image(payload) {
+          if (payload.url && !responseImages.includes(payload.url)) {
+            responseImages.push(payload.url);
+            appendPendingAssistantImage(payload.url);
+          }
+        },
         done(payload) {
           if (payload && payload.text) {
             responseText = payload.text;
             setPendingAssistantText(responseText);
           }
+          (payload && payload.images || []).forEach((url) => {
+            if (url && !responseImages.includes(url)) {
+              responseImages.push(url);
+              appendPendingAssistantImage(url);
+            }
+          });
         },
         error(payload) {
           throw new Error(payload.error || "agent failed");
         },
       });
-      assistantMessage.content = responseText ? [{ type: "input_text", text: responseText }] : [];
+      assistantMessage.content = responseText ? [{ type: "output_text", text: responseText }] : [];
+      assistantMessage.images = responseImages;
       state.history.push(assistantMessage);
     } catch (error) {
       if (error && error.name === "AbortError") {
@@ -245,7 +295,13 @@
   });
 
   $("#agentImageInput").addEventListener("change", async (event) => {
-    await addAttachments(Array.from(event.target.files || []));
+    try {
+      await addAttachments(Array.from(event.target.files || []));
+    } catch (error) {
+      setPendingAssistantText("错误: " + (error && error.message ? error.message : "upload failed"));
+    } finally {
+      event.target.value = "";
+    }
   });
 
   $("#agentAttachmentList").addEventListener("click", (event) => {
