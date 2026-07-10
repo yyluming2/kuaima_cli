@@ -1,3 +1,9 @@
+APP_NAME = kuaima_cli.exe
+APP_PKG = ./cmd/kuaima_cli
+BUILD_OUTPUT = dist/$(APP_NAME)
+VERSION ?= 0.2.0
+COMMON_GOFLAGS = -buildvcs=false
+RELEASE_GOFLAGS = -trimpath -ldflags "-s -w -X kuaima_cli/internal/app.AppVersion=$(VERSION)"
 
 ifeq ($(OS),Windows_NT)
 BUILD_SKILL_CMD = powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_skill.ps1
@@ -5,12 +11,6 @@ else
 BUILD_SKILL_CMD = bash scripts/build_skill.sh
 endif
 
-APP_NAME = kuaima_cli.exe
-APP_PKG = ./cmd/kuaima_cli
-BUILD_OUTPUT = dist/$(APP_NAME)
-VERSION ?= 0.2.0
-COMMON_GOFLAGS = -buildvcs=false
-RELEASE_GOFLAGS = -trimpath -ldflags "-s -w -X kuaima_cli/internal/app.AppVersion=$(VERSION)"
 
 build:
 	go build $(COMMON_GOFLAGS) -o $(BUILD_OUTPUT) $(APP_PKG)

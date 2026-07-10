@@ -101,10 +101,7 @@ func runWebUIWithOptions(args []string, runtimeOpts webUIRuntimeOptions) error {
 	}
 
 	releaseInstance, acquired, err := acquireWebUIInstance()
-	if err != nil {
-		return err
-	}
-	if !acquired {
+	if err != nil || !acquired {
 		url := readWebUIInstanceURL()
 		if url == "" {
 			url = "http://" + strings.TrimSpace(*addr)
