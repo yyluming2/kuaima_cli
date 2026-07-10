@@ -29,13 +29,26 @@ static KuaimaTrayTarget *trayTarget = nil;
 
 static NSImage *loadTrayImage(const void *bytes, size_t length) {
 	if (bytes == NULL || length == 0) {
-		return [NSImage imageNamed:NSImageNameApplicationIcon];
+		return nil;
 	}
 	NSData *data = [NSData dataWithBytes:bytes length:length];
 	NSImage *image = [[NSImage alloc] initWithData:data];
-	if (image == nil) {
-		image = [NSImage imageNamed:NSImageNameApplicationIcon];
-	}
+	return image;
+}
+
+static NSImage *makeTrayFallbackImage(void) {
+	NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(18.0, 18.0)];
+	[image lockFocus];
+	NSDictionary *attrs = @{
+		NSFontAttributeName: [NSFont boldSystemFontOfSize:14.0],
+		NSForegroundColorAttributeName: [NSColor blackColor],
+	};
+	NSString *title = @"K";
+	NSSize textSize = [title sizeWithAttributes:attrs];
+	NSPoint point = NSMakePoint((18.0 - textSize.width) / 2.0, (18.0 - textSize.height) / 2.0 - 1.0);
+	[title drawAtPoint:point withAttributes:attrs];
+	[image unlockFocus];
+	image.template = YES;
 	return image;
 }
 
@@ -56,13 +69,18 @@ void webui_tray_run(const void *iconBytes, size_t iconLen) {
 		}
 
 		trayTarget = [KuaimaTrayTarget new];
-		trayStatusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
+		trayStatusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
 		if (trayStatusItem != nil) {
 			NSStatusBarButton *button = trayStatusItem.button;
 			NSImage *image = loadTrayImage(iconBytes, iconLen);
+			if (image == nil) {
+				image = makeTrayFallbackImage();
+			}
 			if (button != nil && image != nil) {
 				image.template = YES;
+				image.size = NSMakeSize(18.0, 18.0);
 				button.image = image;
+				button.imageScaling = NSImageScaleProportionallyDown;
 				button.imagePosition = NSImageOnly;
 				button.toolTip = @"快马 AI WebUI";
 			}
