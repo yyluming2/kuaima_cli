@@ -53,6 +53,7 @@ static NSImage *makeTrayFallbackImage(void) {
 }
 
 void webui_tray_stop(void) {
+	[NSApp performSelectorOnMainThread:@selector(terminate:) withObject:nil waitUntilDone:NO];
 	if (trayRunLoop != NULL) {
 		CFRunLoopStop(trayRunLoop);
 	}
@@ -73,11 +74,13 @@ void webui_tray_run(const void *iconBytes, size_t iconLen) {
 		if (trayStatusItem != nil) {
 			NSStatusBarButton *button = trayStatusItem.button;
 			NSImage *image = loadTrayImage(iconBytes, iconLen);
+			BOOL isFallbackImage = NO;
 			if (image == nil) {
 				image = makeTrayFallbackImage();
+				isFallbackImage = YES;
 			}
 			if (button != nil && image != nil) {
-				image.template = YES;
+				image.template = isFallbackImage;
 				image.size = NSMakeSize(18.0, 18.0);
 				button.image = image;
 				button.imageScaling = NSImageScaleProportionallyDown;
