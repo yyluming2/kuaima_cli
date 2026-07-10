@@ -18,8 +18,13 @@ build:
 release:
 	go build $(COMMON_GOFLAGS) $(RELEASE_GOFLAGS) -o $(BUILD_OUTPUT) $(APP_PKG)
 
+ifeq ($(OS),Windows_NT)
 build_skill:
-	$(BUILD_SKILL_CMD)
+	$(BUILD_SKILL_CMD) -Version "$(VERSION)"
+else
+build_skill:
+	VERSION="$(VERSION)" $(BUILD_SKILL_CMD)
+endif
 
 run:
 	dist/kuaima_cli.exe

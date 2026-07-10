@@ -1,5 +1,6 @@
 param(
-    [string]$SkillName = "kuaima-gpt-image-2"
+    [string]$SkillName = "kuaima-gpt-image-2",
+    [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,7 +8,10 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $root "dist"
 $skillSource = Join-Path (Join-Path $root "skill") $SkillName
-$version = $env:VERSION
+$version = $Version
+if ([string]::IsNullOrWhiteSpace($version)) {
+    $version = $env:VERSION
+}
 $gitVersion = $null
 
 if ([string]::IsNullOrWhiteSpace($version)) {
