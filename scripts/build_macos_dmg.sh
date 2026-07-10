@@ -13,9 +13,6 @@ macos_dir="$contents/MacOS"
 resources_dir="$contents/Resources"
 version="${VERSION:-}"
 
-if [[ -z "$version" ]]; then
-  version="$(git -C "$root" describe --tags --always --dirty --match 'v*' 2>/dev/null || true)"
-fi
 if [[ -z "$version" && -f "$root/internal/app/version.go" ]]; then
   version="$(sed -nE 's/.*AppVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$root/internal/app/version.go" | head -n 1)"
 fi

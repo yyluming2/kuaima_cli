@@ -12,19 +12,7 @@ $version = $Version
 if ([string]::IsNullOrWhiteSpace($version)) {
     $version = $env:VERSION
 }
-$gitVersion = $null
 
-if ([string]::IsNullOrWhiteSpace($version)) {
-    try {
-        $gitVersion = git -C $root describe --tags --always --dirty --match "v*" 2>$null
-    }
-    catch {
-        $gitVersion = $null
-    }
-    if (-not [string]::IsNullOrWhiteSpace($gitVersion)) {
-        $version = $gitVersion.Trim()
-    }
-}
 if ([string]::IsNullOrWhiteSpace($version)) {
     $version = "0.1.0"
 }

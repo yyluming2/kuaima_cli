@@ -17,9 +17,6 @@ skill_source="$root/skill/$skill_name"
 version="${VERSION:-}"
 
 if [[ -z "$version" ]]; then
-  version="$(git -C "$root" describe --tags --always --dirty --match 'v*' 2>/dev/null || true)"
-fi
-if [[ -z "$version" ]]; then
   version="0.1.0"
 fi
 version="${version#v}"
