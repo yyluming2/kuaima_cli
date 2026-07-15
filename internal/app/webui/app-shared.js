@@ -562,26 +562,14 @@ function generationAccountGroup() {
   return String((window.KuaimaAccount && window.KuaimaAccount.group) || "default").toLowerCase();
 }
 
-function generationImageCountLimit(group) {
-  const value = String(group || "default").toLowerCase();
-  if (value === "svip") {
-    return 10;
-  }
-  if (value === "vip") {
-    return 3;
-  }
-  return 1;
+function generationImageCountLimit() {
+  return Math.max(1, Number(window.KuaimaAccount && window.KuaimaAccount.maxConcurrency) || 1);
 }
 
-function generationImageCountHint(group) {
+function generationImageCountHint(group, limit) {
   const value = String(group || "default").toLowerCase();
-  if (value === "svip") {
-    return "SVIP 一次最多生成 10 张。";
-  }
-  if (value === "vip") {
-    return "VIP 一次最多生成 3 张，升级 SVIP 后可一次生成 10 张。";
-  }
-  return "普通用户一次只能生成 1 张，升级 VIP 后可一次生成 3 张。";
+  const label = value === "svip" ? "SVIP" : value === "vip" ? "VIP" : "普通用户";
+  return label + "一次最多生成 " + limit + " 张。";
 }
 
 function syncSingleGenerationControls() {
@@ -591,14 +579,14 @@ function syncSingleGenerationControls() {
     return;
   }
   const group = generationAccountGroup();
-  const limit = generationImageCountLimit(group);
+  const limit = generationImageCountLimit();
   input.max = String(limit);
   const current = Number(input.value || 1);
   input.value = String(Math.max(1, Math.min(limit, Number.isFinite(current) ? current : 1)));
-  input.title = generationImageCountHint(group);
+  input.title = generationImageCountHint(group, limit);
   const note = $("#singleGenerationNote");
   if (note) {
-    note.textContent = generationImageCountHint(group);
+    note.textContent = generationImageCountHint(group, limit);
   }
 }
 

@@ -1485,6 +1485,7 @@ func formatWebUsage(usage *tokenUsage) map[string]any {
 	return map[string]any{
 		"name":                 usage.Name,
 		"group":                strings.ToLower(strings.TrimSpace(usage.Group)),
+		"max_concurrency":      imageGenerationCountLimit(usage.Group),
 		"total_available":      usage.TotalAvailable,
 		"total_available_text": formatQuotaAmount(usage.TotalAvailable),
 		"total_used":           usage.TotalUsed,

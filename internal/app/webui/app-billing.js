@@ -69,6 +69,7 @@ function renderBalance(usage) {
   window.KuaimaAccount = Object.assign({}, window.KuaimaAccount || {}, {
     usage,
     group: String(usage && usage.group || "default").toLowerCase(),
+    maxConcurrency: Math.max(1, Number(usage && usage.max_concurrency) || 1),
   });
   window.dispatchEvent(new CustomEvent("kuaima:account", { detail: window.KuaimaAccount }));
   const subscriptions = usage.subscriptions || [];

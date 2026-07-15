@@ -7,6 +7,7 @@
     pendingReview: null,
     lastResult: null,
     accountGroup: "default",
+    maxConcurrency: 1,
     runStartedAt: 0,
     progressTimer: 0,
   };
@@ -554,8 +555,8 @@
     return value === "svip" || value === "vip" ? value : "default";
   }
 
-  function workflowConcurrencyForGroup(group) {
-    return group === "svip" ? 10 : group === "vip" ? 3 : 1;
+  function workflowConcurrencyForGroup() {
+    return Math.max(1, Number(state.maxConcurrency || (window.KuaimaAccount && window.KuaimaAccount.maxConcurrency)) || 1);
   }
 
   function workflowGroupLabel(group) {
@@ -570,26 +571,12 @@
   }
 
   function workflowSpeedHint(group, selectedCount) {
-    const current = workflowConcurrencyForGroup(group);
-    const vip = Math.min(3, Math.max(1, selectedCount));
-    const svip = Math.min(10, Math.max(1, selectedCount));
-    if (group === "svip") {
-      return selectedCount > current ? "将分批并发完成" : "可一次并发完成";
-    }
-    if (group === "vip") {
-      return "SVIP 可同时生成 " + svip + " 张";
-    }
-    return "VIP 可同时生成 " + vip + " 张，SVIP 可同时生成 " + svip + " 张";
+    const current = workflowConcurrencyForGroup();
+    return selectedCount > current ? "将按每批 " + current + " 张并发完成" : "可一次并发完成";
   }
 
   function workflowConcurrencySummary(group) {
-    if (group === "svip") {
-      return "SVIP 可同时生成 10 张";
-    }
-    if (group === "vip") {
-      return "VIP 可同时生成 3 张";
-    }
-    return "普通用户可同时生成 1 张";
+    return workflowGroupLabel(group) + "可同时生成 " + workflowConcurrencyForGroup() + " 张";
   }
 
   function workflowOrderedImages(result) {
@@ -1630,6 +1617,7 @@
     window.addEventListener("kuaima:account", (event) => {
       const group = event && event.detail && event.detail.group;
       state.accountGroup = String(group || "default").toLowerCase();
+      state.maxConcurrency = Math.max(1, Number(event && event.detail && event.detail.maxConcurrency) || 1);
       renderWorkflowRunOptions(workflowDef(currentWorkflowId()) || { id: "single" });
     });
     const review = workflowReview();
