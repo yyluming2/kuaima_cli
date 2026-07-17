@@ -54,7 +54,7 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 	var firstToken time.Time
 	scanner := bufio.NewScanner(httpResp.Body)
 	//单张4k图base64比较大
-	scanner.Buffer(make([]byte, 0, 64*1024), 30*1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 50*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		rawStream.WriteString(line)
@@ -78,6 +78,7 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 			B64JSON         string          `json:"b64_json"`
 		}
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			//return nil, apiErrorf("unmarshal error: %s, %d", err, len(data))
 			continue
 		}
 		if event.Error != nil {
@@ -135,14 +136,15 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 			return nil, errors.New("API stream failed")
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
 	c.logResponseBody(rawStream.Bytes())
 	if firstToken.IsZero() {
 		firstToken = firstByte
 	}
 	c.logTiming(started, firstToken)
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
 	if len(completed) > 0 {
 		resp, err := decodeResponse(completed)
 		if err != nil {

@@ -112,7 +112,7 @@ func (c *client) createImageEditMultipartStream(ctx context.Context, req imageEd
 	var rawStream bytes.Buffer
 	var outputs []responseOutput
 	scanner := bufio.NewScanner(httpResp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 30*1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 50*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		rawStream.WriteString(line)
@@ -169,11 +169,11 @@ func (c *client) createImageEditMultipartStream(ctx context.Context, req imageEd
 			}
 		}
 	}
+	c.logResponseBody(rawStream.Bytes())
+	c.logTiming(started, firstByte)
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	c.logResponseBody(rawStream.Bytes())
-	c.logTiming(started, firstByte)
 	return &responsePayload{Output: outputs, Raw: rawStream.Bytes()}, nil
 }
 
@@ -387,7 +387,7 @@ func (c *client) createImageRequestStream(ctx context.Context, path string, req 
 	var rawStream bytes.Buffer
 	var outputs []responseOutput
 	scanner := bufio.NewScanner(httpResp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 30*1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), 50*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		rawStream.WriteString(line)
@@ -446,11 +446,11 @@ func (c *client) createImageRequestStream(ctx context.Context, path string, req 
 			}
 		}
 	}
+	c.logResponseBody(rawStream.Bytes())
+	c.logTiming(started, firstByte)
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	c.logResponseBody(rawStream.Bytes())
-	c.logTiming(started, firstByte)
 	return &responsePayload{Output: outputs, Raw: rawStream.Bytes()}, nil
 }
 
