@@ -1034,6 +1034,34 @@
     font-weight: 800;
     cursor: pointer;
     pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .fine-marker.active {
+    background: #f97316;
+    box-shadow: 0 0 0 4px rgba(249, 115, 22, .22), 0 3px 12px rgba(15, 23, 42, .35);
+  }
+
+  .fine-marker:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, .35);
+    outline-offset: 3px;
+  }
+
+  .fine-point-quick-editor {
+    position: absolute;
+    z-index: 3;
+    width: min(240px, calc(100% - 24px));
+    transform: translate(18px, 18px);
+  }
+
+  .fine-point-quick-editor textarea {
+    width: 100%;
+    min-height: 64px;
+    resize: vertical;
+    border-color: rgba(37, 99, 235, .5);
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
   }
 
   .fine-editor-empty {
@@ -1081,6 +1109,8 @@
     gap: 7px;
     align-items: start;
   }
+
+  .fine-point-item.active textarea { border-color: #f97316; }
 
   .fine-point-number {
     display: grid;

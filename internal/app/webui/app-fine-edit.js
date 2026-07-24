@@ -1,5 +1,5 @@
 (function () {
-  const state = { sourceURL: "", points: [], files: [] };
+  const state = { sourceURL: "", points: [], files: [], selectedIndex: -1, dragging: null };
   const el = (id) => document.getElementById(id);
 
   function syncMarkerBounds() {
@@ -9,19 +9,58 @@
     markers.style.top = img.offsetTop + "px";
     markers.style.width = img.clientWidth + "px";
     markers.style.height = img.clientHeight + "px";
+    syncQuickEditor();
   }
 
   function renderPoints() {
     syncMarkerBounds();
     el("fineEditorEmpty").hidden = state.points.length > 0;
     el("fineEditorMarkers").innerHTML = state.points.map((point, index) =>
-      '<button class="fine-marker" type="button" style="left:' + point.x + '%;top:' + point.y + '%" data-fine-index="' + index + '">' + (index + 1) + '</button>'
+      '<button class="fine-marker' + (index === state.selectedIndex ? ' active' : '') + '" type="button" style="left:' + point.x + '%;top:' + point.y + '%" data-fine-index="' + index + '" aria-label="修改点 ' + (index + 1) + '，可拖动或用方向键微调">' + (index + 1) + '</button>'
     ).join("");
     el("finePointList").innerHTML = state.points.length ? state.points.map((point, index) =>
-      '<div class="fine-point-item"><span class="fine-point-number">' + (index + 1) + '</span>' +
+      '<div class="fine-point-item' + (index === state.selectedIndex ? ' active' : '') + '"><span class="fine-point-number">' + (index + 1) + '</span>' +
       '<textarea data-fine-description="' + index + '" placeholder="描述此处要如何修改">' + esc(point.description) + '</textarea>' +
       '<button type="button" data-fine-remove="' + index + '" aria-label="删除修改点">×</button></div>'
     ).join("") : '<p class="fine-point-placeholder">还没有修改点</p>';
+    syncQuickEditor();
+  }
+
+  function syncQuickEditor() {
+    const editor = el("finePointQuickEditor");
+    const input = el("finePointQuickInput");
+    const point = state.points[state.selectedIndex];
+    if (!point) { editor.hidden = true; return; }
+    editor.hidden = false;
+    const img = el("fineEditorImage");
+    editor.style.left = (img.offsetLeft + img.clientWidth * point.x / 100) + "px";
+    editor.style.top = (img.offsetTop + img.clientHeight * point.y / 100) + "px";
+    if (input.value !== point.description) input.value = point.description;
+  }
+
+  function selectPoint(index, focusMarker) {
+    state.selectedIndex = index >= 0 && index < state.points.length ? index : -1;
+    renderPoints();
+    if (focusMarker && state.selectedIndex >= 0) {
+      const marker = el("fineEditorMarkers").querySelector('[data-fine-index="' + state.selectedIndex + '"]');
+      if (marker) marker.focus();
+    }
+  }
+
+  function activatePointView(index) {
+    state.selectedIndex = index;
+    el("fineEditorMarkers").querySelectorAll(".fine-marker").forEach((marker, markerIndex) => marker.classList.toggle("active", markerIndex === index));
+    el("finePointList").querySelectorAll(".fine-point-item").forEach((item, itemIndex) => item.classList.toggle("active", itemIndex === index));
+    syncQuickEditor();
+  }
+
+  function removePoint(index) {
+    if (index < 0 || index >= state.points.length) return;
+    state.points.splice(index, 1);
+    if (!state.points.length) state.selectedIndex = -1;
+    else if (state.selectedIndex >= state.points.length) state.selectedIndex = state.points.length - 1;
+    else if (index < state.selectedIndex) state.selectedIndex--;
+    renderPoints();
   }
 
   function renderFiles() {
@@ -36,6 +75,7 @@
     if (!url) return;
     state.sourceURL = url;
     state.points = [];
+    state.selectedIndex = -1;
     state.files = [];
     el("fineEditorImage").src = url;
     el("fineEditorImage").onload = syncMarkerBounds;
@@ -123,7 +163,7 @@
         renderImagePreviews();
       }
       button.disabled = false;
-      button.innerHTML = iconHTML("wand-sparkles") + "<span>直接生成</span>";
+      button.innerHTML = iconHTML("wand-sparkles") + "<span>确定</span>";
     }
   }
 
@@ -140,28 +180,70 @@
     el("closeFineEditor").addEventListener("click", close);
     el("fineEditor").addEventListener("click", (event) => { if (event.target === el("fineEditor")) close(); });
     el("fineEditorStage").addEventListener("click", (event) => {
-      if (event.target.closest(".fine-marker")) return;
+      if (event.target.closest(".fine-marker, .fine-point-quick-editor")) return;
       const img = el("fineEditorImage");
       const rect = img.getBoundingClientRect();
       if (!rect.width || event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
       state.points.push({ x: (event.clientX - rect.left) / rect.width * 100, y: (event.clientY - rect.top) / rect.height * 100, description: "" });
-      renderPoints();
-      const input = el("finePointList").querySelector('[data-fine-description="' + (state.points.length - 1) + '"]');
-      if (input) input.focus();
+      selectPoint(state.points.length - 1);
+      el("finePointQuickInput").focus();
     });
     el("finePointList").addEventListener("input", (event) => {
-      if (event.target.dataset.fineDescription != null) state.points[Number(event.target.dataset.fineDescription)].description = event.target.value;
+      if (event.target.dataset.fineDescription != null) {
+        const index = Number(event.target.dataset.fineDescription);
+        state.points[index].description = event.target.value;
+        if (index === state.selectedIndex) el("finePointQuickInput").value = event.target.value;
+      }
     });
     el("finePointList").addEventListener("click", (event) => {
-      if (event.target.dataset.fineRemove != null) { state.points.splice(Number(event.target.dataset.fineRemove), 1); renderPoints(); }
+      if (event.target.dataset.fineRemove != null) removePoint(Number(event.target.dataset.fineRemove));
     });
-    el("fineEditorMarkers").addEventListener("click", (event) => {
+    el("finePointList").addEventListener("focusin", (event) => {
+      if (event.target.dataset.fineDescription != null) activatePointView(Number(event.target.dataset.fineDescription));
+    });
+    el("fineEditorMarkers").addEventListener("pointerdown", (event) => {
       const marker = event.target.closest("[data-fine-index]");
       if (!marker) return;
-      const input = el("finePointList").querySelector('[data-fine-description="' + marker.dataset.fineIndex + '"]');
-      if (input) input.focus();
+      event.preventDefault();
+      selectPoint(Number(marker.dataset.fineIndex), true);
+      state.dragging = { pointerId: event.pointerId };
+      el("fineEditorMarkers").setPointerCapture(event.pointerId);
     });
-    el("clearFinePoints").addEventListener("click", () => { state.points = []; renderPoints(); });
+    el("fineEditorMarkers").addEventListener("pointermove", (event) => {
+      if (!state.dragging || state.dragging.pointerId !== event.pointerId) return;
+      const rect = el("fineEditorImage").getBoundingClientRect();
+      const point = state.points[state.selectedIndex];
+      point.x = Math.max(0, Math.min(100, (event.clientX - rect.left) / rect.width * 100));
+      point.y = Math.max(0, Math.min(100, (event.clientY - rect.top) / rect.height * 100));
+      renderPoints();
+    });
+    el("fineEditorMarkers").addEventListener("pointerup", () => {
+      const index = state.selectedIndex;
+      state.dragging = null;
+      selectPoint(index, true);
+    });
+    el("fineEditorMarkers").addEventListener("pointercancel", () => { state.dragging = null; });
+    el("fineEditorMarkers").addEventListener("keydown", (event) => {
+      const marker = event.target.closest("[data-fine-index]");
+      if (!marker) return;
+      const index = Number(marker.dataset.fineIndex);
+      if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); removePoint(index); return; }
+      const moves = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (!moves[event.key]) return;
+      event.preventDefault();
+      const step = event.shiftKey ? 2 : 0.5;
+      state.points[index].x = Math.max(0, Math.min(100, state.points[index].x + moves[event.key][0] * step));
+      state.points[index].y = Math.max(0, Math.min(100, state.points[index].y + moves[event.key][1] * step));
+      selectPoint(index, true);
+    });
+    el("finePointQuickInput").addEventListener("input", (event) => {
+      const point = state.points[state.selectedIndex];
+      if (!point) return;
+      point.description = event.target.value;
+      const input = el("finePointList").querySelector('[data-fine-description="' + state.selectedIndex + '"]');
+      if (input) input.value = event.target.value;
+    });
+    el("clearFinePoints").addEventListener("click", () => { state.points = []; state.selectedIndex = -1; renderPoints(); });
     el("fineEditorFiles").addEventListener("change", async (event) => {
       state.files = state.files.concat(await dedupeReferenceFiles(Array.from(event.target.files || []), state.files));
       renderFiles();
