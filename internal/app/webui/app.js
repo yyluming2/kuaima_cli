@@ -82,7 +82,7 @@
   };
 
   $("#cancelGenerate").onclick = () => {
-    if (activeGenerationController) {
+    if (activeGenerationController && window.confirm("确定要取消当前运行吗？")) {
       activeGenerationController.abort();
     }
   };
