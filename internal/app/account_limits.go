@@ -35,10 +35,10 @@ func imageGenerationCountLimitMessage(group string, requested int) string {
 		return fmt.Sprintf("SVIP 一次最多生成 %d 张", limit)
 	case "vip":
 		if requested > limit {
-			return fmt.Sprintf("VIP 一次最多生成 %d 张，升级 SVIP 后可一次生成 10 张", limit)
+			return fmt.Sprintf("VIP 一次最多生成 %d 张", limit)
 		}
 		return fmt.Sprintf("VIP 一次最多生成 %d 张", limit)
 	default:
-		return "普通用户一次只能生成 1 张，升级 VIP 后可一次生成 3 张"
+		return fmt.Sprintf("普通用户一次最多生成 %d 张", limit)
 	}
 }
