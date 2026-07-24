@@ -8,6 +8,12 @@ async function generateStream(form, signal) {
       firstResponseAt = performance.now();
     }
   };
+  [$("#workflowSteps"), $("#workflowReview")].forEach((container) => {
+    if (container) {
+      container.hidden = true;
+      container.innerHTML = "";
+    }
+  });
   renderGenerationPlaceholder("正在等待图片...", startedAt, Number(form.elements.image_count && form.elements.image_count.value) || 1);
   renderResultTiming(null);
   if (selectedImages.length > 0 && !referenceCompressionDisabled(form)) {
