@@ -109,7 +109,10 @@ func TestWorkflowRunSaveDirCreatesUniqueSubdirectories(t *testing.T) {
 		t.Fatalf("expected dirs under %q, got %q and %q", base, first, second)
 	}
 	if !strings.Contains(filepath.Base(first), "product-pack") {
-		t.Fatalf("expected sanitized workflow id in %q", first)
+		t.Fatalf("expected workflow name prefix in %q", first)
+	}
+	if !strings.HasPrefix(filepath.Base(first), "product-pack-") {
+		t.Fatalf("expected workflow name at the start of %q", first)
 	}
 	if _, err := os.Stat(first); err != nil {
 		t.Fatalf("first dir not created: %v", err)
@@ -127,6 +130,16 @@ func TestWorkflowRunSaveDirCreatesUniqueSubdirectories(t *testing.T) {
 	}
 	if _, err := workflowRunSaveDir(base, "Product Pack", filepath.Dir(base)); err == nil {
 		t.Fatal("expected outside directory to be rejected")
+	}
+}
+
+func TestWorkflowRunSaveDirKeepsChineseWorkflowName(t *testing.T) {
+	dir, err := workflowRunSaveDir(t.TempDir(), "电商套图", "")
+	if err != nil {
+		t.Fatalf("create workflow run directory: %v", err)
+	}
+	if !strings.HasPrefix(filepath.Base(dir), "电商套图-") {
+		t.Fatalf("expected Chinese workflow name prefix in %q", dir)
 	}
 }
 

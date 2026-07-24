@@ -13,6 +13,7 @@ import (
 	"sync"
 	"text/template"
 	"time"
+	"unicode"
 )
 
 type workflowCatalogResponse struct {
@@ -249,7 +250,11 @@ func (s *webUIServer) handleWorkflowRun(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	runSaveDir, err := workflowRunSaveDir(saveDir, workflow.ID, outputDir)
+	workflowDirName := workflow.Name
+	if strings.TrimSpace(workflowDirName) == "" {
+		workflowDirName = workflow.ID
+	}
+	runSaveDir, err := workflowRunSaveDir(saveDir, workflowDirName, outputDir)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -401,6 +406,9 @@ func (s *webUIServer) runWorkflow(ctx context.Context, c *client, workflow workf
 		case "response":
 			if override, ok := input.StepTexts[step.ID]; ok && !draft {
 				stepResult.Text = strings.TrimSpace(override)
+				if stream != nil {
+					stream.send("step_done", map[string]string{"id": step.ID})
+				}
 				if stepResult.Text != "" {
 					textParts = append(textParts, stepResult.Text)
 				}
@@ -545,7 +553,7 @@ func (s *webUIServer) runWorkflow(ctx context.Context, c *client, workflow workf
 	return result, nil
 }
 
-func workflowRunSaveDir(baseDir, workflowID, existingDir string) (string, error) {
+func workflowRunSaveDir(baseDir, workflowName, existingDir string) (string, error) {
 	baseDir = strings.TrimSpace(baseDir)
 	if baseDir == "" {
 		return "", errors.New("output directory is required")
@@ -568,11 +576,11 @@ func workflowRunSaveDir(baseDir, workflowID, existingDir string) (string, error)
 		}
 		return existingAbs, nil
 	}
-	id := sanitizeWorkflowPathPart(workflowID)
-	if id == "" {
-		id = "workflow"
+	prefix := sanitizeWorkflowPathPart(workflowName)
+	if prefix == "" {
+		prefix = "workflow"
 	}
-	name := fmt.Sprintf("%s-%s", time.Now().Format("20060102-150405"), id)
+	name := fmt.Sprintf("%s-%s", prefix, time.Now().Format("20060102-150405"))
 	dir := filepath.Join(baseAbs, name)
 	for i := 0; ; i++ {
 		candidate := dir
@@ -758,12 +766,12 @@ func (s *webUIServer) runWorkflowImageBatch(ctx context.Context, c *client, inpu
 }
 
 func sanitizeWorkflowPathPart(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.TrimSpace(value)
 	var b strings.Builder
 	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			b.WriteRune(r)
-		} else if r == ' ' || r == '.' {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
+			b.WriteRune(unicode.ToLower(r))
+		} else if unicode.IsSpace(r) || r == '.' {
 			b.WriteByte('-')
 		}
 	}

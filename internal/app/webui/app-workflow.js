@@ -1088,6 +1088,10 @@
         markFirstResponse();
         const id = String(payload.id || "");
         const existing = id ? stepsById.get(id) : null;
+        if (activeStep && activeStep !== existing && activeStep.status === "running" &&
+          String(activeStep.kind || "").toLowerCase() === "response") {
+          completeStep(activeStep);
+        }
         activeStep = existing || {
           id,
           kind: payload.kind || "",
@@ -1251,6 +1255,9 @@
     try {
       if (isReviewContinue && state.pendingReview && state.pendingReview.timing) {
         options = Object.assign({}, options, { baseTiming: state.pendingReview.timing });
+      }
+      if (isReviewContinue && state.pendingReview && state.pendingReview.output_dir) {
+        options = Object.assign({}, options, { outputDir: state.pendingReview.output_dir });
       }
       const result = await generateWorkflowStream(form, activeGenerationController.signal, options);
       if (result.needs_review) {
