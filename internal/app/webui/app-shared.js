@@ -428,17 +428,15 @@ function renderImagePreviews() {
     '</div>'
   ) + selectedImages.map((file, index) => (
     (() => {
-      const hasMask = index === 0 && window.KuaimaMaskEditor &&
-        window.KuaimaMaskEditor.usesFile(file) && window.KuaimaMaskEditor.hasMask();
+      const previewURL = imagePreviewURL(file);
       return (
         '<div class="image-preview-item" draggable="true" data-image-index="' + index + '">' +
-        '<img src="' + esc(imagePreviewURL(file)) + '" alt="' + esc(file.name) + '">' +
+        '<img src="' + esc(previewURL) + '" alt="' + esc(file.name) + '">' +
         '<div class="image-preview-meta"><strong>' + esc(file.name) + '</strong><span>' +
-        esc(formatFileSize(file.size)) + (index === 0 ? ' · 可局部修改' : ' · 拖动可调整顺序') + '</span></div>' +
+        esc(formatFileSize(file.size)) + ' · 拖动可调整顺序</span></div>' +
         '<div class="image-preview-actions">' +
-        (index === 0 ? '<button type="button" class="image-preview-mask-btn' + (hasMask ? ' active' : '') +
-          '" title="局部编辑" data-image-action="edit-mask" data-image-index="' + index + '">' +
-          iconHTML("brush") + '<span>' + (hasMask ? '已涂抹' : '局部修改') + '</span></button>' : '') +
+        '<button type="button" title="预览查看" data-preview-image="' + esc(previewURL) + '">' +
+        iconHTML("eye") + '<span>预览查看</span></button>' +
         '<button type="button" title="删除" data-image-action="remove" data-image-index="' + index + '">' +
         iconHTML("trash-2") + '<span class="sr-only">删除</span></button>' +
         '</div>' +

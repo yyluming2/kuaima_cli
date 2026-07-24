@@ -636,10 +636,21 @@ function updateLoadedImageSize(img) {
 
 function openImagePreview(button) {
   const img = button.querySelector("img");
+  const modalImg = $("#imageModalImg");
+  const previewURL = button.dataset.previewImage || (img && img.src) || "";
   $("#imagePreviewTitle").textContent = "图片预览";
-  $("#imageModalImg").src = button.dataset.previewImage || (img && img.src) || "";
-  $("#imageModalSize").textContent = imageDimensionsText(img);
-  $("#imageModalImg").alt = img && img.alt ? img.alt : "图片预览";
+  $("#imageModalSize").textContent = "尺寸读取中";
+  modalImg.onload = () => {
+    $("#imageModalSize").textContent = imageDimensionsText(modalImg);
+  };
+  modalImg.onerror = () => {
+    $("#imageModalSize").textContent = "尺寸读取失败";
+  };
+  modalImg.alt = img && img.alt ? img.alt : "图片预览";
+  modalImg.src = previewURL;
+  if (modalImg.complete && modalImg.naturalWidth) {
+    $("#imageModalSize").textContent = imageDimensionsText(modalImg);
+  }
   $("#imageModal").hidden = false;
 }
 

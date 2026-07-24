@@ -233,13 +233,6 @@
         syncImageInput();
         syncMaskAfterImageChange();
         renderImagePreviews();
-      } else if (imageButton.dataset.imageAction === "edit-mask") {
-        if (index !== 0) {
-          $("#genStatus").textContent = "只能对第一张参考图使用局部编辑";
-          $("#genStatus").className = "status gen-status";
-        } else if (window.KuaimaMaskEditor) {
-          window.KuaimaMaskEditor.open(selectedImages[0]);
-        }
       }
       return;
     }
