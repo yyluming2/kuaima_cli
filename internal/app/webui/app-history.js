@@ -561,7 +561,11 @@ async function fileFromHistoryURL(url, name, type) {
   const file = new File([blob], name || decodeURIComponent(String(url).split("/").pop() || "history-image.png"), {
     type: type || blob.type || "image/png",
   });
-  historySourceURLs.set(file, url);
+  // blob: and data: URLs only live in the current page. Treat files created
+  // from them as new uploads so history receives a durable server URL.
+  if (!/^(?:blob|data):/i.test(String(url || ""))) {
+    historySourceURLs.set(file, url);
+  }
   return file;
 }
 
