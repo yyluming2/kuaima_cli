@@ -964,7 +964,9 @@
     gap: 10px;
   }
 
-  .fine-editor-backdrop { z-index: 26; }
+  .fine-editor-backdrop {
+    z-index: 26;
+  }
 
   .fine-editor {
     position: relative;
@@ -1003,7 +1005,7 @@
     overflow: auto;
     padding: 20px;
     background: #eef2f6;
-    cursor: crosshair;
+    cursor: hand;
   }
 
   .fine-editor-stage>img {
@@ -1101,7 +1103,10 @@
     cursor: pointer;
   }
 
-  .fine-point-list { display: grid; gap: 8px; }
+  .fine-point-list {
+    display: grid;
+    gap: 8px;
+  }
 
   .fine-point-item {
     display: grid;
@@ -1110,7 +1115,9 @@
     align-items: start;
   }
 
-  .fine-point-item.active textarea { border-color: #f97316; }
+  .fine-point-item.active textarea {
+    border-color: #f97316;
+  }
 
   .fine-point-number {
     display: grid;
@@ -1124,7 +1131,8 @@
     font-weight: 800;
   }
 
-  .fine-point-item textarea, .fine-note textarea {
+  .fine-point-item textarea,
+  .fine-note textarea {
     min-height: 70px;
     resize: vertical;
   }
@@ -1137,17 +1145,58 @@
     font-size: 20px;
   }
 
-  .fine-point-placeholder { margin: 0; color: var(--muted); font-size: 13px; }
-  .fine-note, .fine-supplements { margin: 0; }
-  .fine-editor-file-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .fine-editor-file-list>span { padding: 5px 8px; border-radius: 6px; background: rgba(37, 99, 235, .08); font-size: 12px; }
-  .fine-editor-file-list button { margin-left: 6px; border: 0; background: transparent; cursor: pointer; }
-  .fine-editor-apply { width: 100%; margin-top: auto; }
+  .fine-point-placeholder {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .fine-note,
+  .fine-supplements {
+    margin: 0;
+  }
+
+  .fine-editor-file-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .fine-editor-file-list>span {
+    padding: 5px 8px;
+    border-radius: 6px;
+    background: rgba(37, 99, 235, .08);
+    font-size: 12px;
+  }
+
+  .fine-editor-file-list button {
+    margin-left: 6px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .fine-editor-apply {
+    width: 100%;
+    margin-top: auto;
+  }
 
   @media (max-width: 820px) {
-    .fine-editor-body { grid-template-columns: 1fr; grid-template-rows: minmax(300px, 1fr) minmax(260px, .8fr); }
-    .fine-editor-panel { border-left: 0; border-top: 1px solid rgba(82, 103, 132, 0.14); }
-    .image-modal-actions { align-items: flex-start; flex-direction: column; }
+    .fine-editor-body {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(300px, 1fr) minmax(260px, .8fr);
+    }
+
+    .fine-editor-panel {
+      border-left: 0;
+      border-top: 1px solid rgba(82, 103, 132, 0.14);
+    }
+
+    .image-modal-actions {
+      align-items: flex-start;
+      flex-direction: column;
+    }
   }
 
   .ratio-options {
