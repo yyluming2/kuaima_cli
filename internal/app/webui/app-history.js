@@ -648,6 +648,8 @@ function openImagePreview(button) {
   };
   modalImg.alt = img && img.alt ? img.alt : "图片预览";
   modalImg.src = previewURL;
+  $("#imageModal").dataset.previewUrl = previewURL;
+  $("#openFineEditor").hidden = !previewURL;
   if (modalImg.complete && modalImg.naturalWidth) {
     $("#imageModalSize").textContent = imageDimensionsText(modalImg);
   }

@@ -1,4 +1,5 @@
 *.exe
+*.swp
 
 *.png
 *.webp
@@ -9,6 +10,7 @@
 
 *.log
 dist/
+.agents
 
 kuaima_webui_outputs
 

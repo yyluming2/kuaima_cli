@@ -351,11 +351,57 @@
           <p class="eyebrow">Preview</p>
           <h2 id="imagePreviewTitle">图片预览</h2>
         </div>
-        <span id="imageModalSize" class="image-size-label">-</span>
+        <div class="image-modal-actions">
+          <span id="imageModalSize" class="image-size-label">-</span>
+          <button id="openFineEditor" class="btn primary small" type="button">
+            <i data-lucide="scan-search" aria-hidden="true"></i><span>编辑</span>
+          </button>
+        </div>
       </div>
       <img id="imageModalImg" alt="生成结果预览">
     </div>
   </div>
+
+  <div id="fineEditor" class="modal-backdrop fine-editor-backdrop" hidden>
+    <div class="fine-editor" role="dialog" aria-modal="true" aria-labelledby="fineEditorTitle">
+      <button id="closeFineEditor" class="modal-close" type="button" aria-label="关闭">×</button>
+      <div class="fine-editor-head">
+        <div>
+          <p class="eyebrow">Point edit</p>
+          <h2 id="fineEditorTitle" class="panel-title"><i data-lucide="mouse-pointer-click"
+              aria-hidden="true"></i><span>图片编辑</span></h2>
+          <span>直接点击图片添加修改点，再描述这个位置要如何更改</span>
+        </div>
+      </div>
+      <div class="fine-editor-body">
+        <div class="fine-editor-stage" id="fineEditorStage">
+          <img id="fineEditorImage" alt="待编辑图片">
+          <div id="fineEditorMarkers" class="fine-editor-markers"></div>
+          <div id="fineEditorEmpty" class="fine-editor-empty">点击图片添加第一个修改点</div>
+        </div>
+        <aside class="fine-editor-panel">
+          <div class="fine-editor-section">
+            <div class="fine-editor-section-head"><strong>位置修改</strong><button id="clearFinePoints"
+                type="button">清空</button></div>
+            <div id="finePointList" class="fine-point-list"></div>
+          </div>
+          <label class="field fine-note"><span>整体备注</span><textarea id="fineEditorNote"
+              placeholder="例如：保持人物身份、构图和光影不变，整体风格要自然。"></textarea></label>
+          <div class="field fine-supplements">
+            <label>补充参考图</label>
+            <label class="upload-button" for="fineEditorFiles"><span class="upload-icon"><i data-lucide="images"
+                  aria-hidden="true"></i></span><span>添加图片</span></label>
+            <input id="fineEditorFiles" class="sr-only" type="file" accept="image/*" multiple>
+            <div id="fineEditorFileList" class="fine-editor-file-list"></div>
+          </div>
+          <div id="fineEditorStatus" class="status" aria-live="polite"></div>
+          <button id="applyFineEdit" class="btn primary fine-editor-apply" type="button"><i data-lucide="wand-sparkles"
+              aria-hidden="true"></i><span>直接生成</span></button>
+        </aside>
+      </div>
+    </div>
+  </div>
+  <input id="fineEditorSourceFiles" class="sr-only" type="file" accept="image/*">
 
   <div id="workflowContactModal" class="modal-backdrop contact-modal-backdrop" hidden>
     <div class="contact-modal" role="dialog" aria-modal="true" aria-labelledby="workflowContactTitle">
@@ -454,6 +500,7 @@
   <script src="/app-generation.js"></script>
   <script src="/app-agent.js"></script>
   <script src="/app-mask.js"></script>
+  <script src="/app-fine-edit.js"></script>
   <script src="/app-prompt.js"></script>
   <script src="/app.js"></script>
 </body>

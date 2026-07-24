@@ -12,8 +12,19 @@ BUILD_SKILL_CMD = bash scripts/build_skill.sh
 endif
 
 
+
 build:
 	go build $(COMMON_GOFLAGS) -o $(BUILD_OUTPUT) $(APP_PKG)
+
+ifeq ($(OS),Windows_NT)
+clean:
+	rmdir internal\app\webui\.agents
+	rmdir internal\app\webui\.git
+else
+clean:
+	rm internal/app/webui/.agents
+	rm internal/app/webui/.git
+endif
 
 release:
 	go build $(COMMON_GOFLAGS) $(RELEASE_GOFLAGS) -o $(BUILD_OUTPUT) $(APP_PKG)

@@ -109,6 +109,9 @@
     size.textContent = "联系客服添加微信";
     img.src = "imgs/qrcode.png";
     img.alt = "联系客服添加微信二维码";
+    modal.dataset.previewUrl = "";
+    const fineEdit = $("#openFineEditor");
+    if (fineEdit) fineEdit.hidden = true;
     modal.hidden = false;
   }
 
@@ -172,8 +175,10 @@
       iconHTML(item.icon || "workflow") + '<span>' + esc(item.name) + '</span></button>'
     )).join("");
     container.innerHTML = workflowButtons +
+      '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-fine-edit-tab>' +
+      iconHTML("scan-search") + '<span>图片编辑</span></button>' +
       '<button class="workflow-tab' + (agentActive ? " active" : "") + '" type="button" role="tab" aria-selected="' +
-      String(agentActive) + '" data-mode-tab="agent" data-workflow-id="agent">' + iconHTML("bot-message-square") + '<span>Agent 模式</span></button>' +
+      String(agentActive) + '" data-mode-tab="agent" data-workflow-id="agent">' + iconHTML("bot-message-square") + '<span>对话模式</span></button>' +
       //'<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-mode-tab="generate" data-workflow-id="workflow-custom">' +
       //iconHTML("sparkles") + '<span>联系客服</span></button>' +
       catalogButtons;

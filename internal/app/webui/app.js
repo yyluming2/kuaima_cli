@@ -335,6 +335,7 @@
   $("#closeImageModal").onclick = () => {
     $("#imageModal").hidden = true;
     $("#imageModalImg").removeAttribute("src");
+    $("#imageModal").dataset.previewUrl = "";
   };
   $("#paymentModal").onclick = (event) => {
     if (event.target === $("#paymentModal")) {
@@ -353,6 +354,8 @@
     }
     if (!$("#imageModal").hidden) {
       $("#closeImageModal").click();
+    } else if (window.KuaimaFineEditor && !$("#fineEditor").hidden) {
+      window.KuaimaFineEditor.close();
     } else if (window.KuaimaMaskEditor && !$("#maskEditor").hidden) {
       window.KuaimaMaskEditor.close();
     } else if (!$("#paymentModal").hidden) {
