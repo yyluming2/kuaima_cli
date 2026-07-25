@@ -108,12 +108,6 @@
     gradient.addColorStop(0, "#fff"); gradient.addColorStop(1, "rgba(255,255,255,0)"); pc.fillStyle = gradient; pc.fillRect(0, 0, size, size);
     ctx().drawImage(patch, p.x - radius, p.y - radius, radius * 2, radius * 2);
   }
-  function drawCursor(p) {
-    clearOverlay(); const paint = overlay().getContext("2d");
-    paint.strokeStyle = "rgba(255,255,255,.95)"; paint.lineWidth = Math.max(1, 2 / state.zoom); paint.beginPath(); paint.arc(p.x, p.y, brushSize() / 2, 0, Math.PI * 2); paint.stroke();
-    paint.strokeStyle = "rgba(15,23,42,.8)"; paint.setLineDash([4 / state.zoom, 4 / state.zoom]); paint.beginPath(); paint.arc(p.x, p.y, brushSize() / 2 + 2 / state.zoom, 0, Math.PI * 2); paint.stroke();
-    if (state.sample) { paint.strokeStyle = "#22c55e"; paint.setLineDash([]); paint.beginPath(); paint.moveTo(state.sample.x - 7, state.sample.y); paint.lineTo(state.sample.x + 7, state.sample.y); paint.moveTo(state.sample.x, state.sample.y - 7); paint.lineTo(state.sample.x, state.sample.y + 7); paint.stroke(); }
-  }
   function setTool(tool) {
     state.tool = tool === "clone" ? "clone" : "erase"; state.sample = null; state.cloneOffset = null; clearOverlay();
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.classList.toggle("active", button.dataset.retouchTool === state.tool));
@@ -141,12 +135,12 @@
     el("downloadRetouch").addEventListener("click", download);
     overlay().addEventListener("pointerdown", (event) => {
       event.preventDefault(); const p = point(event);
-      if (state.tool === "clone" && (!state.sample || event.altKey)) { state.sample = p; state.cloneOffset = null; drawCursor(p); setHint("取样完成，请在要覆盖的位置按住并涂抹"); return; }
+      if (state.tool === "clone" && (!state.sample || event.altKey)) { state.sample = p; state.cloneOffset = null; setHint("取样完成，请在要覆盖的位置按住并涂抹"); return; }
       state.drawing = true; state.last = p; overlay().setPointerCapture(event.pointerId);
       if (state.tool === "clone") { if (!state.cloneOffset) state.cloneOffset = { x: state.sample.x - p.x, y: state.sample.y - p.y }; cloneStamp(p); } else markErase(p);
     });
     overlay().addEventListener("pointermove", (event) => {
-      const p = point(event); if (!state.drawing) { if (state.tool === "clone") drawCursor(p); return; }
+      if (!state.drawing) return; const p = point(event);
       line(state.last, p, state.tool === "clone" ? cloneStamp : markErase); state.last = p;
     });
     function finish() { if (!state.drawing) return; state.drawing = false; if (state.tool === "erase") inpaint(); else clearOverlay(); snapshot(); }

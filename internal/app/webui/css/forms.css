@@ -1104,6 +1104,25 @@
     color: #fff;
     font-size: 12px;
     pointer-events: none;
+    animation: hideTooltip 5s forwards;
+  }
+
+  @keyframes hideTooltip {
+    0% {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    99% {
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    100% {
+      opacity: 0;
+      visibility: hidden;
+      display: none;
+    }
   }
 
   .fine-editor-panel {
@@ -1282,7 +1301,11 @@
     min-width: 112px;
   }
 
-  .retouch-toolbar kbd { margin-left: 4px; color: var(--muted); font: 11px/1 ui-monospace, monospace; }
+  .retouch-toolbar kbd {
+    margin-left: 4px;
+    color: var(--muted);
+    font: 11px/1 ui-monospace, monospace;
+  }
 
   .retouch-canvas-scroll {
     min-height: 0;
@@ -1305,6 +1328,7 @@
   }
 
   #retouchOverlay {
+    z-index: 2;
     cursor: crosshair;
     touch-action: none;
   }
