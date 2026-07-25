@@ -367,13 +367,17 @@
       <button id="closeFineEditor" class="modal-close" type="button" aria-label="关闭">×</button>
       <div class="fine-editor-head">
         <div>
-          <p class="eyebrow">Point edit</p>
+          <p class="eyebrow">Image edit</p>
           <h2 id="fineEditorTitle" class="panel-title"><i data-lucide="mouse-pointer-click"
               aria-hidden="true"></i><span>图片编辑</span></h2>
-          <span>直接点击图片添加修改点，再描述这个位置要如何更改</span>
+          <span id="fineEditorHint">直接点击图片添加修改点，再描述这个位置要如何更改</span>
+        </div>
+        <div class="fine-editor-tabs" role="tablist" aria-label="图片编辑方式">
+          <button type="button" data-editor-tab="manual" role="tab" aria-selected="false">手动编辑</button>
+          <button class="active" type="button" data-editor-tab="point" role="tab" aria-selected="true">指哪改哪</button>
         </div>
       </div>
-      <div class="fine-editor-body">
+      <div id="finePointEditorView" class="fine-editor-body">
         <div class="fine-editor-stage" id="fineEditorStage">
           <img id="fineEditorImage" alt="待编辑图片">
           <div id="fineEditorMarkers" class="fine-editor-markers"></div>
@@ -401,6 +405,25 @@
           <button id="applyFineEdit" class="btn primary fine-editor-apply" type="button"><i data-lucide="wand-sparkles"
               aria-hidden="true"></i><span>确定</span></button>
         </aside>
+      </div>
+      <div id="retouchEditor" class="retouch-editor-view" hidden>
+        <div class="retouch-toolbar">
+          <div class="mask-mode-toggle" role="group" aria-label="修图工具">
+            <button class="active" type="button" data-retouch-tool="erase" title="涂抹消除 (J)">涂抹消除 <kbd>J</kbd></button>
+            <button type="button" data-retouch-tool="clone" title="取样涂抹 (S)，按 Alt 单击取样">取样涂抹 <kbd>S</kbd></button>
+          </div>
+          <label class="brush-size"><span>笔刷</span><input id="retouchBrushSize" type="range" min="6" max="180" value="42"></label>
+          <label class="brush-size"><span>缩放</span><input id="retouchZoom" type="range" min="25" max="300" value="100"></label>
+          <button id="retouchUndo" class="btn small" type="button" title="撤销 (Ctrl+Z)" disabled><i data-lucide="undo-2"></i><span>撤销</span></button>
+          <button id="retouchRedo" class="btn small" type="button" title="重做 (Ctrl+Shift+Z)" disabled><i data-lucide="redo-2"></i><span>重做</span></button>
+          <button id="downloadRetouch" class="btn primary small" type="button"><i data-lucide="download"></i><span>下载 PNG</span></button>
+        </div>
+        <div class="retouch-canvas-scroll">
+          <div id="retouchCanvasWrap" class="retouch-canvas-wrap">
+            <canvas id="retouchCanvas"></canvas>
+            <canvas id="retouchOverlay"></canvas>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -504,6 +527,7 @@
   <script src="/app-agent.js"></script>
   <script src="/app-mask.js"></script>
   <script src="/app-fine-edit.js"></script>
+  <script src="/app-retouch.js"></script>
   <script src="/app-prompt.js"></script>
   <script src="/app.js"></script>
 </body>

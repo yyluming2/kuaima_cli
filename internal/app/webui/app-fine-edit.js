@@ -71,6 +71,18 @@
 
   function close() { el("fineEditor").hidden = true; }
 
+  function showPointTab() {
+    el("finePointEditorView").hidden = false;
+    el("retouchEditor").hidden = true;
+    el("fineEditorHint").textContent = "直接点击图片添加修改点，再描述这个位置要如何更改";
+    document.querySelectorAll("[data-editor-tab]").forEach((button) => {
+      const active = button.dataset.editorTab === "point";
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+    syncMarkerBounds();
+  }
+
   function open(url) {
     if (!url) return;
     state.sourceURL = url;
@@ -84,6 +96,7 @@
     el("fineEditorStatus").textContent = "";
     renderPoints();
     renderFiles();
+    showPointTab();
     el("imageModal").hidden = true;
     el("fineEditor").hidden = false;
   }
@@ -177,6 +190,8 @@
       if (file) open(imagePreviewURL(file));
     });
     el("openFineEditor").addEventListener("click", () => open(el("imageModal").dataset.previewUrl));
+    document.querySelector('[data-editor-tab="point"]').addEventListener("click", showPointTab);
+    document.querySelector('[data-editor-tab="manual"]').addEventListener("click", () => window.KuaimaRetouchEditor.open(state.sourceURL));
     el("closeFineEditor").addEventListener("click", close);
     el("fineEditor").addEventListener("click", (event) => { if (event.target === el("fineEditor")) close(); });
     el("fineEditorStage").addEventListener("click", (event) => {
