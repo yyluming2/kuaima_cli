@@ -7,7 +7,7 @@ import (
 
 const (
 	defaultBaseURL    = "https://img.szkmjb.com"
-	defaultModel      = "gpt-5.4-mini"
+	defaultModel      = "gpt-5.6-luna"
 	defaultImageModel = "gpt-image-2"
 
 	defaultOssURL = "https://oss.szkmjb.com"

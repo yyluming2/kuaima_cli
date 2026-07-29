@@ -22,11 +22,12 @@ var defaultImageReasoning = map[string]any{
 }
 
 type responseRequest struct {
-	Model     string `json:"model"`
-	Input     any    `json:"input"`
-	Tools     any    `json:"tools,omitempty"`
-	Reasoning any    `json:"reasoning,omitempty"`
-	Stream    bool   `json:"stream,omitempty"`
+	Model      string `json:"model"`
+	Input      any    `json:"input"`
+	Tools      any    `json:"tools,omitempty"`
+	ToolChoice any    `json:"tool_choice,omitempty"`
+	Reasoning  any    `json:"reasoning,omitempty"`
+	Stream     bool   `json:"stream,omitempty"`
 }
 
 type imageGenerationRequest struct {

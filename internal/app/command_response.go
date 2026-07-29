@@ -74,6 +74,8 @@ func runAsk(args []string) error {
 		}
 
 		req.Tools = []map[string]any{tool}
+		req.ToolChoice = map[string]any{"type": "image_generation"}
+
 		req.Reasoning = defaultImageReasoning
 	}
 

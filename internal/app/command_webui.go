@@ -561,11 +561,12 @@ func (s *webUIServer) handleAgentStream(w http.ResponseWriter, r *http.Request) 
 	stream.send("status", map[string]string{"message": "正在回复..."})
 	imageOpts := s.agentImageOptions()
 	resp, err := c.createResponseStream(r.Context(), responseRequest{
-		Model:     model,
-		Input:     messages,
-		Tools:     []map[string]any{imageOpts.responseTool()},
-		Reasoning: defaultImageReasoning,
-		Stream:    true,
+		Model:      model,
+		Input:      messages,
+		Tools:      []map[string]any{imageOpts.responseTool()},
+		ToolChoice: map[string]any{"type": "image_generation"},
+		Reasoning:  defaultImageReasoning,
+		Stream:     true,
 	}, stream.textWriter())
 	if err != nil {
 		stream.send("error", map[string]string{"error": err.Error()})
@@ -758,11 +759,12 @@ func (s *webUIServer) handleGenerateWithResponsesStream(ctx context.Context, c *
 	addAutoString(tool, "model", &imageModel)
 	addResponseImageMask(tool, mask)
 	req := responseRequest{
-		Model:     strings.TrimSpace(*s.clientOpts.model),
-		Input:     s.responseInput(prompt, refs),
-		Tools:     []map[string]any{tool},
-		Reasoning: defaultImageReasoning,
-		Stream:    true,
+		Model:      strings.TrimSpace(*s.clientOpts.model),
+		Input:      s.responseInput(prompt, refs),
+		Tools:      []map[string]any{tool},
+		ToolChoice: map[string]any{"type": "image_generation"},
+		Reasoning:  defaultImageReasoning,
+		Stream:     true,
 	}
 	runCount := opts.responseRunCount()
 	if workflowConcurrencyLimit(maxConcurrency...) > 1 && runCount > 1 {
