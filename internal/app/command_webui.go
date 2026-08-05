@@ -27,15 +27,19 @@ import (
 var webUIAssets embed.FS
 
 type webUIServer struct {
-	clientOpts     clientOptions
-	responseSystem string
-	defaults       webUIDefaults
-	fileFormat     string
-	mu             sync.RWMutex
-	saveDir        string
-	rembgPath      string
-	rembgWorkerMu  sync.Mutex
-	rembgWorker    *cutoutWorker
+	clientOpts      clientOptions
+	responseSystem  string
+	defaults        webUIDefaults
+	fileFormat      string
+	mu              sync.RWMutex
+	saveDir         string
+	rembgPath       string
+	rembgWorkerMu   sync.Mutex
+	rembgWorker     *cutoutWorker
+	cutoutResultsMu sync.Mutex
+	cutoutResults   map[string]cutoutResult
+	diagnosticLog   io.Writer
+	diagnosticMu    sync.Mutex
 }
 
 type webUIDefaults struct {
@@ -144,6 +148,14 @@ func runWebUIWithOptions(args []string, runtimeOpts webUIRuntimeOptions) error {
 		},
 		saveDir: absSaveDir,
 	}
+	diagnosticFile, err := openLogFile(*opts.logFile)
+	if err != nil {
+		return err
+	}
+	if diagnosticFile != nil {
+		ui.diagnosticLog = diagnosticFile
+		defer diagnosticFile.Close()
+	}
 	ui.rembgPath = findRembgEngine()
 	defer ui.stopCutoutWorker()
 	mux := http.NewServeMux()
@@ -188,6 +200,7 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/output/open", s.handleOpenOutputDir)
 	mux.HandleFunc("/api/image/remove-background", s.handleRemoveBackground)
 	mux.HandleFunc("/api/image/remove-background/profiles", s.handleCutoutProfiles)
+	mux.HandleFunc("/api/image/remove-background/result/", s.handleCutoutResult)
 	mux.HandleFunc("/outputs/", s.handleOutputFile)
 	assets, err := fs.Sub(webUIAssets, "webui")
 	if err != nil {

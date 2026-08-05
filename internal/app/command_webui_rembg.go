@@ -3,9 +3,12 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
 	"io"
 	"net/http"
 	"os"
@@ -13,12 +16,97 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
 )
 
 const maxRembgInputSize = 50 << 20
+
+type cutoutResult struct {
+	data    []byte
+	created time.Time
+}
+
+func (s *webUIServer) storeCutoutResult(data []byte) string {
+	var idBytes [16]byte
+	_, _ = rand.Read(idBytes[:])
+	id := hex.EncodeToString(idBytes[:])
+	now := time.Now()
+	s.cutoutResultsMu.Lock()
+	defer s.cutoutResultsMu.Unlock()
+	if s.cutoutResults == nil {
+		s.cutoutResults = make(map[string]cutoutResult)
+	}
+	for key, result := range s.cutoutResults {
+		if now.Sub(result.created) > 10*time.Minute {
+			delete(s.cutoutResults, key)
+		}
+	}
+	s.cutoutResults[id] = cutoutResult{data: data, created: now}
+	return id
+}
+
+func (s *webUIServer) handleCutoutResult(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/image/remove-background/result/")
+	if len(id) != 32 {
+		http.NotFound(w, r)
+		return
+	}
+	s.cutoutResultsMu.Lock()
+	result, ok := s.cutoutResults[id]
+	if ok && r.Method == http.MethodDelete {
+		delete(s.cutoutResults, id)
+	}
+	s.cutoutResultsMu.Unlock()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", strconv.Itoa(len(result.data)))
+	written, err := w.Write(result.data)
+	if err != nil || written != len(result.data) {
+		s.logCutout("result interrupted id=%s output=%d written=%d error=%v", id, len(result.data), written, err)
+	} else {
+		s.logCutout("result delivered id=%s output=%d", id, len(result.data))
+	}
+}
+
+func (s *webUIServer) writeCutoutOutput(w http.ResponseWriter, r *http.Request, output []byte, warning string) (int, error) {
+	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json") {
+		id := s.storeCutoutResult(output)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"url":     "/api/image/remove-background/result/" + id,
+			"warning": warning,
+		})
+		return len(output), nil
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", strconv.Itoa(len(output)))
+	w.WriteHeader(http.StatusOK)
+	return w.Write(output)
+}
+
+func (s *webUIServer) logCutout(format string, args ...any) {
+	if s.diagnosticLog == nil {
+		return
+	}
+	s.diagnosticMu.Lock()
+	defer s.diagnosticMu.Unlock()
+	_, _ = fmt.Fprintf(s.diagnosticLog, "%s [remove-background] %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
 
 type cutoutWorker struct {
 	cmd    *exec.Cmd
@@ -206,6 +294,7 @@ func findRembgEngineFrom(executable, goos string, lookPath func(string) (string,
 // handleRemoveBackground delegates matting to the frozen offline engine shipped
 // beside the app. A PATH-installed rembg remains supported for development.
 func (s *webUIServer) handleRemoveBackground(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -225,6 +314,12 @@ func (s *webUIServer) handleRemoveBackground(w http.ResponseWriter, r *http.Requ
 	if len(input) == 0 {
 		writeError(w, http.StatusBadRequest, "图片不能为空")
 		return
+	}
+	if config, _, configErr := image.DecodeConfig(bytes.NewReader(input)); configErr == nil {
+		rgbaMiB := float64(config.Width*config.Height*4) / (1024 * 1024)
+		s.logCutout("request input=%d dimensions=%dx%d rgba=%.1fMiB remote=%s", len(input), config.Width, config.Height, rgbaMiB, r.RemoteAddr)
+	} else {
+		s.logCutout("request input=%d dimensions=unknown remote=%s", len(input), r.RemoteAddr)
 	}
 	// Read the upload before reporting a missing sidecar. Returning while the
 	// browser is still writing a multipart body is surfaced as CONNECTION_RESET
@@ -251,6 +346,7 @@ func (s *webUIServer) handleRemoveBackground(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if !validModel {
+		s.logCutout("rejected model=%q elapsed=%s", model, time.Since(started).Round(time.Millisecond))
 		writeError(w, http.StatusBadRequest, "本地目录中没有所选抠图模型")
 		return
 	}
@@ -259,6 +355,7 @@ func (s *webUIServer) handleRemoveBackground(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "不支持的边缘处理方式")
 		return
 	}
+	s.logCutout("inference start model=%s edge=%s input=%d", model, edge, len(input))
 	if strings.HasPrefix(strings.ToLower(filepath.Base(s.rembgPath)), "rembg-engine") {
 		output, err := s.persistentCutout(model, edge, input)
 		if err != nil {
@@ -267,13 +364,16 @@ func (s *webUIServer) handleRemoveBackground(w http.ResponseWriter, r *http.Requ
 			if len(runes) > 500 {
 				message = string(runes[:500])
 			}
+			s.logCutout("inference failed model=%s edge=%s elapsed=%s error=%q", model, edge, time.Since(started).Round(time.Millisecond), message)
 			writeError(w, http.StatusInternalServerError, "rembg 处理失败: "+message)
 			return
 		}
-		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(output)
+		written, err := s.writeCutoutOutput(w, r, output, "")
+		if err != nil || written != len(output) {
+			s.logCutout("response interrupted model=%s output=%d written=%d elapsed=%s error=%v", model, len(output), written, time.Since(started).Round(time.Millisecond), err)
+			return
+		}
+		s.logCutout("completed model=%s edge=%s output=%d elapsed=%s", model, edge, len(output), time.Since(started).Round(time.Millisecond))
 		return
 	}
 	timeout := 3 * time.Minute
@@ -316,8 +416,14 @@ func (s *webUIServer) handleRemoveBackground(w http.ResponseWriter, r *http.Requ
 	if strings.Contains(stderr.String(), "KUAIMA_WARNING=fallback_low_memory") {
 		w.Header().Set("X-Kuaima-Cutout-Warning", "fallback_low_memory")
 	}
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(output.Bytes())
+	warning := ""
+	if strings.Contains(stderr.String(), "KUAIMA_WARNING=fallback_low_memory") {
+		warning = "fallback_low_memory"
+	}
+	written, writeErr := s.writeCutoutOutput(w, r, output.Bytes(), warning)
+	if writeErr != nil || written != output.Len() {
+		s.logCutout("response interrupted model=%s output=%d written=%d elapsed=%s error=%v", model, output.Len(), written, time.Since(started).Round(time.Millisecond), writeErr)
+		return
+	}
+	s.logCutout("completed model=%s edge=%s output=%d elapsed=%s", model, edge, output.Len(), time.Since(started).Round(time.Millisecond))
 }

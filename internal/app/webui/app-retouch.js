@@ -37,10 +37,13 @@
   function updateHistoryButtons() {
     el("retouchUndo").disabled = state.undo.length < 2;
     el("retouchRedo").disabled = !state.redo.length;
+	if (el("retouchCompare")) el("retouchCompare").disabled = !state.original;
   }
+	function pixelBytes(width = state.width, height = state.height) { return width * height * 4; }
+	function lowMemoryImage(width = state.width, height = state.height) { return pixelBytes(width, height) > 64 * 1024 * 1024; }
   function snapshot() {
     state.undo.push(ctx().getImageData(0, 0, state.width, state.height));
-    const max = Math.max(2, Math.min(12, Math.floor(96 * 1024 * 1024 / (state.width * state.height * 4))));
+	const max = Math.max(1, Math.min(12, Math.floor(96 * 1024 * 1024 / pixelBytes())));
     while (state.undo.length > max) state.undo.shift();
     state.redo = [];
     updateHistoryButtons();
@@ -159,37 +162,51 @@
   }
   function xhrCutout(form) {
     return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest(); xhr.open("POST", "/api/image/remove-background"); xhr.responseType = "blob"; xhr.timeout = 9 * 60 * 1000;
-      xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body: xhr.response, warning: xhr.getResponseHeader("X-Kuaima-Cutout-Warning") || "" });
+	  const xhr = new XMLHttpRequest(); xhr.open("POST", "/api/image/remove-background"); xhr.responseType = "json"; xhr.timeout = 9 * 60 * 1000; xhr.setRequestHeader("Accept", "application/json");
+	  xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body: xhr.response, warning: xhr.response?.warning || "" });
       xhr.onerror = () => reject(new Error("抠图连接被中断（服务仍在运行时通常是系统内存不足或安全软件终止了模型进程）"));
       xhr.ontimeout = () => reject(new Error("抠图请求超过 9 分钟"));
       xhr.onabort = () => reject(new Error("抠图请求已取消"));
       xhr.send(form);
     });
   }
-  async function rembgCanvas(target, upload, xhrTransport = false) {
+  async function rembgCanvas(target, upload, xhrTransport = true) {
+	// The visible canvas itself preserves the current image if the request fails;
+	// history/compare buffers are expendable and otherwise add 125 MB each at 6720×4880.
+	if (target === canvas() && lowMemoryImage()) { state.original = null; state.undo = []; state.redo = []; updateHistoryButtons(); }
     const source = upload || await canvasBlob(target), filename = upload?.name || "image.png";
     const form = new FormData(); form.append("image", source, filename); form.append("profile", el("retouchCutoutProfile").value); form.append("edge", el("retouchCutoutEdge").value);
     const response = xhrTransport ? await xhrCutout(form) : await fetch("/api/image/remove-background", { method: "POST", body: form });
     if (!response.ok) {
       let message = "模型抠图失败";
       try {
-        const body = xhrTransport ? JSON.parse(await response.body.text()) : await response.json();
+		const body = xhrTransport ? response.body : await response.json();
         message = body.error || body.message || message;
       } catch (_) {}
       const error = new Error(message); error.unavailable = response.status === 503; throw error;
     }
-    const image = await fileImage(xhrTransport ? response.body : await response.blob());
-    const context = target.getContext("2d"); context.clearRect(0, 0, target.width, target.height); context.drawImage(image, 0, 0, target.width, target.height);
-    finishCutout(target, el("retouchAutoCenter").checked, el("retouchBackground").value);
+	const resultURL = xhrTransport ? response.body?.url : "";
+	if (xhrTransport && !resultURL) throw new Error("抠图服务未返回结果地址");
+	const image = xhrTransport ? await urlImage(resultURL, true) : await fileImage(await response.blob());
+	// Once a large result has decoded successfully, release the old 100+ MB
+	// history buffer before allocating another full-resolution canvas snapshot.
+	if (target === canvas() && lowMemoryImage()) { state.original = null; state.undo = []; state.redo = []; updateHistoryButtons(); }
+	const context = target.getContext("2d"); context.clearRect(0, 0, target.width, target.height); context.drawImage(image, 0, 0, target.width, target.height); image.src = "";
+	finishCutout(target, el("retouchAutoCenter").checked, el("retouchBackground").value);
+	if (resultURL) fetch(resultURL, { method: "DELETE" }).catch(() => {});
     return xhrTransport ? response.warning : response.headers.get("X-Kuaima-Cutout-Warning") || "";
   }
   function finishCutout(target, autoCenter, background) {
     const context = target.getContext("2d", { willReadFrequently: true }), w = target.width, h = target.height;
     if (autoCenter) {
-      const data = context.getImageData(0, 0, w, h).data; let minX = w, minY = h, maxX = -1, maxY = -1;
-      for (let i = 0; i < w * h; i++) if (data[i * 4 + 3] > 24) { const x = i % w, y = (i / w) | 0; minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
-      if (maxX >= minX) { const copy = document.createElement("canvas"); copy.width = w; copy.height = h; copy.getContext("2d").drawImage(target, 0, 0); context.clearRect(0, 0, w, h); context.drawImage(copy, Math.round((w - maxX + minX - 1) / 2 - minX), Math.round((h - maxY + minY - 1) / 2 - minY)); }
+	  let minX = w, minY = h, maxX = -1, maxY = -1;
+	  // Scan in <=8 MB strips instead of allocating one extra full-size ImageData.
+	  const stripHeight = Math.max(1, Math.floor(8 * 1024 * 1024 / (w * 4)));
+	  for (let top = 0; top < h; top += stripHeight) {
+		const rows = Math.min(stripHeight, h - top), data = context.getImageData(0, top, w, rows).data;
+		for (let i = 0; i < w * rows; i++) if (data[i * 4 + 3] > 24) { const x = i % w, y = top + ((i / w) | 0); minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+	  }
+	  if (maxX >= minX) { const copy = document.createElement("canvas"); copy.width = w; copy.height = h; copy.getContext("2d").drawImage(target, 0, 0); context.clearRect(0, 0, w, h); context.drawImage(copy, Math.round((w - maxX + minX - 1) / 2 - minX), Math.round((h - maxY + minY - 1) / 2 - minY)); copy.width = copy.height = 1; }
     }
     if (background === "white") { context.globalCompositeOperation = "destination-over"; context.fillStyle = "#fff"; context.fillRect(0, 0, w, h); context.globalCompositeOperation = "source-over"; }
   }
@@ -207,7 +224,8 @@
       catch (fallbackError) { setHint(error.message || fallbackError.message); }
     } finally { setBusy(false); scheduleEstimate(); }
   }
-  function fileImage(file) { return new Promise((resolve, reject) => { const image = new Image(), url = URL.createObjectURL(file); image.onload = () => { URL.revokeObjectURL(url); resolve(image); }; image.onerror = reject; image.src = url; }); }
+  function fileImage(file) { return new Promise((resolve, reject) => { const image = new Image(), url = URL.createObjectURL(file); image.onload = () => { URL.revokeObjectURL(url); resolve(image); }; image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("抠图结果不是可识别的图片，响应可能不完整")); }; image.src = url; }); }
+	function urlImage(url, retry = false) { return new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => { if (retry) { setTimeout(() => { urlImage(url, false).then(resolve, reject); }, 250); } else reject(new Error("抠图结果下载失败")); }; image.src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now(); }); }
   async function droppedFiles(transfer) {
     const readEntry = (entry) => new Promise((resolve) => {
       if (!entry) return resolve([]);
@@ -224,18 +242,21 @@
   }
   async function processBatch(files) {
     const images = Array.from(files || []).filter((file) => String(file.type || "").startsWith("image/")); if (!images.length) return;
+	state.batch.forEach((item) => { if (item.url) URL.revokeObjectURL(item.url); });
     state.batch = []; state.batchDone = false; el("retouchBatch").hidden = false; el("retouchBatch").classList.remove("collapsed"); renderBatch();
     setBusy(true, true);
     for (let i = 0; i < images.length; i++) {
       const file = images[i]; el("retouchBatchStatus").textContent = (i + 1) + " / " + images.length;
-      try {
-        const image = await fileImage(file), out = document.createElement("canvas"); out.width = image.naturalWidth; out.height = image.naturalHeight; out.getContext("2d").drawImage(image, 0, 0);
+	  let out = null;
+	  try {
+		const image = await fileImage(file); out = document.createElement("canvas"); out.width = image.naturalWidth; out.height = image.naturalHeight; out.getContext("2d").drawImage(image, 0, 0); image.src = "";
         // Batch input is encoded at its original dimensions but constrained to
         // a safe request size. The engine output remains full-size PNG.
         const upload = await batchUploadBlob(out);
         try { await rembgCanvas(out, upload, true); } catch (error) { if (!error.unavailable) throw error; cutoutCanvas(out, el("retouchAutoCenter").checked, el("retouchBackground").value); }
         const blob = await new Promise((resolve) => out.toBlob(resolve, "image/png")); state.batch.push({ name: file.name.replace(/\.[^.]+$/, "") + "-cutout.png", blob, url: URL.createObjectURL(blob) }); renderBatch();
-      } catch (error) { state.batch.push({ name: file.name, error: error?.message || "抠图失败" }); renderBatch(); }
+	  } catch (error) { state.batch.push({ name: file.name, error: error?.message || "抠图失败" }); renderBatch(); }
+	  finally { if (out) out.width = out.height = 1; }
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     const failed = state.batch.filter((item) => item.error);
@@ -318,7 +339,11 @@
     image.onload = () => {
       state.width = image.naturalWidth; state.height = image.naturalHeight;
       [canvas(), overlay()].forEach((item) => { item.width = state.width; item.height = state.height; });
-      ctx().drawImage(image, 0, 0); state.original = ctx().getImageData(0, 0, state.width, state.height); state.undo = []; state.redo = []; snapshot(); resizeDisplay(); setTool(state.tool || "erase");
+	  ctx().drawImage(image, 0, 0); state.original = null; state.undo = []; state.redo = []; snapshot();
+	  // Reuse the first undo buffer as the compare image. For very large images,
+	  // keeping even one additional 100+ MB original defeats the low-memory path.
+	  if (!lowMemoryImage()) state.original = state.undo[0];
+	  updateHistoryButtons(); resizeDisplay(); setTool(state.tool || "erase");
       el("retouchEmpty").hidden = true; el("retouchCanvasWrap").hidden = false;
       el("retouchImageInfo").textContent = state.width + " × " + state.height + " px" + (state.sourceBytes ? " · " + formatBytes(state.sourceBytes) : "");
       el("imageModal").hidden = true; el("fineEditor").hidden = false; requestAnimationFrame(() => { fitToView(); scheduleEstimate(); });
