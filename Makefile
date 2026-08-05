@@ -17,6 +17,8 @@ endif
 
 build:
 	go build $(COMMON_GOFLAGS) -o $(BUILD_OUTPUT) $(APP_PKG)
+
+build_rembg:
 ifeq ($(OS),Windows_NT)
 	$(BUILD_REMBG_CMD)
 endif

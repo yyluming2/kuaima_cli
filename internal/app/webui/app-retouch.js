@@ -1,5 +1,5 @@
 (function () {
-  const state = { sourceURL: "", original: null, tool: "erase", drawing: false, width: 0, height: 0, zoom: 1, last: null, sample: null, cloneOffset: null, undo: [], redo: [], batch: [], profileNames: { product: "商品" } };
+  const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "erase", drawing: false, busy: false, width: 0, height: 0, zoom: 1, last: null, sample: null, cloneOffset: null, undo: [], redo: [], batch: [], batchDone: false, estimateTimer: 0, profileNames: { product: "商品" } };
   const el = (id) => document.getElementById(id);
   const canvas = () => el("retouchCanvas");
   const overlay = () => el("retouchOverlay");
@@ -67,13 +67,32 @@
   function changeBrush(multiplier) {
     const input = el("retouchBrushSize");
     input.value = String(Math.max(Number(input.min), Math.min(Number(input.max), Math.round(brushSize() * multiplier))));
+    updateBrushValue();
   }
-  function download() {
-    canvas().toBlob((blob) => {
-      if (!blob) return;
-      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "retouched-" + Date.now() + ".png"; a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    }, "image/png");
+  function formatBytes(bytes) { if (!bytes) return "—"; const units = ["B", "KB", "MB", "GB"], i = Math.min(3, Math.floor(Math.log(bytes) / Math.log(1024))); return (bytes / 1024 ** i).toFixed(i ? 1 : 0) + " " + units[i]; }
+  function updateBrushValue() { el("retouchBrushValue").textContent = Math.round(brushSize()) + " px"; }
+  function exportCanvas() {
+    const scale = Number(el("retouchExportScale").value) || 1, quality = Number(el("retouchExportQuality").value) || 1;
+    const out = document.createElement("canvas"); out.width = Math.max(1, Math.round(state.width * scale)); out.height = Math.max(1, Math.round(state.height * scale));
+    const context = out.getContext("2d", { willReadFrequently: quality < 1 }); context.imageSmoothingQuality = "high"; context.drawImage(canvas(), 0, 0, out.width, out.height);
+    if (quality < 1) { const image = context.getImageData(0, 0, out.width, out.height), step = quality >= .9 ? 2 : 6; for (let i = 0; i < image.data.length; i += 4) for (let c = 0; c < 3; c++) image.data[i + c] = Math.round(image.data[i + c] / step) * step; context.putImageData(image, 0, 0); }
+    return out;
+  }
+  async function estimateExport() {
+    if (!state.width) return; const out = exportCanvas();
+    el("retouchExportEstimate").textContent = out.width + " × " + out.height + " · 估算中…";
+    try { const blob = await canvasBlob(out); el("retouchExportEstimate").textContent = out.width + " × " + out.height + " · 约 " + formatBytes(blob.size); } catch (_) {}
+  }
+  function scheduleEstimate() { clearTimeout(state.estimateTimer); state.estimateTimer = setTimeout(estimateExport, 180); }
+  async function download() {
+    if (!state.width || state.busy) return; const blob = await canvasBlob(exportCanvas());
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "retouched-" + Date.now() + ".png"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  function setBusy(busy, batch = false) {
+    state.busy = busy; el("retouchBusy").hidden = !busy || batch;
+    el("retouchEditor").querySelectorAll("button,input,select").forEach((item) => { if (!item.closest(".retouch-batch")) item.disabled = busy; });
+    if (!busy) updateHistoryButtons();
   }
   function colorDistance(data, a, b) {
     const dr = data[a] - data[b], dg = data[a + 1] - data[b + 1], db = data[a + 2] - data[b + 2];
@@ -175,9 +194,10 @@
     if (background === "white") { context.globalCompositeOperation = "destination-over"; context.fillStyle = "#fff"; context.fillRect(0, 0, w, h); context.globalCompositeOperation = "source-over"; }
   }
   async function applyCutout() {
-    if (!state.width) return;
+    if (!state.width || state.busy) return;
     const profileNames = state.profileNames, profile = el("retouchCutoutProfile").value;
     setHint("正在用“" + (profileNames[profile] || "商品") + "”模式抠图...");
+    setBusy(true);
     try {
       const warning = await rembgCanvas(canvas()); clearOverlay(); snapshot();
       setHint(warning === "fallback_low_memory" ? "高质量模型内存不足，已自动降级并完成抠图" : (profileNames[profile] || "商品") + "模式抠图完成；可按住“看原图”对比，或继续用画笔补修");
@@ -185,7 +205,7 @@
       if (!error.unavailable) { setHint(error.message || "模型抠图失败，已保留当前图片"); return; }
       try { cutoutCanvas(canvas(), el("retouchAutoCenter").checked, el("retouchBackground").value); clearOverlay(); snapshot(); setHint("安装包缺少离线抠图引擎，已使用基础抠图"); }
       catch (fallbackError) { setHint(error.message || fallbackError.message); }
-    }
+    } finally { setBusy(false); scheduleEstimate(); }
   }
   function fileImage(file) { return new Promise((resolve, reject) => { const image = new Image(), url = URL.createObjectURL(file); image.onload = () => { URL.revokeObjectURL(url); resolve(image); }; image.onerror = reject; image.src = url; }); }
   async function droppedFiles(transfer) {
@@ -204,7 +224,8 @@
   }
   async function processBatch(files) {
     const images = Array.from(files || []).filter((file) => String(file.type || "").startsWith("image/")); if (!images.length) return;
-    state.batch = []; el("retouchBatch").hidden = false; renderBatch();
+    state.batch = []; state.batchDone = false; el("retouchBatch").hidden = false; el("retouchBatch").classList.remove("collapsed"); renderBatch();
+    setBusy(true, true);
     for (let i = 0; i < images.length; i++) {
       const file = images[i]; el("retouchBatchStatus").textContent = (i + 1) + " / " + images.length;
       try {
@@ -218,11 +239,14 @@
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     const failed = state.batch.filter((item) => item.error);
+    state.batchDone = true; renderBatch();
     el("retouchBatchStatus").textContent = "完成 " + state.batch.filter((item) => item.blob).length + " 张" + (failed.length ? "，失败 " + failed.length + " 张：" + failed[0].error : "");
+    setBusy(false);
   }
   function renderBatch() {
     const escape = (value) => String(value || "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
     el("retouchBatchList").innerHTML = state.batch.map((item, i) => '<div class="retouch-batch-item" title="' + escape(item.error || item.name) + '">' + (item.url ? '<img src="' + item.url + '" alt="">' : '<span></span>') + '<span>' + escape(item.name) + '</span><button class="btn small" data-batch-download="' + i + '" ' + (item.error ? 'disabled' : '') + '>' + (item.error ? '失败' : '下载') + '</button></div>').join("");
+    el("downloadRetouchBatch").hidden = !state.batchDone || !state.batch.some((item) => item.blob);
   }
   function saveBatchItem(item) { if (!item || !item.url) return; const a = document.createElement("a"); a.href = item.url; a.download = item.name; a.click(); }
   function clearOverlay() { overlay().getContext("2d").clearRect(0, 0, state.width, state.height); }
@@ -240,7 +264,9 @@
     const image = ctx().getImageData(0, 0, state.width, state.height), data = image.data;
     const unknown = new Uint8Array(state.width * state.height);
     let remaining = 0;
-    for (let i = 0; i < unknown.length; i++) if (mask[i * 4 + 3] > 12) { unknown[i] = 1; remaining++; }
+    // Transparent source pixels are already empty. Keeping them out of the
+    // repair mask prevents their zeroed RGB channels from becoming opaque black.
+    for (let i = 0; i < unknown.length; i++) if (mask[i * 4 + 3] > 12 && data[i * 4 + 3] > 0) { unknown[i] = 1; remaining++; }
     if (!remaining) return false;
     const queued = new Uint8Array(unknown.length), queue = [], neighbors = (i) => {
       const x = i % state.width, y = Math.floor(i / state.width), list = [];
@@ -255,11 +281,12 @@
     }
     for (let head = 0; head < queue.length; head++) {
       const i = queue[head]; if (!unknown[i]) continue;
-      let r = 0, g = 0, b = 0, count = 0;
+      let r = 0, g = 0, b = 0, alpha = 0, count = 0;
       const around = neighbors(i);
-      around.forEach((n) => { if (!unknown[n]) { r += data[n * 4]; g += data[n * 4 + 1]; b += data[n * 4 + 2]; count++; } });
+      around.forEach((n) => { if (!unknown[n]) { const a = data[n * 4 + 3] / 255; r += data[n * 4] * a; g += data[n * 4 + 1] * a; b += data[n * 4 + 2] * a; alpha += a; count++; } });
       if (!count) continue;
-      const o = i * 4; data[o] = r / count; data[o + 1] = g / count; data[o + 2] = b / count; data[o + 3] = 255; unknown[i] = 0; remaining--;
+      const o = i * 4, outputAlpha = alpha / count;
+      data[o] = alpha ? r / alpha : 0; data[o + 1] = alpha ? g / alpha : 0; data[o + 2] = alpha ? b / alpha : 0; data[o + 3] = Math.round(outputAlpha * 255); unknown[i] = 0; remaining--;
       around.forEach((n) => { if (unknown[n] && !queued[n]) { queued[n] = 1; queue.push(n); } });
     }
     ctx().putImageData(image, 0, 0); clearOverlay(); return true;
@@ -275,10 +302,12 @@
     ctx().drawImage(patch, p.x - radius, p.y - radius, radius * 2, radius * 2);
   }
   function setTool(tool) {
-    if (tool === "cutout") { applyCutout(); return; }
-    state.tool = tool === "clone" ? "clone" : "erase"; state.sample = null; state.cloneOffset = null; clearOverlay();
+    if (state.busy) return;
+    state.tool = tool === "cutout" ? "cutout" : (tool === "clone" ? "clone" : "erase"); state.sample = null; state.cloneOffset = null; clearOverlay();
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.classList.toggle("active", button.dataset.retouchTool === state.tool));
-    setHint(state.tool === "erase" ? "在需要移除的物体上涂抹，松开后自动修复" : "先点击取样位置，再在目标位置涂抹；按 Alt 点击可重新取样");
+    document.querySelectorAll("[data-tool-panel]").forEach((panel) => { panel.hidden = panel.dataset.toolPanel === "cutout" ? state.tool !== "cutout" : state.tool === "cutout"; });
+    overlay().style.pointerEvents = state.tool === "cutout" ? "none" : "auto";
+    setHint(state.tool === "cutout" ? "选择模型和边缘设置，然后点击“开始抠图”" : (state.tool === "erase" ? "在需要移除的物体上涂抹，松开后自动修复" : "先点击取样位置，再在目标位置涂抹；按 Alt 点击可重新取样"));
   }
   function open(url) {
     if (!url) return;
@@ -289,26 +318,41 @@
     image.onload = () => {
       state.width = image.naturalWidth; state.height = image.naturalHeight;
       [canvas(), overlay()].forEach((item) => { item.width = state.width; item.height = state.height; });
-      ctx().drawImage(image, 0, 0); state.original = ctx().getImageData(0, 0, state.width, state.height); state.undo = []; state.redo = []; snapshot(); resizeDisplay(); setTool("erase");
-      el("imageModal").hidden = true; el("fineEditor").hidden = false;
+      ctx().drawImage(image, 0, 0); state.original = ctx().getImageData(0, 0, state.width, state.height); state.undo = []; state.redo = []; snapshot(); resizeDisplay(); setTool(state.tool || "erase");
+      el("retouchEmpty").hidden = true; el("retouchCanvasWrap").hidden = false;
+      el("retouchImageInfo").textContent = state.width + " × " + state.height + " px" + (state.sourceBytes ? " · " + formatBytes(state.sourceBytes) : "");
+      el("imageModal").hidden = true; el("fineEditor").hidden = false; requestAnimationFrame(() => { fitToView(); scheduleEstimate(); });
     };
     image.onerror = () => setHint("图片读取失败，可能不允许跨域编辑"); image.src = url;
+  }
+  function openEmpty(tool = "cutout") {
+    state.sourceURL = ""; state.sourceBytes = 0; state.width = 0; state.height = 0; state.original = null; state.undo = []; state.redo = []; updateHistoryButtons();
+    el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false; el("fineEditor").hidden = false; el("imageModal").hidden = true;
+    el("retouchEmpty").hidden = false; el("retouchCanvasWrap").hidden = true; el("retouchImageInfo").textContent = "尚未打开图片";
+    document.querySelectorAll("[data-editor-tab]").forEach((button) => { const active = button.dataset.editorTab === "manual"; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
+    setTool(tool); setHint("选择或拖入图片后即可开始智能抠图");
   }
   function close() { state.drawing = false; el("fineEditor").hidden = true; }
   function init() {
     loadCutoutProfiles();
+    document.addEventListener("click", (event) => { if (event.target.closest("[data-cutout-tab]")) openEmpty("cutout"); });
+    el("retouchEmpty").addEventListener("click", () => el("retouchSourceFiles").click());
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.addEventListener("click", () => setTool(button.dataset.retouchTool)));
+    el("retouchApplyCutout").addEventListener("click", applyCutout);
+    el("retouchBrushSize").addEventListener("input", updateBrushValue); updateBrushValue();
+    ["retouchExportScale", "retouchExportQuality"].forEach((id) => el(id).addEventListener("change", scheduleEstimate));
     el("retouchZoom").addEventListener("input", (event) => setZoom(Number(event.target.value) / 100));
     el("retouchUndo").addEventListener("click", undo); el("retouchRedo").addEventListener("click", redo);
     el("downloadRetouch").addEventListener("click", download);
     el("retouchCompare").addEventListener("pointerdown", () => { if (state.original) ctx().putImageData(state.original, 0, 0); });
     const stopCompare = () => { if (state.undo.length) restore(state.undo[state.undo.length - 1]); };
     el("retouchCompare").addEventListener("pointerup", stopCompare); el("retouchCompare").addEventListener("pointerleave", stopCompare); el("retouchCompare").addEventListener("pointercancel", stopCompare);
-    el("retouchSourceFiles").addEventListener("change", (event) => { const files = Array.from(event.target.files || []); event.target.value = ""; if (files.length === 1) open(URL.createObjectURL(files[0])); else processBatch(files); });
+    el("retouchSourceFiles").addEventListener("change", (event) => { const files = Array.from(event.target.files || []); event.target.value = ""; if (files.length === 1) { state.sourceBytes = files[0].size; open(URL.createObjectURL(files[0])); } else processBatch(files); });
     const dropArea = document.querySelector(".retouch-canvas-scroll");
     ["dragenter", "dragover"].forEach((name) => dropArea.addEventListener(name, (event) => { event.preventDefault(); el("retouchDropHint").hidden = false; }));
     ["dragleave", "drop"].forEach((name) => dropArea.addEventListener(name, (event) => { event.preventDefault(); el("retouchDropHint").hidden = true; }));
-    dropArea.addEventListener("drop", async (event) => { const files = (await droppedFiles(event.dataTransfer)).filter((file) => String(file.type || "").startsWith("image/")); if (files.length === 1) open(URL.createObjectURL(files[0])); else processBatch(files); });
+    dropArea.addEventListener("drop", async (event) => { const files = (await droppedFiles(event.dataTransfer)).filter((file) => String(file.type || "").startsWith("image/")); if (files.length === 1) { state.sourceBytes = files[0].size; open(URL.createObjectURL(files[0])); } else processBatch(files); });
+    el("retouchBatchToggle").addEventListener("click", () => el("retouchBatch").classList.toggle("collapsed"));
     el("retouchBatchList").addEventListener("click", (event) => { const button = event.target.closest("[data-batch-download]"); if (button) saveBatchItem(state.batch[Number(button.dataset.batchDownload)]); });
     el("downloadRetouchBatch").addEventListener("click", async () => { for (const item of state.batch) { saveBatchItem(item); await new Promise((resolve) => setTimeout(resolve, 180)); } });
     overlay().addEventListener("pointerdown", (event) => {
@@ -339,5 +383,5 @@
       if (!command && event.key === "]") { event.preventDefault(); changeBrush(1.2); }
     });
   }
-  window.KuaimaRetouchEditor = { open, close }; init();
+  window.KuaimaRetouchEditor = { open, openEmpty, close }; init();
 })();
