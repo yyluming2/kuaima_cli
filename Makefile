@@ -4,9 +4,11 @@ BUILD_OUTPUT = dist/$(APP_NAME)
 VERSION ?= 0.2.0
 COMMON_GOFLAGS = -buildvcs=false
 RELEASE_GOFLAGS = -trimpath -ldflags "-s -w -X kuaima_cli/internal/app.AppVersion=$(VERSION)"
+RELEASE_GITHUB_SCRIPT = bash scripts/release_github.sh
 
 ifeq ($(OS),Windows_NT)
 BUILD_SKILL_CMD = powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_skill.ps1
+BUILD_REMBG_CMD = powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_go_rembg_windows.ps1
 else
 BUILD_SKILL_CMD = bash scripts/build_skill.sh
 endif
@@ -15,6 +17,12 @@ endif
 
 build:
 	go build $(COMMON_GOFLAGS) -o $(BUILD_OUTPUT) $(APP_PKG)
+ifeq ($(OS),Windows_NT)
+	$(BUILD_REMBG_CMD)
+endif
+
+offline_windows:
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_offline_windows.ps1 -Version "$(VERSION)"
 
 ifeq ($(OS),Windows_NT)
 clean:
@@ -28,6 +36,14 @@ endif
 
 release:
 	go build $(COMMON_GOFLAGS) $(RELEASE_GOFLAGS) -o $(BUILD_OUTPUT) $(APP_PKG)
+ifeq ($(OS),Windows_NT)
+	$(BUILD_REMBG_CMD)
+endif
+
+# Build Windows locally, build the macOS DMG on GitHub Actions, and publish both.
+# Usage: make release_github VERSION=0.2.0
+release_github:
+	VERSION="$(VERSION)" $(RELEASE_GITHUB_SCRIPT)
 
 ifeq ($(OS),Windows_NT)
 build_skill:

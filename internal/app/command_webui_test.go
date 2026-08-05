@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,102 @@ func webUITestUsageHandler(group string, next http.HandlerFunc) http.HandlerFunc
 			return
 		}
 		next(w, r)
+	}
+}
+
+func TestWebUIRemoveBackgroundRequiresRembg(t *testing.T) {
+	ui := &webUIServer{}
+	var body strings.Builder
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("image", "test.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("image data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/image/remove-background", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	ui.handleRemoveBackground(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusServiceUnavailable, rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "离线抠图引擎") {
+		t.Fatalf("expected offline engine hint, got %q", rr.Body.String())
+	}
+}
+
+func TestFindRembgEnginePrefersBundledEngine(t *testing.T) {
+	dir := t.TempDir()
+	engineDir := filepath.Join(dir, "rembg-engine")
+	if err := os.MkdirAll(engineDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(engineDir, "rembg-engine.exe")
+	if err := os.WriteFile(engine, []byte("test"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := findRembgEngineFrom(filepath.Join(dir, "kuaima_cli.exe"), "windows", func(string) (string, error) {
+		return filepath.Join(dir, "global-rembg.exe"), nil
+	})
+	if got != engine {
+		t.Fatalf("expected bundled engine %q, got %q", engine, got)
+	}
+}
+
+func TestNormalizeCutoutEdge(t *testing.T) {
+	tests := map[string]string{"": "product", " PRODUCT ": "product", "fine": "fine", "NONE": "none"}
+	for input, want := range tests {
+		got, ok := normalizeCutoutEdge(input)
+		if !ok || got != want {
+			t.Errorf("normalizeCutoutEdge(%q) = %q, %v; want %q, true", input, got, ok, want)
+		}
+	}
+	if _, ok := normalizeCutoutEdge("unknown"); ok {
+		t.Fatal("unknown edge mode should be rejected")
+	}
+}
+
+func TestWebUICutoutProfiles(t *testing.T) {
+	dir := t.TempDir()
+	engine := filepath.Join(dir, "rembg-engine.exe")
+	models := filepath.Join(dir, "models")
+	if err := os.Mkdir(models, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(engine, []byte("test"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"custom.onnx", "birefnet-general-lite.onnx"} {
+		if err := os.WriteFile(filepath.Join(models, name), []byte("test"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/image/remove-background/profiles", nil)
+	rr := httptest.NewRecorder()
+	(&webUIServer{rembgPath: engine}).handleCutoutProfiles(rr, req)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"id":"custom"`) || !strings.Contains(rr.Body.String(), `"id":"birefnet-general-lite"`) || !strings.Contains(rr.Body.String(), `"default":true`) {
+		t.Fatalf("unexpected profiles response: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "silueta") {
+		t.Fatalf("absent model leaked into response: %s", rr.Body.String())
+	}
+}
+
+func TestDecodeEngineError(t *testing.T) {
+	utf16LE := []byte{'O', 0, 'O', 0, 'M', 0}
+	if got := decodeEngineError(utf16LE); got != "OOM" {
+		t.Fatalf("UTF-16 error = %q", got)
+	}
+	if got := decodeEngineError([]byte("模型失败")); got != "模型失败" {
+		t.Fatalf("UTF-8 error = %q", got)
 	}
 }
 

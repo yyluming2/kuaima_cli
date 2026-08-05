@@ -1307,6 +1307,10 @@
     font: 11px/1 ui-monospace, monospace;
   }
 
+  .retouch-option { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .retouch-option select { padding: 6px 8px; border: 1px solid rgba(82, 103, 132, .2); border-radius: 6px; background: #fff; }
+  .retouch-replace { cursor: pointer; }
+
   .retouch-canvas-scroll {
     min-height: 0;
     overflow: auto;
@@ -1332,6 +1336,15 @@
     cursor: crosshair;
     touch-action: none;
   }
+
+  .retouch-drop-hint { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; border: 3px dashed #2563eb; background: rgba(239, 246, 255, .88); color: #1d4ed8; font-weight: 700; pointer-events: none; }
+  .retouch-drop-hint[hidden], .retouch-batch[hidden] { display: none; }
+  .retouch-batch { position: absolute; right: 18px; bottom: 18px; z-index: 5; width: min(360px, calc(100% - 36px)); max-height: 45%; overflow: auto; padding: 12px; border: 1px solid rgba(82, 103, 132, .18); border-radius: 10px; background: rgba(255, 255, 255, .96); box-shadow: 0 10px 32px rgba(15, 23, 42, .2); }
+  .retouch-batch > div:first-child { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .retouch-batch-list { display: grid; gap: 5px; margin-bottom: 8px; }
+  .retouch-batch-item { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 7px; font-size: 12px; }
+  .retouch-batch-item img { width: 36px; height: 36px; object-fit: contain; background: #eef2f7; }
+  .retouch-batch-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   @media (max-width: 900px) {
     .fine-editor-head {

@@ -11,7 +11,14 @@ bundle="$stage/$bundle_name"
 contents="$bundle/Contents"
 macos_dir="$contents/MacOS"
 resources_dir="$contents/Resources"
+engine_dir="$resources_dir/rembg-engine"
+models_dir="$engine_dir/models"
 version="${VERSION:-}"
+runtime_version="${ONNXRUNTIME_VERSION:-1.28.0}"
+runtime_archive="$dist/onnxruntime-osx-universal2-$runtime_version.tgz"
+runtime_extract_dir="$dist/onnxruntime-osx-universal2-$runtime_version"
+model_name="${REMBG_MODEL_NAME:-}"
+model_url="${REMBG_MODEL_URL:-}"
 
 if [[ -z "$version" && -f "$root/internal/app/version.go" ]]; then
   version="$(sed -nE 's/.*AppVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$root/internal/app/version.go" | head -n 1)"
@@ -24,13 +31,18 @@ version="${version#v}"
 amd64_bin="$dist/$app_name-darwin-amd64"
 arm64_bin="$dist/$app_name-darwin-arm64"
 universal_bin="$macos_dir/$app_name"
+engine_amd64_bin="$dist/rembg-engine-darwin-amd64"
+engine_arm64_bin="$dist/rembg-engine-darwin-arm64"
+engine_universal_bin="$engine_dir/rembg-engine"
 dmg_path="$dist/$app_name-macos-$version.dmg"
 
-rm -rf "$stage" "$amd64_bin" "$arm64_bin" "$dmg_path"
-mkdir -p "$macos_dir" "$resources_dir"
+rm -rf "$stage" "$amd64_bin" "$arm64_bin" "$engine_amd64_bin" "$engine_arm64_bin" "$dmg_path"
+mkdir -p "$macos_dir" "$resources_dir" "$models_dir"
 
 GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags "-X kuaima_cli/internal/app.AppVersion=$version" -o "$amd64_bin" "$root/cmd/kuaima_cli"
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags "-X kuaima_cli/internal/app.AppVersion=$version" -o "$arm64_bin" "$root/cmd/kuaima_cli"
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$engine_amd64_bin" "$root/cmd/rembg_engine"
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$engine_arm64_bin" "$root/cmd/rembg_engine"
 
 command -v lipo >/dev/null 2>&1 || {
   echo "lipo command not found." >&2
@@ -46,7 +58,32 @@ command -v iconutil >/dev/null 2>&1 || {
 }
 
 lipo -create "$amd64_bin" "$arm64_bin" -output "$universal_bin"
-chmod +x "$universal_bin"
+lipo -create "$engine_amd64_bin" "$engine_arm64_bin" -output "$engine_universal_bin"
+chmod +x "$universal_bin" "$engine_universal_bin"
+
+if [[ ! -f "$runtime_archive" ]]; then
+  curl --fail --location --retry 3 \
+    "https://github.com/microsoft/onnxruntime/releases/download/v$runtime_version/onnxruntime-osx-universal2-$runtime_version.tgz" \
+    --output "$runtime_archive"
+fi
+if [[ ! -f "$runtime_extract_dir/lib/libonnxruntime.dylib" ]]; then
+  rm -rf "$runtime_extract_dir"
+  tar -xzf "$runtime_archive" -C "$dist"
+fi
+cp -L "$runtime_extract_dir/lib/libonnxruntime.dylib" "$engine_dir/libonnxruntime.dylib"
+
+if [[ -n "$model_url" || -n "$model_name" ]]; then
+  if [[ -z "$model_url" || -z "$model_name" ]]; then
+    echo "REMBG_MODEL_URL and REMBG_MODEL_NAME must be set together." >&2
+    exit 1
+  fi
+  model_cache="$dist/rembg-models/$model_name"
+  mkdir -p "$(dirname "$model_cache")"
+  if [[ ! -f "$model_cache" ]]; then
+    curl --fail --location --retry 3 "$model_url" --output "$model_cache"
+  fi
+  cp "$model_cache" "$models_dir/$model_name"
+fi
 
 iconset_dir="$stage/kuaima_cli.iconset"
 app_icon="$resources_dir/AppIcon.icns"

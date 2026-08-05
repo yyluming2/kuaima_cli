@@ -411,18 +411,37 @@
           <div class="mask-mode-toggle" role="group" aria-label="修图工具">
             <button class="active" type="button" data-retouch-tool="erase" title="涂抹消除 (J)">涂抹消除 <kbd>J</kbd></button>
             <button type="button" data-retouch-tool="clone" title="取样涂抹 (S)，按 Alt 单击取样">取样涂抹 <kbd>S</kbd></button>
+            <button type="button" data-retouch-tool="cutout" title="自动识别并移除背景">一键抠图</button>
           </div>
-          <label class="brush-size"><span>笔刷</span><input id="retouchBrushSize" type="range" min="6" max="180" value="42"></label>
-          <label class="brush-size"><span>缩放</span><input id="retouchZoom" type="range" min="25" max="300" value="100"></label>
-          <button id="retouchUndo" class="btn small" type="button" title="撤销 (Ctrl+Z)" disabled><i data-lucide="undo-2"></i><span>撤销</span></button>
-          <button id="retouchRedo" class="btn small" type="button" title="重做 (Ctrl+Shift+Z)" disabled><i data-lucide="redo-2"></i><span>重做</span></button>
-          <button id="downloadRetouch" class="btn primary small" type="button"><i data-lucide="download"></i><span>下载 PNG</span></button>
+          <label class="retouch-option"><span>本地模型</span><select id="retouchCutoutProfile"><option>正在检测…</option></select></label>
+          <label class="retouch-option"><span>边缘处理</span><select id="retouchCutoutEdge"><option value="product" selected>干净边缘</option><option value="fine">保留细节</option><option value="none">原始蒙版</option></select></label>
+          <label class="retouch-option"><span>背景</span><select id="retouchBackground"><option value="transparent">透明</option><option value="white">纯白</option></select></label>
+          <label class="retouch-option"><input id="retouchAutoCenter" type="checkbox"><span>主体自动居中</span></label>
+          <button id="retouchCompare" class="btn small" type="button" title="按住查看原图"><i data-lucide="scan-eye"></i><span>按住看原图</span></button>
+          <label class="btn small retouch-replace" for="retouchSourceFiles"><i data-lucide="images"></i><span>替换 / 批量</span></label>
+          <input id="retouchSourceFiles" class="sr-only" type="file" accept="image/*" multiple>
+          <label class="brush-size"><span>笔刷</span><input id="retouchBrushSize" type="range" min="6" max="180"
+              value="42"></label>
+          <label class="brush-size"><span>缩放</span><input id="retouchZoom" type="range" min="5" max="500"
+              value="100"></label>
+          <button id="retouchUndo" class="btn small" type="button" title="撤销 (Ctrl+Z)" disabled><i
+              data-lucide="undo-2"></i><span>撤销</span></button>
+          <button id="retouchRedo" class="btn small" type="button" title="重做 (Ctrl+Shift+Z)" disabled><i
+              data-lucide="redo-2"></i><span>重做</span></button>
+          <button id="downloadRetouch" class="btn primary small" type="button"><i data-lucide="download"></i><span>下载
+              PNG</span></button>
         </div>
         <div class="retouch-canvas-scroll">
           <div id="retouchCanvasWrap" class="retouch-canvas-wrap">
             <canvas id="retouchCanvas"></canvas>
             <canvas id="retouchOverlay"></canvas>
+            <div id="retouchDropHint" class="retouch-drop-hint" hidden>松开以替换图片或批量抠图</div>
           </div>
+        </div>
+        <div id="retouchBatch" class="retouch-batch" hidden>
+          <div><strong>批量抠图</strong><span id="retouchBatchStatus"></span></div>
+          <div id="retouchBatchList" class="retouch-batch-list"></div>
+          <button id="downloadRetouchBatch" class="btn primary small" type="button">下载全部</button>
         </div>
       </div>
     </div>

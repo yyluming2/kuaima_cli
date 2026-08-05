@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-//go:embed webui/*
+//go:embed webui/*.html webui/*.js webui/*.css webui/*.json webui/*.png webui/*.ico webui/*.mp3 webui/css/*.css webui/imgs/*.png webui/imgs/*.jpg
 var webUIAssets embed.FS
 
 type webUIServer struct {
@@ -33,6 +33,9 @@ type webUIServer struct {
 	fileFormat     string
 	mu             sync.RWMutex
 	saveDir        string
+	rembgPath      string
+	rembgWorkerMu  sync.Mutex
+	rembgWorker    *cutoutWorker
 }
 
 type webUIDefaults struct {
@@ -141,6 +144,8 @@ func runWebUIWithOptions(args []string, runtimeOpts webUIRuntimeOptions) error {
 		},
 		saveDir: absSaveDir,
 	}
+	ui.rembgPath = findRembgEngine()
+	defer ui.stopCutoutWorker()
 	mux := http.NewServeMux()
 	ui.routes(mux)
 
@@ -181,12 +186,19 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/history/upload", s.handleHistoryReferenceUpload)
 	mux.HandleFunc("/api/output/set", s.handleSetOutputDir)
 	mux.HandleFunc("/api/output/open", s.handleOpenOutputDir)
+	mux.HandleFunc("/api/image/remove-background", s.handleRemoveBackground)
+	mux.HandleFunc("/api/image/remove-background/profiles", s.handleCutoutProfiles)
 	mux.HandleFunc("/outputs/", s.handleOutputFile)
 	assets, err := fs.Sub(webUIAssets, "webui")
 	if err != nil {
 		panic(err)
 	}
-	mux.Handle("/", http.FileServer(http.FS(assets)))
+	assetHandler := http.FileServer(http.FS(assets))
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Embedded JS and the executable must stay on the same API version.
+		w.Header().Set("Cache-Control", "no-store")
+		assetHandler.ServeHTTP(w, r)
+	}))
 }
 
 func (s *webUIServer) handleConfig(w http.ResponseWriter, r *http.Request) {
