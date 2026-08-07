@@ -348,7 +348,7 @@ func TestWebUIHandleGenerateRejectsCountForDefaultGroup(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected bad request, got %d body=%s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "普通用户一次只能生成 1 张") {
+	if !strings.Contains(rr.Body.String(), "普通用户一次最多生成 1 张") {
 		t.Fatalf("unexpected body: %s", rr.Body.String())
 	}
 }

@@ -148,6 +148,7 @@ func (s *webUIServer) persistentCutout(model, edge string, input []byte) ([]byte
 	}
 	if worker == nil {
 		cmd := exec.Command(s.rembgPath, "--worker", "--model", model, "--edge", edge)
+		hideSubprocessWindow(cmd)
 		cmd.Env = append(os.Environ(), "MODEL_CHECKSUM_DISABLED=1")
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
@@ -304,6 +305,7 @@ func (s *webUIServer) validateCutoutModel(ctx context.Context, modelName string)
 	// loading the ONNX graph, it runs one generated image through the model,
 	// which catches unsupported operators and incompatible output layouts too.
 	validation := exec.CommandContext(ctx, s.rembgPath, "--self-test", "--model", modelName)
+	hideSubprocessWindow(validation)
 	validation.Env = append(os.Environ(), "MODEL_CHECKSUM_DISABLED=1")
 	output, err := validation.CombinedOutput()
 	if err == nil {
@@ -620,6 +622,7 @@ func (s *webUIServer) handleRemoveBackground(w http.ResponseWriter, r *http.Requ
 		args = []string{"i", "-", "-"}
 	}
 	cmd := exec.CommandContext(ctx, s.rembgPath, args...)
+	hideSubprocessWindow(cmd)
 	if strings.HasPrefix(strings.ToLower(filepath.Base(s.rembgPath)), "rembg-engine") {
 		cmd.Env = append(os.Environ(), "U2NET_HOME="+filepath.Join(filepath.Dir(s.rembgPath), "models"))
 		cmd.Env = append(cmd.Env, "MODEL_CHECKSUM_DISABLED=1")
