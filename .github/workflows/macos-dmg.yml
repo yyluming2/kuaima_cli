@@ -2,6 +2,11 @@ name: macOS DMG
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Package version
+        required: false
+        default: "0.3.0"
   push:
     tags:
       - "v*"
@@ -26,6 +31,8 @@ jobs:
           cache: true
 
       - name: Build DMG
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
         run: bash scripts/build_macos_dmg.sh
 
       - name: Upload artifact

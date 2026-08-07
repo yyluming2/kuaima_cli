@@ -50,7 +50,8 @@ if ($LASTEXITCODE -ne 0) { throw "Go cutout engine build failed." }
 go build -buildvcs=false -trimpath -ldflags "-s -w -H=windowsgui -X kuaima_cli/internal/app.AppVersion=$Version" -o (Join-Path $stage "kuaima_cli.exe") ./cmd/kuaima_cli
 if ($LASTEXITCODE -ne 0) { throw "Application build failed." }
 Copy-Item -LiteralPath $runtimeDLL -Destination (Join-Path $engine "onnxruntime.dll") -Force
-Copy-Item -Path (Join-Path $modelCache "*.onnx") -Destination $models -Force
+$modelFiles = Get-ChildItem -LiteralPath $modelCache -Filter "*.onnx" -File -ErrorAction SilentlyContinue
+if ($modelFiles) { $modelFiles | Copy-Item -Destination $models -Force }
 Copy-Item -LiteralPath $usageGuide -Destination $stage -Force
 
 $archive = Join-Path $dist "kuaima-cli-v$Version-windows-amd64-offline.zip"

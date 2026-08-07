@@ -6,54 +6,56 @@ dist="$root/dist"
 version="${VERSION:-0.2.0}"
 version="${version#v}"
 tag="v${version}"
-app="kuaima_cli"
-pkg="./cmd/kuaima_cli"
-flags=(-buildvcs=false -trimpath -ldflags "-s -w -X kuaima_cli/internal/app.AppVersion=${version}")
 
-command -v go >/dev/null || { echo "go is required" >&2; exit 1; }
 command -v gh >/dev/null || { echo "GitHub CLI (gh) is required" >&2; exit 1; }
-command -v zip >/dev/null || { echo "zip is required" >&2; exit 1; }
 
 mkdir -p "$dist"
-rm -f "$dist/${app}-${tag}-windows-amd64.zip" \
-      "$dist/${app}-${tag}-macos-amd64.zip" \
-      "$dist/${app}-${tag}-macos-arm64.zip"
-
-build_archive() {
-  local goos="$1" goarch="$2" binary="$3" archive="$4"
-  echo "Building ${goos}/${goarch}..."
-  (cd "$root" && GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-    go build "${flags[@]}" -o "$dist/$binary" "$pkg")
-  (cd "$dist" && zip -j "$archive" "$binary" >/dev/null)
-  rm -f "$dist/$binary"
-}
-
-build_archive windows amd64 "${app}.exe" "${app}-${tag}-windows-amd64.zip"
-
-# DMG 构建需要 macOS runner，复用现有的 GitHub Actions workflow。
-echo "Starting macOS DMG workflow..."
-# Keep this compatible with the workflow currently installed on GitHub.  The
-# workflow_dispatch input may not exist remotely until this change is pushed.
-gh workflow run macos-dmg.yml --ref "$(git -C "$root" branch --show-current)"
-run_id="$(gh run list --workflow=macos-dmg.yml --limit=1 --json databaseId --jq '.[0].databaseId')"
-if [[ -z "$run_id" ]]; then
-  echo "Unable to find the macOS DMG workflow run" >&2
+branch="$(git -C "$root" branch --show-current)"
+if [[ -z "$branch" ]]; then
+  echo "release_github must run from a branch, not a detached HEAD" >&2
   exit 1
 fi
-gh run watch "$run_id" --exit-status
 
-mac_dist="$dist/github-macos-${tag}"
-rm -rf "$mac_dist"
-mkdir -p "$mac_dist"
-gh run download "$run_id" --dir "$mac_dist"
-mapfile -t dmg_files < <(find "$mac_dist" -type f -name '*.dmg')
+dispatch_workflow() {
+  local workflow="$1" previous_id new_id
+  previous_id="$(gh run list --workflow="$workflow" --branch "$branch" --event workflow_dispatch --limit=1 --json databaseId --jq '.[0].databaseId // empty')"
+  gh workflow run "$workflow" --ref "$branch" -f "version=$version" >&2
+  for _ in {1..30}; do
+    new_id="$(gh run list --workflow="$workflow" --branch "$branch" --event workflow_dispatch --limit=1 --json databaseId --jq '.[0].databaseId // empty')"
+    if [[ -n "$new_id" && "$new_id" != "$previous_id" ]]; then
+      printf '%s\n' "$new_id"
+      return
+    fi
+    sleep 2
+  done
+  echo "Unable to find the newly dispatched $workflow run" >&2
+  return 1
+}
+
+echo "Starting complete Windows and macOS package workflows..."
+windows_run_id="$(dispatch_workflow offline-windows.yml)"
+macos_run_id="$(dispatch_workflow macos-dmg.yml)"
+gh run watch "$windows_run_id" --exit-status
+gh run watch "$macos_run_id" --exit-status
+
+github_dist="$dist/github-release-${tag}"
+rm -rf "$github_dist"
+mkdir -p "$github_dist/windows" "$github_dist/macos"
+gh run download "$windows_run_id" --dir "$github_dist/windows"
+gh run download "$macos_run_id" --dir "$github_dist/macos"
+mapfile -t windows_files < <(find "$github_dist/windows" -type f -name '*-windows-amd64-offline.zip')
+mapfile -t dmg_files < <(find "$github_dist/macos" -type f -name '*.dmg')
+if [[ "${#windows_files[@]}" -eq 0 ]]; then
+  echo "The Windows workflow did not produce an offline ZIP" >&2
+  exit 1
+fi
 if [[ "${#dmg_files[@]}" -eq 0 ]]; then
   echo "The macOS workflow did not produce a DMG" >&2
   exit 1
 fi
 
 assets=(
-  "$dist/${app}-${tag}-windows-amd64.zip"
+  "${windows_files[@]}"
   "${dmg_files[@]}"
 )
 
