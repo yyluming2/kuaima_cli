@@ -7,6 +7,8 @@ $work = Join-Path $dist "rembg-build-windows-go"
 $stage = Join-Path $dist "kuaima-cli-windows-offline"
 $engine = Join-Path $stage "rembg-engine"
 $models = Join-Path $engine "models"
+$usageGuideName = (-join [char[]](0x5FEB, 0x9A6C)) + "AI" + (-join [char[]](0x4F7F, 0x7528, 0x8BF4, 0x660E)) + ".txt"
+$usageGuide = Join-Path $root $usageGuideName
 $runtimeVersion = "1.28.0"
 $runtimeArchive = Join-Path $work "onnxruntime-win-x64-$runtimeVersion.zip"
 $runtimeDir = Join-Path $work "onnxruntime-win-x64-$runtimeVersion"
@@ -49,6 +51,7 @@ go build -buildvcs=false -trimpath -ldflags "-s -w -H=windowsgui -X kuaima_cli/i
 if ($LASTEXITCODE -ne 0) { throw "Application build failed." }
 Copy-Item -LiteralPath $runtimeDLL -Destination (Join-Path $engine "onnxruntime.dll") -Force
 Copy-Item -Path (Join-Path $modelCache "*.onnx") -Destination $models -Force
+Copy-Item -LiteralPath $usageGuide -Destination $stage -Force
 
 $archive = Join-Path $dist "kuaima-cli-v$Version-windows-amd64-offline.zip"
 if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }

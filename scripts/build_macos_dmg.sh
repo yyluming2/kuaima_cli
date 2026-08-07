@@ -19,6 +19,7 @@ runtime_archive="$dist/onnxruntime-osx-universal2-$runtime_version.tgz"
 runtime_extract_dir="$dist/onnxruntime-osx-universal2-$runtime_version"
 model_name="${REMBG_MODEL_NAME:-}"
 model_url="${REMBG_MODEL_URL:-}"
+usage_guide="$root/快马AI使用说明.txt"
 
 if [[ -z "$version" && -f "$root/internal/app/version.go" ]]; then
   version="$(sed -nE 's/.*AppVersion[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$root/internal/app/version.go" | head -n 1)"
@@ -159,6 +160,7 @@ iconutil -c icns "$iconset_dir" -o "$app_icon"
 rm -rf "$iconset_dir"
 
 ln -s /Applications "$stage/Applications"
+cp "$usage_guide" "$stage/"
 
 cat > "$contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
