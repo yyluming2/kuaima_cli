@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $output = [IO.Path]::GetFullPath((Join-Path $root $OutputDirectory))
 $dist = [IO.Path]::GetFullPath((Join-Path $root "dist"))
+$runtimeVersion = (Get-Content -LiteralPath (Join-Path $PSScriptRoot "onnxruntime-version.txt") -Raw).Trim()
 if (-not $output.StartsWith($dist + [IO.Path]::DirectorySeparatorChar)) {
     throw "The rembg engine output must stay inside dist: $output"
 }
@@ -35,7 +36,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage "models") | Out-Null
 $runtimeCandidates = @(
     (Join-Path $output "onnxruntime.dll"),
     (Join-Path $output "_internal\onnxruntime\capi\onnxruntime.dll"),
-    (Join-Path $dist "rembg-build-windows-go\onnxruntime-win-x64-1.28.0\lib\onnxruntime.dll")
+    (Join-Path $dist "rembg-build-windows-go\onnxruntime-win-x64-$runtimeVersion\lib\onnxruntime.dll")
 )
 $runtimeDLL = $runtimeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $runtimeDLL) { throw "onnxruntime.dll was not found. Run 'make offline_windows' once or place it in $output." }

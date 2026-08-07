@@ -23,7 +23,7 @@ ifeq ($(OS),Windows_NT)
 	$(BUILD_REMBG_CMD)
 endif
 
-offline_windows:
+build_win:
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build_offline_windows.ps1 -Version "$(VERSION)"
 
 ifeq ($(OS),Windows_NT)
