@@ -16,8 +16,8 @@ models_dir="$engine_dir/models"
 version="${VERSION:-}"
 runtime_version_file="$root/scripts/onnxruntime-version.txt"
 runtime_version="${ONNXRUNTIME_VERSION:-$(tr -d '[:space:]' < "$runtime_version_file")}"
-runtime_archive="$dist/onnxruntime-osx-universal2-$runtime_version.tgz"
-runtime_extract_dir="$dist/onnxruntime-osx-universal2-$runtime_version"
+runtime_archive="$dist/onnxruntime-osx-arm64-$runtime_version.tgz"
+runtime_extract_dir="$dist/onnxruntime-osx-arm64-$runtime_version"
 model_name="${REMBG_MODEL_NAME:-}"
 model_url="${REMBG_MODEL_URL:-}"
 usage_guide="$root/快马AI使用说明.txt"
@@ -65,7 +65,7 @@ chmod +x "$universal_bin" "$engine_universal_bin"
 
 if [[ ! -f "$runtime_archive" ]]; then
   curl --fail --location --retry 3 \
-    "https://github.com/microsoft/onnxruntime/releases/download/v$runtime_version/onnxruntime-osx-universal2-$runtime_version.tgz" \
+    "https://github.com/microsoft/onnxruntime/releases/download/v$runtime_version/onnxruntime-osx-arm64-$runtime_version.tgz" \
     --output "$runtime_archive"
 fi
 if [[ ! -f "$runtime_extract_dir/lib/libonnxruntime.dylib" ]]; then
