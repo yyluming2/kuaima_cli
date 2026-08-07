@@ -1361,17 +1361,34 @@
 
   .retouch-drop-hint { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; border: 3px dashed #2563eb; background: rgba(239, 246, 255, .88); color: #1d4ed8; font-weight: 700; pointer-events: none; }
   .retouch-drop-hint[hidden], .retouch-batch[hidden] { display: none; }
-  .retouch-batch { position: absolute; right: 18px; bottom: 18px; z-index: 5; width: min(360px, calc(100% - 36px)); max-height: 45%; overflow: auto; padding: 12px; border: 1px solid rgba(82, 103, 132, .18); border-radius: 10px; background: rgba(255, 255, 255, .96); box-shadow: 0 10px 32px rgba(15, 23, 42, .2); }
+  .retouch-batch { position: absolute; left: 50%; top: 50%; z-index: 22; width: min(760px, calc(100% - 48px)); max-height: min(72%, 680px); overflow: auto; padding: 18px; border: 1px solid rgba(82, 103, 132, .18); border-radius: 14px; background: rgba(255, 255, 255, .98); box-shadow: 0 18px 60px rgba(15, 23, 42, .28); transform: translate(-50%, -50%); }
   .retouch-batch-head { width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
   .retouch-batch-head span { text-align: right; font-size: 12px; color: var(--muted); }
-  .retouch-batch-body { margin-top: 8px; }
-  .retouch-batch.collapsed { width: auto; }
+  .retouch-batch-body { margin-top: 14px; }
+  .retouch-batch.collapsed { left: auto; right: 18px; top: auto; bottom: 18px; width: auto; transform: none; }
   .retouch-batch.collapsed .retouch-batch-body { display: none; }
   .retouch-batch.collapsed .retouch-batch-head i { transform: rotate(-90deg); }
-  .retouch-batch-list { display: grid; gap: 5px; margin-bottom: 8px; }
-  .retouch-batch-item { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 7px; font-size: 12px; }
-  .retouch-batch-item img { width: 36px; height: 36px; object-fit: contain; background: #eef2f7; }
-  .retouch-batch-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .retouch-batch-list { display: grid; gap: 10px; margin-bottom: 12px; }
+  .retouch-batch-item { display: grid; grid-template-columns: 280px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px; border: 1px solid rgba(82,103,132,.14); border-radius: 10px; font-size: 12px; }
+  .retouch-batch-previews { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .retouch-batch-previews figure { min-width: 0; margin: 0; }
+  .retouch-batch-thumb { display: grid; place-items: center; height: 104px; overflow: hidden; border-radius: 7px; background: #eef2f7; }
+  .retouch-batch-result { background-color: #fff; background-image: linear-gradient(45deg,#d7dce2 25%,transparent 25%),linear-gradient(-45deg,#d7dce2 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#d7dce2 75%),linear-gradient(-45deg,transparent 75%,#d7dce2 75%); background-position: 0 0,0 8px,8px -8px,-8px 0; background-size: 16px 16px; }
+  .retouch-batch-thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .retouch-batch-thumb span { padding: 6px; border-radius: 5px; background: rgba(255,255,255,.82); color: var(--muted); }
+  .retouch-batch-previews figcaption { margin-top: 4px; color: var(--muted); text-align: center; }
+  .retouch-batch-meta { display: grid; min-width: 0; gap: 5px; }
+  .retouch-batch-meta strong, .retouch-batch-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .retouch-batch-meta span { color: var(--muted); }
+  .retouch-batch-meta .retouch-batch-error { color: #dc2626; white-space: normal; }
+  .fine-editor.retouch-batch-processing::after { content: ""; position: absolute; inset: 0; z-index: 21; border-radius: inherit; background: rgba(226,232,240,.72); backdrop-filter: blur(2px); cursor: wait; }
+  .fine-editor.retouch-batch-processing .retouch-batch { cursor: wait; }
+
+  @media (max-width: 720px) {
+    .retouch-batch { width: calc(100% - 24px); padding: 12px; }
+    .retouch-batch-item { grid-template-columns: 1fr auto; }
+    .retouch-batch-previews { grid-column: 1 / -1; }
+  }
 
   @media (max-width: 900px) {
     .fine-editor-head {

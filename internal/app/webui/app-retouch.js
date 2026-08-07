@@ -94,7 +94,14 @@
   }
   function setBusy(busy, batch = false) {
     state.busy = busy; el("retouchBusy").hidden = !busy || batch;
-    el("retouchEditor").querySelectorAll("button,input,select").forEach((item) => { if (!item.closest(".retouch-batch")) item.disabled = busy; });
+    const batchProcessing = el("fineEditor").classList.contains("retouch-batch-processing");
+    el("fineEditor").classList.toggle("retouch-batch-processing", busy && batch);
+    el("fineEditor").setAttribute("aria-busy", String(busy));
+    const controls = batch || batchProcessing ? el("fineEditor") : el("retouchEditor");
+    controls.querySelectorAll("button,input,select,textarea").forEach((item) => {
+      if (busy) { item.dataset.retouchWasDisabled = String(item.disabled); item.disabled = true; }
+      else { item.disabled = item.dataset.retouchWasDisabled === "true"; delete item.dataset.retouchWasDisabled; }
+    });
     if (!busy) updateHistoryButtons();
   }
   function colorDistance(data, a, b) {
@@ -242,11 +249,12 @@
   }
   async function processBatch(files) {
     const images = Array.from(files || []).filter((file) => String(file.type || "").startsWith("image/")); if (!images.length) return;
-	state.batch.forEach((item) => { if (item.url) URL.revokeObjectURL(item.url); });
-    state.batch = []; state.batchDone = false; el("retouchBatch").hidden = false; el("retouchBatch").classList.remove("collapsed"); renderBatch();
+	state.batch.forEach((item) => { if (item.url) URL.revokeObjectURL(item.url); if (item.originalURL) URL.revokeObjectURL(item.originalURL); });
+    state.batch = images.map((file) => ({ name: file.name.replace(/\.[^.]+$/, "") + "-cutout.png", originalName: file.name, originalURL: URL.createObjectURL(file), status: "等待中" }));
+    state.batchDone = false; el("retouchBatch").hidden = false; el("retouchBatch").classList.remove("collapsed"); renderBatch();
     setBusy(true, true);
     for (let i = 0; i < images.length; i++) {
-      const file = images[i]; el("retouchBatchStatus").textContent = (i + 1) + " / " + images.length;
+	  const file = images[i], item = state.batch[i]; item.status = "处理中"; el("retouchBatchStatus").textContent = (i + 1) + " / " + images.length; renderBatch();
 	  let out = null;
 	  try {
 		const image = await fileImage(file); out = document.createElement("canvas"); out.width = image.naturalWidth; out.height = image.naturalHeight; out.getContext("2d").drawImage(image, 0, 0); image.src = "";
@@ -254,8 +262,8 @@
         // a safe request size. The engine output remains full-size PNG.
         const upload = await batchUploadBlob(out);
         try { await rembgCanvas(out, upload, true); } catch (error) { if (!error.unavailable) throw error; cutoutCanvas(out, el("retouchAutoCenter").checked, el("retouchBackground").value); }
-        const blob = await new Promise((resolve) => out.toBlob(resolve, "image/png")); state.batch.push({ name: file.name.replace(/\.[^.]+$/, "") + "-cutout.png", blob, url: URL.createObjectURL(blob) }); renderBatch();
-	  } catch (error) { state.batch.push({ name: file.name, error: error?.message || "抠图失败" }); renderBatch(); }
+		const blob = await new Promise((resolve) => out.toBlob(resolve, "image/png")); item.blob = blob; item.url = URL.createObjectURL(blob); item.status = "已完成"; renderBatch();
+	  } catch (error) { item.error = error?.message || "抠图失败"; item.status = "失败"; renderBatch(); }
 	  finally { if (out) out.width = out.height = 1; }
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
@@ -266,7 +274,7 @@
   }
   function renderBatch() {
     const escape = (value) => String(value || "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-    el("retouchBatchList").innerHTML = state.batch.map((item, i) => '<div class="retouch-batch-item" title="' + escape(item.error || item.name) + '">' + (item.url ? '<img src="' + item.url + '" alt="">' : '<span></span>') + '<span>' + escape(item.name) + '</span><button class="btn small" data-batch-download="' + i + '" ' + (item.error ? 'disabled' : '') + '>' + (item.error ? '失败' : '下载') + '</button></div>').join("");
+    el("retouchBatchList").innerHTML = state.batch.map((item, i) => '<div class="retouch-batch-item" title="' + escape(item.error || item.name) + '"><div class="retouch-batch-previews"><figure><div class="retouch-batch-thumb"><img src="' + item.originalURL + '" alt="原图预览"></div><figcaption>原图</figcaption></figure><figure><div class="retouch-batch-thumb retouch-batch-result">' + (item.url ? '<img src="' + item.url + '" alt="抠图结果预览">' : '<span>' + escape(item.status) + '</span>') + '</div><figcaption>抠图结果</figcaption></figure></div><div class="retouch-batch-meta"><strong>' + escape(item.originalName) + '</strong>' + (item.error ? '<span class="retouch-batch-error">' + escape(item.error) + '</span>' : '<span>' + escape(item.status) + '</span>') + '</div><button class="btn small" data-batch-download="' + i + '" ' + (!item.blob || state.busy ? 'disabled' : '') + '>' + (item.error ? '失败' : '下载') + '</button></div>').join("");
     el("downloadRetouchBatch").hidden = !state.batchDone || !state.batch.some((item) => item.blob);
   }
   function saveBatchItem(item) { if (!item || !item.url) return; const a = document.createElement("a"); a.href = item.url; a.download = item.name; a.click(); }
@@ -394,6 +402,7 @@
     overlay().addEventListener("pointerup", finish); overlay().addEventListener("pointercancel", finish);
     window.addEventListener("keydown", (event) => {
       if (el("retouchEditor").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable) return;
+      if (state.busy) return;
       const command = event.ctrlKey || event.metaKey, key = event.key.toLowerCase();
       if (command && key === "z") { event.preventDefault(); event.shiftKey ? redo() : undo(); return; }
       if (command && key === "y") { event.preventDefault(); redo(); return; }
