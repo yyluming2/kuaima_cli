@@ -123,6 +123,9 @@ func TestCutoutModelName(t *testing.T) {
 	if got := downloadedCutoutModelName("", `attachment; filename="birefnet.onnx"`, time.Time{}); got != "birefnet.onnx" {
 		t.Fatalf("content-disposition model name = %q", got)
 	}
+	if got := cutoutModelLogURL("https://example.com/model?id=secret&token=hidden"); got != "https://example.com/model" {
+		t.Fatalf("log URL leaked query or was malformed: %q", got)
+	}
 	for _, value := range []string{"file:///model.onnx", "https://user:pass@example.com/model.onnx"} {
 		if _, err := cutoutModelName(value); err == nil {
 			t.Fatalf("expected %q to be rejected", value)

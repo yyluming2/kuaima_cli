@@ -287,11 +287,23 @@ func downloadedCutoutModelName(suggested, contentDisposition string, now time.Ti
 	return "model-" + now.Format("20060102-150405") + ".onnx"
 }
 
+func cutoutModelLogURL(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "invalid-url"
+	}
+	// Download queries commonly contain temporary credentials or signatures.
+	return parsed.Scheme + "://" + parsed.Host + parsed.EscapedPath()
+}
+
 func (s *webUIServer) validateCutoutModel(ctx context.Context, modelName string) error {
 	if s.cutoutValidator != nil {
 		return s.cutoutValidator(ctx, modelName)
 	}
-	validation := exec.CommandContext(ctx, s.rembgPath, "--validate-model", "--model", modelName)
+	// --self-test is supported by both old and new bundled engines. Besides
+	// loading the ONNX graph, it runs one generated image through the model,
+	// which catches unsupported operators and incompatible output layouts too.
+	validation := exec.CommandContext(ctx, s.rembgPath, "--self-test", "--model", modelName)
 	validation.Env = append(os.Environ(), "MODEL_CHECKSUM_DISABLED=1")
 	output, err := validation.CombinedOutput()
 	if err == nil {
@@ -321,6 +333,7 @@ func (s *webUIServer) handleCutoutModelDownload(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.logCutout("model download requested source=%s suggested_name=%q remote=%s", cutoutModelLogURL(input.URL), name, r.RemoteAddr)
 	modelsDir, ok := s.cutoutModelsDir()
 	if !ok {
 		writeError(w, http.StatusServiceUnavailable, "离线抠图引擎未包含在安装包中")
@@ -346,11 +359,13 @@ func (s *webUIServer) handleCutoutModelDownload(w http.ResponseWriter, r *http.R
 	}
 	response, err := client.Do(req)
 	if err != nil {
+		s.logCutout("model download connection failed source=%s error=%q", cutoutModelLogURL(input.URL), err.Error())
 		writeError(w, http.StatusBadGateway, "模型下载失败: "+err.Error())
 		return
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		s.logCutout("model download rejected source=%s status=%d content_type=%q", cutoutModelLogURL(input.URL), response.StatusCode, response.Header.Get("Content-Type"))
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("模型下载失败: 远端返回 HTTP %d", response.StatusCode))
 		return
 	}
@@ -359,6 +374,7 @@ func (s *webUIServer) handleCutoutModelDownload(w http.ResponseWriter, r *http.R
 		return
 	}
 	name = downloadedCutoutModelName(name, response.Header.Get("Content-Disposition"), time.Now())
+	s.logCutout("model download started source=%s final_source=%s name=%q content_length=%d content_type=%q disposition=%q", cutoutModelLogURL(input.URL), cutoutModelLogURL(response.Request.URL.String()), name, response.ContentLength, response.Header.Get("Content-Type"), response.Header.Get("Content-Disposition"))
 	temporary, err := os.CreateTemp(modelsDir, ".download-*.onnx")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "无法写入 models 目录: "+err.Error())
@@ -405,10 +421,12 @@ func (s *webUIServer) handleCutoutModelDownload(w http.ResponseWriter, r *http.R
 	}
 	closeErr := temporary.Close()
 	if copyErr != nil || closeErr != nil {
+		s.logCutout("model download interrupted name=%q downloaded=%d copy_error=%v close_error=%v", name, written, copyErr, closeErr)
 		emit(map[string]any{"error": "模型下载中断"})
 		return
 	}
 	if written > maxCutoutModelSize {
+		s.logCutout("model download too large name=%q downloaded=%d", name, written)
 		emit(map[string]any{"error": "模型文件超过 5 GB"})
 		return
 	}
@@ -419,18 +437,22 @@ func (s *webUIServer) handleCutoutModelDownload(w http.ResponseWriter, r *http.R
 		if len(runes) > 300 {
 			message = string(runes[:300])
 		}
+		s.logCutout("model validation failed name=%q size=%d engine=%q error=%q", name, written, s.rembgPath, validationErr.Error())
 		emit(map[string]any{"error": "模型无法加载，可能下载链接不是 ONNX 文件，或模型与当前抠图引擎不兼容：" + message})
 		return
 	}
 	destination := filepath.Join(modelsDir, name)
 	if _, err := os.Stat(destination); err == nil {
+		s.logCutout("model save conflict name=%q size=%d", name, written)
 		emit(map[string]any{"error": "models 目录中已存在同名模型"})
 		return
 	}
 	if err := os.Rename(temporaryName, destination); err != nil {
+		s.logCutout("model save failed name=%q size=%d error=%q", name, written, err.Error())
 		emit(map[string]any{"error": "保存模型失败: " + err.Error()})
 		return
 	}
+	s.logCutout("model download completed name=%q size=%d destination=%q", name, written, destination)
 	emit(map[string]any{"name": name, "size": written, "done": true})
 }
 

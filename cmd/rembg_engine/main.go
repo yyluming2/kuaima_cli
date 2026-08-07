@@ -33,7 +33,6 @@ func run() error {
 	model := flag.String("model", "", "model name or ONNX path")
 	edge := flag.String("edge", "product", "none, product, or fine")
 	selfTest := flag.Bool("self-test", false, "run with a generated image")
-	validateModel := flag.Bool("validate-model", false, "load and inspect the model, then exit")
 	worker := flag.Bool("worker", false, "serve length-prefixed images on stdin/stdout")
 	runtimePath := flag.String("runtime", "", "path to ONNX Runtime shared library")
 	flag.Parse()
@@ -66,9 +65,6 @@ func run() error {
 		return err
 	}
 	defer runner.close()
-	if *validateModel {
-		return nil
-	}
 	if *worker {
 		return runWorker(runner, *edge)
 	}

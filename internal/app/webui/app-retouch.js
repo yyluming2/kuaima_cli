@@ -25,8 +25,8 @@
       if (!response.ok) throw new Error("检测模型失败");
       const body = await response.json(), profiles = Array.isArray(body.profiles) ? body.profiles : [];
       if (!profiles.length) {
-        select.replaceChildren(new Option("未下载抠图模型", "")); select.disabled = true; apply.disabled = true; missing.hidden = false; missing.open = true; state.profileNames = {};
-        el("retouchModelManagerHint").firstChild.textContent = "没有检测到抠图模型。可从 ";
+        select.replaceChildren(new Option("首次使用请先下载抠图模型", "")); select.disabled = true; apply.disabled = true; missing.hidden = false; missing.open = true; state.profileNames = {};
+        el("retouchModelManagerHint").firstChild.textContent = "可从 ";
         return;
       }
       const previous = select.value;
