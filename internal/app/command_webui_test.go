@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func webUITestUsageHandler(group string, next http.HandlerFunc) http.HandlerFunc {
@@ -108,6 +110,46 @@ func TestWebUICutoutProfiles(t *testing.T) {
 	}
 	if strings.Contains(rr.Body.String(), "silueta") {
 		t.Fatalf("absent model leaked into response: %s", rr.Body.String())
+	}
+}
+
+func TestCutoutModelName(t *testing.T) {
+	if got, err := cutoutModelName("https://example.com/models/My%20RMBG.onnx?download=1"); err != nil || got != "My RMBG.onnx" {
+		t.Fatalf("cutoutModelName = %q, %v", got, err)
+	}
+	if got, err := cutoutModelName("https://example.com/download?id=123"); err != nil || got != "" {
+		t.Fatalf("extensionless download URL = %q, %v; want empty suggestion", got, err)
+	}
+	if got := downloadedCutoutModelName("", `attachment; filename="birefnet.onnx"`, time.Time{}); got != "birefnet.onnx" {
+		t.Fatalf("content-disposition model name = %q", got)
+	}
+	for _, value := range []string{"file:///model.onnx", "https://user:pass@example.com/model.onnx"} {
+		if _, err := cutoutModelName(value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+}
+
+func TestWebUIDownloadCutoutModel(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("onnx model"))
+	}))
+	defer remote.Close()
+	dir := t.TempDir()
+	engine := filepath.Join(dir, "rembg-engine.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/image/remove-background/models/download", strings.NewReader(`{"url":"`+remote.URL+`/rmbg.onnx"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	(&webUIServer{rembgPath: engine, cutoutValidator: func(context.Context, string) error { return nil }}).handleCutoutModelDownload(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("download failed: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "models", "rmbg.onnx"))
+	if err != nil || string(data) != "onnx model" {
+		t.Fatalf("downloaded model = %q, %v", data, err)
 	}
 }
 

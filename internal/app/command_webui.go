@@ -36,6 +36,7 @@ type webUIServer struct {
 	rembgPath       string
 	rembgWorkerMu   sync.Mutex
 	rembgWorker     *cutoutWorker
+	cutoutValidator func(context.Context, string) error
 	cutoutResultsMu sync.Mutex
 	cutoutResults   map[string]cutoutResult
 	diagnosticLog   io.Writer
@@ -200,6 +201,8 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/output/open", s.handleOpenOutputDir)
 	mux.HandleFunc("/api/image/remove-background", s.handleRemoveBackground)
 	mux.HandleFunc("/api/image/remove-background/profiles", s.handleCutoutProfiles)
+	mux.HandleFunc("/api/image/remove-background/models/download", s.handleCutoutModelDownload)
+	mux.HandleFunc("/api/image/remove-background/models/open", s.handleOpenCutoutModelsDir)
 	mux.HandleFunc("/api/image/remove-background/result/", s.handleCutoutResult)
 	mux.HandleFunc("/outputs/", s.handleOutputFile)
 	assets, err := fs.Sub(webUIAssets, "webui")

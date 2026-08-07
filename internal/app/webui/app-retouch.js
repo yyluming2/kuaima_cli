@@ -18,13 +18,20 @@
     const displayWidth = Math.max(1, Math.round(state.width * state.zoom)), displayHeight = Math.max(1, Math.round(state.height * state.zoom));
     el("retouchImageInfo").textContent = "" + displayWidth + " × " + displayHeight + " · " + Math.round(state.zoom * 100) + "% · " + operationMode();
   }
-  async function loadCutoutProfiles() {
+  async function loadCutoutProfiles(keepManagerOpen = false) {
+    const select = el("retouchCutoutProfile"), missing = el("retouchModelMissing"), apply = el("retouchApplyCutout");
     try {
       const response = await fetch("/api/image/remove-background/profiles", { cache: "no-store" });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("检测模型失败");
       const body = await response.json(), profiles = Array.isArray(body.profiles) ? body.profiles : [];
-      if (!profiles.length) return;
-      const select = el("retouchCutoutProfile"), previous = select.value;
+      if (!profiles.length) {
+        select.replaceChildren(new Option("未下载抠图模型", "")); select.disabled = true; apply.disabled = true; missing.hidden = false; missing.open = true; state.profileNames = {};
+        el("retouchModelManagerHint").firstChild.textContent = "没有检测到抠图模型。可从 ";
+        return;
+      }
+      const previous = select.value;
+      select.disabled = false; apply.disabled = false; missing.hidden = false; missing.open = keepManagerOpen;
+      el("retouchModelManagerHint").firstChild.textContent = "已检测到 " + profiles.length + " 个模型，还可从 ";
       select.replaceChildren(); state.profileNames = {};
       profiles.forEach((profile) => {
         const option = document.createElement("option"); option.value = profile.id; option.textContent = profile.label;
@@ -32,7 +39,35 @@
         select.appendChild(option); state.profileNames[profile.id] = profile.label;
       });
       if (!select.value) select.value = profiles.find((profile) => profile.default)?.id || profiles[0].id;
-    } catch (_) { }
+    } catch (_) { select.replaceChildren(new Option("模型检测失败", "")); select.disabled = true; apply.disabled = true; missing.hidden = false; }
+  }
+  async function downloadCutoutModel() {
+    const input = el("retouchModelURL"), button = el("retouchDownloadModel"), status = el("retouchModelDownloadStatus"), progress = el("retouchModelDownloadProgress"), url = input.value.trim();
+    if (!url) { status.textContent = "请先粘贴 .onnx 模型下载链接"; input.focus(); return; }
+    button.disabled = true; input.disabled = true; progress.hidden = false; progress.removeAttribute("value"); status.textContent = "正在连接下载地址…";
+    try {
+      const response = await fetch("/api/image/remove-background/models/download", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || body.message || "模型下载失败"); }
+      const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = "", result = null;
+      const consume = (line) => {
+        if (!line.trim()) return;
+        const event = JSON.parse(line); if (event.error) throw new Error(event.error);
+        if (event.total > 0) { progress.max = event.total; progress.value = Math.min(event.downloaded || 0, event.total); status.textContent = event.validating ? "下载完成，正在检查模型是否可加载…" : "正在下载：" + Math.round((event.downloaded || 0) * 100 / event.total) + "%（" + formatBytes(event.downloaded || 0) + " / " + formatBytes(event.total) + "）"; }
+        else if (event.validating) status.textContent = "下载完成，正在检查模型是否可加载…";
+        else if (event.downloaded != null) status.textContent = "正在下载：" + formatBytes(event.downloaded) + "（总大小未知）";
+        if (event.done) result = event;
+      };
+      while (true) { const chunk = await reader.read(); pending += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done }); const lines = pending.split("\n"); pending = lines.pop(); lines.forEach(consume); if (chunk.done) break; }
+      if (pending.trim()) consume(pending); if (!result) throw new Error("模型下载未正常完成");
+      status.textContent = "模型检查通过，下载完成：" + result.name; input.value = ""; await loadCutoutProfiles(true);
+    } catch (error) { status.textContent = error.message || "模型下载失败"; }
+    finally { button.disabled = false; input.disabled = false; }
+  }
+  function formatBytes(value) { const bytes = Math.max(0, Number(value) || 0); return bytes >= 1024 ** 3 ? (bytes / 1024 ** 3).toFixed(2) + " GB" : bytes >= 1024 ** 2 ? (bytes / 1024 ** 2).toFixed(1) + " MB" : bytes >= 1024 ? (bytes / 1024).toFixed(1) + " KB" : bytes + " B"; }
+  async function openCutoutModels() {
+    const status = el("retouchModelDownloadStatus");
+    try { const response = await fetch("/api/image/remove-background/models/open", { method: "POST" }), body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "无法打开 models 文件夹"); status.textContent = "已打开 models 文件夹"; }
+    catch (error) { status.textContent = error.message || "无法打开 models 文件夹"; }
   }
   function brushSize() { return Math.max(2, Number(el("retouchBrushSize").value) || 42); }
   function point(event) {
@@ -616,6 +651,8 @@
     }));
     el("retouchClearRegion").addEventListener("click", clearRegion);
     el("retouchApplyCutout").addEventListener("click", applyCutout);
+    el("retouchDownloadModel").addEventListener("click", downloadCutoutModel);
+    el("retouchOpenModels").addEventListener("click", openCutoutModels);
     const syncBackgroundColor = () => {
       const custom = el("retouchBackground").value === "custom";
       el("retouchBackgroundColorRow").hidden = !custom;

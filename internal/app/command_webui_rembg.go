@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +25,7 @@ import (
 )
 
 const maxRembgInputSize = 50 << 20
+const maxCutoutModelSize = int64(5 << 30)
 
 type cutoutResult struct {
 	data    []byte
@@ -244,6 +247,212 @@ func (s *webUIServer) handleCutoutProfiles(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(map[string]any{"profiles": s.cutoutProfiles()})
+}
+
+func (s *webUIServer) cutoutModelsDir() (string, bool) {
+	if strings.TrimSpace(s.rembgPath) == "" || !strings.HasPrefix(strings.ToLower(filepath.Base(s.rembgPath)), "rembg-engine") {
+		return "", false
+	}
+	return filepath.Join(filepath.Dir(s.rembgPath), "models"), true
+}
+
+func cutoutModelName(rawURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+		return "", fmt.Errorf("请输入有效的 HTTP(S) 模型下载链接")
+	}
+	name, err := url.PathUnescape(filepath.Base(parsed.Path))
+	if err == nil && filepath.Base(name) == name && strings.HasSuffix(strings.ToLower(name), ".onnx") {
+		return name, nil
+	}
+	for _, key := range []string{"filename", "file", "name"} {
+		candidate := filepath.Base(strings.TrimSpace(parsed.Query().Get(key)))
+		if candidate != "." && strings.HasSuffix(strings.ToLower(candidate), ".onnx") {
+			return candidate, nil
+		}
+	}
+	return "", nil
+}
+
+func downloadedCutoutModelName(suggested, contentDisposition string, now time.Time) string {
+	if suggested != "" {
+		return suggested
+	}
+	if _, params, err := mime.ParseMediaType(contentDisposition); err == nil {
+		candidate := filepath.Base(strings.TrimSpace(params["filename"]))
+		if candidate != "." && strings.HasSuffix(strings.ToLower(candidate), ".onnx") {
+			return candidate
+		}
+	}
+	return "model-" + now.Format("20060102-150405") + ".onnx"
+}
+
+func (s *webUIServer) validateCutoutModel(ctx context.Context, modelName string) error {
+	if s.cutoutValidator != nil {
+		return s.cutoutValidator(ctx, modelName)
+	}
+	validation := exec.CommandContext(ctx, s.rembgPath, "--validate-model", "--model", modelName)
+	validation.Env = append(os.Environ(), "MODEL_CHECKSUM_DISABLED=1")
+	output, err := validation.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	message := decodeEngineError(output)
+	if message == "" {
+		message = err.Error()
+	}
+	return fmt.Errorf("%s", message)
+}
+
+func (s *webUIServer) handleCutoutModelDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var input struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "模型下载参数无效")
+		return
+	}
+	name, err := cutoutModelName(input.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	modelsDir, ok := s.cutoutModelsDir()
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "离线抠图引擎未包含在安装包中")
+		return
+	}
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "无法创建 models 目录: "+err.Error())
+		return
+	}
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 || (req.URL.Scheme != "http" && req.URL.Scheme != "https") || req.URL.User != nil {
+				return fmt.Errorf("模型下载重定向无效")
+			}
+			return nil
+		},
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, strings.TrimSpace(input.URL), nil)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "模型下载链接无效")
+		return
+	}
+	response, err := client.Do(req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "模型下载失败: "+err.Error())
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("模型下载失败: 远端返回 HTTP %d", response.StatusCode))
+		return
+	}
+	if response.ContentLength > maxCutoutModelSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "模型文件超过 5 GB")
+		return
+	}
+	name = downloadedCutoutModelName(name, response.Header.Get("Content-Disposition"), time.Now())
+	temporary, err := os.CreateTemp(modelsDir, ".download-*.onnx")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "无法写入 models 目录: "+err.Error())
+		return
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Cache-Control", "no-store")
+	encoder := json.NewEncoder(w)
+	flusher, _ := w.(http.Flusher)
+	emit := func(value map[string]any) {
+		_ = encoder.Encode(value)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	total := response.ContentLength
+	if total < 0 {
+		total = 0
+	}
+	emit(map[string]any{"downloaded": int64(0), "total": total})
+	buffer := make([]byte, 256<<10)
+	limited := io.LimitReader(response.Body, maxCutoutModelSize+1)
+	var written int64
+	var copyErr error
+	for {
+		count, readErr := limited.Read(buffer)
+		if count > 0 {
+			if _, err := temporary.Write(buffer[:count]); err != nil {
+				copyErr = err
+				break
+			}
+			written += int64(count)
+			emit(map[string]any{"downloaded": written, "total": total})
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			copyErr = readErr
+			break
+		}
+	}
+	closeErr := temporary.Close()
+	if copyErr != nil || closeErr != nil {
+		emit(map[string]any{"error": "模型下载中断"})
+		return
+	}
+	if written > maxCutoutModelSize {
+		emit(map[string]any{"error": "模型文件超过 5 GB"})
+		return
+	}
+	emit(map[string]any{"downloaded": written, "total": written, "validating": true})
+	if validationErr := s.validateCutoutModel(r.Context(), filepath.Base(temporaryName)); validationErr != nil {
+		message := validationErr.Error()
+		runes := []rune(message)
+		if len(runes) > 300 {
+			message = string(runes[:300])
+		}
+		emit(map[string]any{"error": "模型无法加载，可能下载链接不是 ONNX 文件，或模型与当前抠图引擎不兼容：" + message})
+		return
+	}
+	destination := filepath.Join(modelsDir, name)
+	if _, err := os.Stat(destination); err == nil {
+		emit(map[string]any{"error": "models 目录中已存在同名模型"})
+		return
+	}
+	if err := os.Rename(temporaryName, destination); err != nil {
+		emit(map[string]any{"error": "保存模型失败: " + err.Error()})
+		return
+	}
+	emit(map[string]any{"name": name, "size": written, "done": true})
+}
+
+func (s *webUIServer) handleOpenCutoutModelsDir(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	dir, ok := s.cutoutModelsDir()
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "离线抠图引擎未包含在安装包中")
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "无法创建 models 目录: "+err.Error())
+		return
+	}
+	if err := openFile(dir); err != nil {
+		writeError(w, http.StatusInternalServerError, "无法打开 models 目录: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"models_dir": dir})
 }
 
 func decodeEngineError(data []byte) string {

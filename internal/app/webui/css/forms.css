@@ -1656,6 +1656,18 @@
     background: #fff;
   }
 
+  .retouch-model-missing { max-width: 330px; padding: 8px 10px; border-radius: 8px; background: var(--surface-subtle, rgba(148, 163, 184, .12)); font-size: 12px; line-height: 1.5; }
+  .retouch-model-missing summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+  .retouch-model-manager-body { display: grid; gap: 8px; padding-top: 9px; }
+  .retouch-model-missing label { display: grid; gap: 5px; }
+  .retouch-model-missing input { width: 100%; box-sizing: border-box; }
+  .retouch-model-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .retouch-open-models { display: inline-flex; align-items: center; gap: 5px; padding: 5px 2px; border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .retouch-open-models:hover { color: #2563eb; }
+  .retouch-open-models svg { width: 15px; height: 15px; }
+  .retouch-model-missing progress { width: 100%; }
+  #retouchModelDownloadStatus:not(:empty) { color: var(--text-secondary, #64748b); }
+
   .retouch-color-option input[type="color"] {
     width: 42px;
     height: 30px;
