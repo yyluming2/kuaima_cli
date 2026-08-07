@@ -408,13 +408,15 @@
       </div>
       <div id="retouchEditor" class="retouch-editor-view" hidden>
         <div class="retouch-toolbar">
+          <button class="btn small active" type="button" data-retouch-tool="pan" title="拖动画布（H）"><i
+              data-lucide="hand"></i><span></span></button>
           <details id="retouchPaintMenu" class="retouch-menu retouch-tool-picker">
-            <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">涂抹消除</span><i
+            <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">消除</span><i
                 data-lucide="chevron-down"></i></summary>
             <div class="retouch-popover"><strong>涂抹模式</strong>
               <div class="retouch-mode-list" role="group" aria-label="涂抹模式">
                 <button class="btn small active" type="button" data-retouch-tool="erase"><i
-                    data-lucide="brush"></i><span>涂抹消除</span></button>
+                    data-lucide="brush"></i><span>自由涂抹</span></button>
                 <button class="btn small" type="button" data-retouch-tool="rect"><i
                     data-lucide="box-select"></i><span>框选消除</span></button>
                 <button class="btn small" type="button" data-retouch-tool="clone"><i
@@ -426,9 +428,9 @@
             </div>
           </details>
           <details id="retouchCutoutMenu" class="retouch-menu">
-            <summary class="btn small" data-retouch-tool="cutout"><i data-lucide="scan"></i><span>智能抠图</span><i
+            <summary class="btn small" data-retouch-tool="cutout"><i data-lucide="scan"></i><span>抠图</span><i
                 data-lucide="chevron-down"></i></summary>
-            <div class="retouch-popover retouch-cutout-popover"><strong>智能抠图设置</strong>
+            <div class="retouch-popover retouch-cutout-popover"><strong>抠图设置</strong>
               <label class="retouch-option"><span>模型</span><select id="retouchCutoutProfile">
                   <option>正在检测…</option>
                 </select></label>
@@ -441,7 +443,12 @@
                   <option value="transparent">透明</option>
                   <option value="white">纯白</option>
                   <option value="green">绿幕</option>
+                  <option value="custom">自定义颜色</option>
                 </select></label>
+              <label id="retouchBackgroundColorRow" class="retouch-option retouch-color-option" hidden><span>颜色</span>
+                <input id="retouchBackgroundColor" type="color" value="#2563eb" aria-label="自定义抠图背景颜色">
+                <output id="retouchBackgroundColorValue">#2563EB</output>
+              </label>
               <label class="retouch-option"><input id="retouchAutoCenter" type="checkbox"><span>主体居中</span></label>
               <button id="retouchApplyCutout" class="btn primary small" type="button"><i
                   data-lucide="sparkles"></i><span>开始抠图</span></button>
@@ -464,6 +471,7 @@
 
               <label class="brush-size retouch-zoom-control"><span>画布缩放</span><input id="retouchZoom" type="range"
                   min="5" max="500" value="100"></label>
+              <span class="retouch-pan-hint">按住空格拖动，或使用鼠标中键拖动画布</span>
             </div>
           </details>
           <div class="retouch-download-actions">

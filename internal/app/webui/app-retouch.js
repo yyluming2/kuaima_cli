@@ -1,5 +1,5 @@
 (function () {
-  const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "erase", drawing: false, comparing: false, busy: false, width: 0, height: 0, zoom: 1, last: null, rectStart: null, sample: null, cloneOffset: null, undo: [], redo: [], batch: [], batchDone: false, estimateTimer: 0, estimateSeq: 0, profileNames: { product: "商品" } };
+  const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "pan", drawing: false, comparing: false, busy: false, width: 0, height: 0, zoom: 1, panX: 0, panY: 0, spacePressed: false, panning: null, last: null, rectStart: null, sample: null, cloneOffset: null, undo: [], redo: [], batch: [], batchDone: false, estimateTimer: 0, estimateSeq: 0, profileNames: { product: "商品" } };
   const el = (id) => document.getElementById(id);
   const canvas = () => el("retouchCanvas");
   const overlay = () => el("retouchOverlay");
@@ -32,6 +32,7 @@
     const w = Math.round(state.width * state.zoom), h = Math.round(state.height * state.zoom);
     el("retouchCanvasWrap").style.width = w + "px";
     el("retouchCanvasWrap").style.height = h + "px";
+    el("retouchCanvasWrap").style.transform = "translate(" + state.panX + "px," + state.panY + "px)";
     [canvas(), overlay()].forEach((item) => { item.style.width = w + "px"; item.style.height = h + "px"; });
   }
   function updateHistoryButtons() {
@@ -58,9 +59,22 @@
     const image = state.redo.pop(); state.undo.push(image); restore(image); updateHistoryButtons();
   }
   function setZoom(value) {
-    state.zoom = Math.max(.25, Math.min(3, value));
+    state.zoom = Math.max(.05, Math.min(5, value));
     el("retouchZoom").value = String(Math.round(state.zoom * 100));
     resizeDisplay();
+  }
+  function backgroundColor(background) {
+    if (background === "white") return "#ffffff";
+    if (background === "green") return "#00ff00";
+    if (background === "custom") return el("retouchBackgroundColor").value || "#2563eb";
+    return "";
+  }
+  function fillBackground(target, background) {
+    const color = backgroundColor(background);
+    if (!color) return;
+    const context = target.getContext("2d");
+    context.globalCompositeOperation = "destination-over"; context.fillStyle = color;
+    context.fillRect(0, 0, target.width, target.height); context.globalCompositeOperation = "source-over";
   }
   function fitToView() {
     const area = document.querySelector(".retouch-canvas-scroll");
@@ -170,7 +184,7 @@
       const dx = Math.round((w - (maxX - minX + 1)) / 2 - minX), dy = Math.round((h - (maxY - minY + 1)) / 2 - minY);
       context.clearRect(0, 0, w, h); context.drawImage(copy, dx, dy);
     }
-    if (background === "white") { context.globalCompositeOperation = "destination-over"; context.fillStyle = "#fff"; context.fillRect(0, 0, w, h); context.globalCompositeOperation = "source-over"; }
+    fillBackground(target, background);
     return target;
   }
   function canvasBlob(target, type = "image/png", quality) { return new Promise((resolve, reject) => target.toBlob((blob) => blob ? resolve(blob) : reject(new Error("图片编码失败")), type, quality)); }
@@ -230,7 +244,7 @@
       }
       if (maxX >= minX) { const copy = document.createElement("canvas"); copy.width = w; copy.height = h; copy.getContext("2d").drawImage(target, 0, 0); context.clearRect(0, 0, w, h); context.drawImage(copy, Math.round((w - maxX + minX - 1) / 2 - minX), Math.round((h - maxY + minY - 1) / 2 - minY)); copy.width = copy.height = 1; }
     }
-    if (background === "white") { context.globalCompositeOperation = "destination-over"; context.fillStyle = "#fff"; context.fillRect(0, 0, w, h); context.globalCompositeOperation = "source-over"; }
+    fillBackground(target, background);
   }
   async function applyCutout() {
     if (!state.width || state.busy) return;
@@ -352,14 +366,15 @@
   }
   function setTool(tool) {
     if (state.busy) return;
-    state.tool = ["cutout", "clone", "rect"].includes(tool) ? tool : "erase"; state.sample = null; state.cloneOffset = null; state.rectStart = null; clearOverlay();
+    state.tool = ["pan", "cutout", "clone", "rect"].includes(tool) ? tool : "erase"; state.sample = null; state.cloneOffset = null; state.rectStart = null; clearOverlay();
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.classList.toggle("active", button.dataset.retouchTool === state.tool));
     const names = { erase: "涂抹消除", rect: "框选消除", clone: "复制涂抹" };
     if (names[state.tool]) el("retouchPaintLabel").textContent = names[state.tool];
-    el("retouchPaintMenu").querySelector("summary").classList.toggle("active", state.tool !== "cutout");
+    el("retouchPaintMenu").querySelector("summary").classList.toggle("active", ["erase", "rect", "clone"].includes(state.tool));
     el("retouchCutoutMenu").querySelector("summary").classList.toggle("active", state.tool === "cutout");
+    document.querySelector(".retouch-canvas-scroll")?.classList.toggle("pan-tool", state.tool === "pan");
     overlay().style.pointerEvents = state.tool === "cutout" ? "none" : "auto";
-    setHint(state.tool === "cutout" ? "打开抠图设置并点击“开始抠图”" : (state.tool === "rect" ? "拖出矩形框，松开后自动消除框内内容" : (state.tool === "erase" ? "在需要移除的物体上涂抹，松开后自动修复" : "先点击取样位置，再在目标位置涂抹；按 Alt 点击可重新取样")));
+    setHint(state.tool === "pan" ? "按住并拖动画布；滚轮缩放，选择涂抹工具后可编辑图片" : (state.tool === "cutout" ? "打开抠图设置并点击“开始抠图”" : (state.tool === "rect" ? "拖出矩形框，松开后自动消除框内内容" : (state.tool === "erase" ? "在需要移除的物体上涂抹，松开后自动修复" : "先点击取样位置，再在目标位置涂抹；按 Alt 点击可重新取样"))));
   }
   function open(url) {
     if (!url) return;
@@ -369,6 +384,7 @@
     state.sourceURL = url; const image = new Image(); image.crossOrigin = "anonymous"; setHint("正在读取图片...");
     image.onload = () => {
       state.width = image.naturalWidth; state.height = image.naturalHeight;
+      state.panX = 0; state.panY = 0;
       [canvas(), overlay()].forEach((item) => { item.width = state.width; item.height = state.height; });
       ctx().drawImage(image, 0, 0); state.original = null; state.undo = []; state.redo = []; snapshot();
       // Reuse the first undo buffer as the compare image. For very large images,
@@ -387,7 +403,7 @@
     el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false; el("fineEditor").hidden = false; el("imageModal").hidden = true;
     el("retouchEmpty").hidden = false; el("retouchCanvasWrap").hidden = true; el("retouchImageInfo").textContent = "尚未打开图片";
     document.querySelectorAll("[data-editor-tab]").forEach((button) => { const active = button.dataset.editorTab === "manual"; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
-    setTool(tool); setHint("选择或拖入图片后即可开始智能抠图");
+    setTool(tool); setHint("选择或拖入图片后即可开始一键抠图");
   }
   function close() { state.drawing = false; el("fineEditor").hidden = true; }
   function init() {
@@ -403,6 +419,13 @@
     el("retouchEmpty").addEventListener("click", () => el("retouchSourceFiles").click());
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.addEventListener("click", () => setTool(button.dataset.retouchTool)));
     el("retouchApplyCutout").addEventListener("click", applyCutout);
+    const syncBackgroundColor = () => {
+      const custom = el("retouchBackground").value === "custom";
+      el("retouchBackgroundColorRow").hidden = !custom;
+      el("retouchBackgroundColorValue").value = el("retouchBackgroundColor").value.toUpperCase();
+    };
+    el("retouchBackground").addEventListener("change", syncBackgroundColor);
+    el("retouchBackgroundColor").addEventListener("input", syncBackgroundColor); syncBackgroundColor();
     el("retouchBrushSize").addEventListener("input", updateBrushValue); updateBrushValue();
     function syncExportSize(changed) {
       if (!state.width) return;
@@ -431,6 +454,26 @@
     el("retouchCompare").addEventListener("pointerup", stopCompare); el("retouchCompare").addEventListener("pointerleave", stopCompare); el("retouchCompare").addEventListener("pointercancel", stopCompare);
     el("retouchSourceFiles").addEventListener("change", (event) => { const files = Array.from(event.target.files || []); event.target.value = ""; if (files.length === 1) { state.sourceBytes = files[0].size; open(URL.createObjectURL(files[0])); } else processBatch(files); });
     const dropArea = document.querySelector(".retouch-canvas-scroll");
+    dropArea.addEventListener("pointerdown", (event) => {
+      if (!state.width || state.busy || !(event.button === 1 || (event.button === 0 && (state.spacePressed || state.tool === "pan")))) return;
+      event.preventDefault(); event.stopPropagation();
+      state.panning = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: dropArea.scrollLeft, top: dropArea.scrollTop, panX: state.panX, panY: state.panY };
+      dropArea.setPointerCapture(event.pointerId); dropArea.classList.add("panning");
+    }, true);
+    dropArea.addEventListener("pointermove", (event) => {
+      if (!state.panning || state.panning.pointerId !== event.pointerId) return;
+      const dx = event.clientX - state.panning.x, dy = event.clientY - state.panning.y;
+      dropArea.scrollLeft = state.panning.left - dx;
+      dropArea.scrollTop = state.panning.top - dy;
+      state.panX = state.panning.panX + dx + (dropArea.scrollLeft - state.panning.left);
+      state.panY = state.panning.panY + dy + (dropArea.scrollTop - state.panning.top);
+      el("retouchCanvasWrap").style.transform = "translate(" + state.panX + "px," + state.panY + "px)";
+    });
+    const stopPan = (event) => {
+      if (!state.panning || (event.pointerId != null && state.panning.pointerId !== event.pointerId)) return;
+      state.panning = null; dropArea.classList.remove("panning");
+    };
+    dropArea.addEventListener("pointerup", stopPan); dropArea.addEventListener("pointercancel", stopPan);
     dropArea.addEventListener("wheel", (event) => {
       if (!state.width || state.busy) return;
       event.preventDefault();
@@ -479,6 +522,7 @@
       if (el("retouchEditor").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable) return;
       if (state.busy) return;
       const command = event.ctrlKey || event.metaKey, key = event.key.toLowerCase();
+      if (!command && !event.altKey && event.code === "Space") { event.preventDefault(); state.spacePressed = true; dropArea.classList.add("pan-ready"); return; }
       if (key === "control") { startCompare(); return; }
       if (command && key === "z") { event.preventDefault(); event.shiftKey ? redo() : undo(); return; }
       if (command && key === "y") { event.preventDefault(); redo(); return; }
@@ -488,13 +532,14 @@
       if (command && (event.key === "+" || event.key === "=")) { event.preventDefault(); setZoom(state.zoom * 1.25); return; }
       if (command && event.key === "-") { event.preventDefault(); setZoom(state.zoom / 1.25); return; }
       if (!command && !event.altKey && key === "j") { event.preventDefault(); setTool("erase"); return; }
+      if (!command && !event.altKey && key === "h") { event.preventDefault(); setTool("pan"); return; }
       if (!command && !event.altKey && key === "r") { event.preventDefault(); setTool("rect"); return; }
       if (!command && !event.altKey && key === "s") { event.preventDefault(); setTool("clone"); return; }
       if (!command && event.key === "[") { event.preventDefault(); changeBrush(1 / 1.2); return; }
       if (!command && event.key === "]") { event.preventDefault(); changeBrush(1.2); }
     });
-    window.addEventListener("keyup", (event) => { if (event.key === "Control") stopCompare(); });
-    window.addEventListener("blur", stopCompare);
+    window.addEventListener("keyup", (event) => { if (event.key === "Control") stopCompare(); if (event.code === "Space") { state.spacePressed = false; dropArea.classList.remove("pan-ready"); } });
+    window.addEventListener("blur", () => { stopCompare(); state.spacePressed = false; stopPan({}); dropArea.classList.remove("pan-ready"); });
   }
   window.KuaimaRetouchEditor = { open, openEmpty, close }; init();
 })();

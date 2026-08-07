@@ -1359,6 +1359,23 @@
     gap: 2px;
   }
 
+  .retouch-download-actions {
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .retouch-download-actions>.btn,
+  .retouch-download-actions>details>summary {
+    height: 34px;
+    min-height: 34px;
+    box-sizing: border-box;
+  }
+
+  .retouch-download-actions>details {
+    display: flex;
+    margin-left: -1px;
+  }
+
   .retouch-history-actions {
     margin-left: auto;
   }
@@ -1570,6 +1587,22 @@
     background: #fff;
   }
 
+  .retouch-color-option input[type="color"] {
+    width: 42px;
+    height: 30px;
+    padding: 2px;
+    border: 1px solid rgba(82, 103, 132, .2);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  .retouch-color-option output,
+  .retouch-pan-hint {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
   .retouch-replace {
     cursor: pointer;
   }
@@ -1580,6 +1613,19 @@
     overflow: auto;
     padding: 24px;
     background: #dfe5eb;
+  }
+
+  .retouch-canvas-scroll.pan-ready,
+  .retouch-canvas-scroll.pan-tool,
+  .retouch-canvas-scroll.pan-tool #retouchOverlay,
+  .retouch-canvas-scroll.pan-ready #retouchOverlay {
+    cursor: grab;
+  }
+
+  .retouch-canvas-scroll.panning,
+  .retouch-canvas-scroll.panning #retouchOverlay {
+    cursor: grabbing;
+    user-select: none;
   }
 
   .retouch-canvas-wrap {
@@ -1685,9 +1731,9 @@
   }
 
   .retouch-busy {
-    position: absolute;
+    position: fixed;
     inset: 0;
-    z-index: 8;
+    z-index: 80;
     display: flex;
     flex-direction: column;
     align-items: center;
