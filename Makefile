@@ -1,7 +1,7 @@
 APP_NAME = kuaima_cli.exe
 APP_PKG = ./cmd/kuaima_cli
 BUILD_OUTPUT = dist/$(APP_NAME)
-VERSION ?= 0.2.0
+VERSION ?= 0.3.0
 COMMON_GOFLAGS = -buildvcs=false
 RELEASE_GOFLAGS = -trimpath -ldflags "-s -w -X kuaima_cli/internal/app.AppVersion=$(VERSION)"
 RELEASE_GITHUB_SCRIPT = bash scripts/release_github.sh
