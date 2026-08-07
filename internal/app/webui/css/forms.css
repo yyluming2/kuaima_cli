@@ -1448,6 +1448,75 @@
     min-width: 260px;
   }
 
+  .retouch-tool-picker .retouch-popover {
+    min-width: 248px;
+    max-height: min(560px, calc(100vh - 150px));
+    overflow-y: auto;
+  }
+
+  .retouch-region-settings {
+    border-top: 1px solid rgba(82, 103, 132, .14);
+    padding-top: 10px;
+  }
+
+  .retouch-region-settings>summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    list-style: none;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .retouch-region-settings>summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .retouch-region-settings>summary span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .retouch-region-settings>summary i {
+    width: 15px;
+    height: 15px;
+  }
+
+  .retouch-region-settings>summary>i:last-child {
+    transition: transform .16s ease;
+  }
+
+  .retouch-region-settings[open]>summary>i:last-child {
+    transform: rotate(180deg);
+  }
+
+  .retouch-region-settings-body {
+    display: grid;
+    gap: 10px;
+    padding-top: 10px;
+  }
+
+  .retouch-region-scope {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .retouch-region-scope .btn.active {
+    color: #1d4ed8;
+    border-color: #93b4ef;
+    background: #eff6ff;
+  }
+
+  .retouch-region-hint {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
   .retouch-more-menu .retouch-popover,
   .retouch-download-menu .retouch-popover {
     right: 0;
@@ -1682,6 +1751,10 @@
     z-index: 2;
     cursor: crosshair;
     touch-action: none;
+  }
+
+  #retouchRegionOverlay {
+    pointer-events: none;
   }
 
   .retouch-clone-sample {

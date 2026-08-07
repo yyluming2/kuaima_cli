@@ -428,6 +428,26 @@
               <strong>笔刷大小</strong>
               <label class="brush-size"><span id="retouchBrushValue">42 px</span><input id="retouchBrushSize"
                   type="range" min="6" max="180" value="42"></label>
+              <details class="retouch-region-settings">
+                <summary><span><i data-lucide="shapes"></i>限制修改范围</span><i data-lucide="chevron-down"></i></summary>
+                <div class="retouch-region-settings-body">
+                  <div class="retouch-region-scope" role="group" aria-label="蒙版处理范围">
+                    <button class="btn small active" type="button" data-retouch-region-scope="inside">只处理内部</button>
+                    <button class="btn small" type="button" data-retouch-region-scope="outside">只处理外部</button>
+                  </div>
+                  <div class="retouch-mode-list" role="group" aria-label="蒙版形状">
+                    <button class="btn small" type="button" data-retouch-region-shape="rect"><i
+                        data-lucide="square"></i><span>矩形蒙版</span></button>
+                    <button class="btn small" type="button" data-retouch-region-shape="circle"><i
+                        data-lucide="circle"></i><span>圆形蒙版</span></button>
+                    <button class="btn small" type="button" data-retouch-region-shape="polygon"><i
+                        data-lucide="hexagon"></i><span>多边形蒙版</span></button>
+                  </div>
+                  <span id="retouchRegionHint" class="retouch-region-hint">选择形状后立即在图片上绘制</span>
+                  <button id="retouchClearRegion" class="btn small danger" type="button" disabled><i
+                      data-lucide="trash-2"></i><span>清除蒙版</span></button>
+                </div>
+              </details>
             </div>
           </details>
           <details id="retouchCutoutMenu" class="retouch-menu">
@@ -516,6 +536,7 @@
           </button>
           <div id="retouchCanvasWrap" class="retouch-canvas-wrap">
             <canvas id="retouchCanvas"></canvas>
+            <canvas id="retouchRegionOverlay"></canvas>
             <canvas id="retouchOverlay"></canvas>
             <button id="retouchCloneSample" class="retouch-clone-sample" type="button" aria-label="复制涂抹取样点，可拖动调整"
               hidden></button>
