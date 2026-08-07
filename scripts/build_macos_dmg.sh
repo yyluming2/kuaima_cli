@@ -83,6 +83,8 @@ if [[ -n "$model_url" || -n "$model_name" ]]; then
     curl --fail --location --retry 3 "$model_url" --output "$model_cache"
   fi
   cp "$model_cache" "$models_dir/$model_name"
+else
+  echo "No rembg model configured; packaging an empty models directory."
 fi
 
 iconset_dir="$stage/kuaima_cli.iconset"

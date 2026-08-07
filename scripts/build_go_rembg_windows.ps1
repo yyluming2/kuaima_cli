@@ -15,10 +15,9 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 # Once the Python bundle has been migrated, rebuild only the small Go EXE.
 # Models can be multiple gigabytes and must not be duplicated on every build.
 $existing = if (Test-Path -LiteralPath $output) { Get-Item -LiteralPath $output -Force } else { $null }
-$existingModels = Join-Path $output "models"
 if ($existing -and -not $existing.LinkType -and
-    (Test-Path -LiteralPath (Join-Path $output "onnxruntime.dll")) -and
-    (Get-ChildItem $existingModels -Filter "*.onnx" -ErrorAction SilentlyContinue)) {
+    (Test-Path -LiteralPath (Join-Path $output "onnxruntime.dll"))) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $output "models") | Out-Null
     $newEngine = Join-Path $output "rembg-engine.new.exe"
     $env:CGO_ENABLED = "1"
     Push-Location $root
@@ -44,10 +43,8 @@ Copy-Item -LiteralPath $runtimeDLL -Destination (Join-Path $stage "onnxruntime.d
 
 $oldModels = Join-Path $output "models"
 if (Test-Path -LiteralPath $oldModels) {
-    Copy-Item -Path (Join-Path $oldModels "*.onnx") -Destination (Join-Path $stage "models") -Force
-}
-if (-not (Get-ChildItem (Join-Path $stage "models") -Filter "*.onnx" -ErrorAction SilentlyContinue)) {
-    throw "No ONNX models were found in $oldModels."
+    Get-ChildItem -LiteralPath $oldModels -Filter "*.onnx" -File -ErrorAction SilentlyContinue |
+        Copy-Item -Destination (Join-Path $stage "models") -Force
 }
 
 $env:CGO_ENABLED = "1"
