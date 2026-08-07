@@ -408,37 +408,94 @@
       </div>
       <div id="retouchEditor" class="retouch-editor-view" hidden>
         <div class="retouch-toolbar">
-          <div class="retouch-tool-group"><span class="retouch-group-label">工具</span><div class="mask-mode-toggle" role="group" aria-label="修图工具">
-            <button class="active" type="button" data-retouch-tool="erase" title="涂抹消除 (J)">涂抹消除 <kbd>J</kbd></button>
-            <button type="button" data-retouch-tool="clone" title="取样涂抹 (S)，按 Alt 单击取样">取样涂抹 <kbd>S</kbd></button>
-            <button type="button" data-retouch-tool="cutout" title="自动识别并移除背景">智能抠图</button>
-          </div></div>
-          <div class="retouch-tool-group retouch-context" data-tool-panel="cutout" hidden><span class="retouch-group-label">抠图设置</span>
-            <label class="retouch-option"><span>模型</span><select id="retouchCutoutProfile"><option>正在检测…</option></select></label>
-            <label class="retouch-option"><span>边缘</span><select id="retouchCutoutEdge"><option value="product" selected>干净边缘</option><option value="fine">保留细节</option><option value="none">原始蒙版</option></select></label>
-            <label class="retouch-option"><span>背景</span><select id="retouchBackground"><option value="transparent">透明</option><option value="white">纯白</option></select></label>
-            <label class="retouch-option"><input id="retouchAutoCenter" type="checkbox"><span>主体居中</span></label>
-            <button id="retouchApplyCutout" class="btn primary small" type="button"><i data-lucide="sparkles"></i><span>开始抠图</span></button>
-          </div>
-          <div class="retouch-tool-group retouch-context" data-tool-panel="brush"><span class="retouch-group-label">笔刷</span>
-            <label class="brush-size"><span id="retouchBrushValue">42 px</span><input id="retouchBrushSize" type="range" min="6" max="180" value="42"></label>
-          </div>
-          <div class="retouch-tool-group retouch-view-tools"><span class="retouch-group-label">查看与历史</span>
-          <button id="retouchCompare" class="btn small" type="button" title="按住查看原图"><i data-lucide="scan-eye"></i><span>按住看原图</span></button>
-          <label class="btn small retouch-replace" for="retouchSourceFiles"><i data-lucide="images"></i><span>替换 / 批量</span></label>
+          <details id="retouchPaintMenu" class="retouch-menu retouch-tool-picker">
+            <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">涂抹消除</span><i
+                data-lucide="chevron-down"></i></summary>
+            <div class="retouch-popover"><strong>涂抹模式</strong>
+              <div class="retouch-mode-list" role="group" aria-label="涂抹模式">
+                <button class="btn small active" type="button" data-retouch-tool="erase"><i
+                    data-lucide="brush"></i><span>涂抹消除</span></button>
+                <button class="btn small" type="button" data-retouch-tool="rect"><i
+                    data-lucide="box-select"></i><span>框选消除</span></button>
+                <button class="btn small" type="button" data-retouch-tool="clone"><i
+                    data-lucide="stamp"></i><span>复制涂抹</span></button>
+              </div>
+              <strong>笔刷大小</strong>
+              <label class="brush-size"><span id="retouchBrushValue">42 px</span><input id="retouchBrushSize"
+                  type="range" min="6" max="180" value="42"></label>
+            </div>
+          </details>
+          <details id="retouchCutoutMenu" class="retouch-menu">
+            <summary class="btn small" data-retouch-tool="cutout"><i data-lucide="scan"></i><span>智能抠图</span><i
+                data-lucide="chevron-down"></i></summary>
+            <div class="retouch-popover retouch-cutout-popover"><strong>智能抠图设置</strong>
+              <label class="retouch-option"><span>模型</span><select id="retouchCutoutProfile">
+                  <option>正在检测…</option>
+                </select></label>
+              <label class="retouch-option"><span>边缘</span><select id="retouchCutoutEdge">
+                  <option value="product" selected>干净边缘</option>
+                  <option value="fine">保留细节</option>
+                  <option value="none">原始蒙版</option>
+                </select></label>
+              <label class="retouch-option"><span>背景</span><select id="retouchBackground">
+                  <option value="transparent">透明</option>
+                  <option value="white">纯白</option>
+                  <option value="green">绿幕</option>
+                </select></label>
+              <label class="retouch-option"><input id="retouchAutoCenter" type="checkbox"><span>主体居中</span></label>
+              <button id="retouchApplyCutout" class="btn primary small" type="button"><i
+                  data-lucide="sparkles"></i><span>开始抠图</span></button>
+            </div>
+          </details>
           <input id="retouchSourceFiles" class="sr-only" type="file" accept="image/*" multiple>
-          <label class="brush-size"><span>缩放</span><input id="retouchZoom" type="range" min="5" max="500"
-              value="100"></label>
-          <button id="retouchUndo" class="btn small" type="button" title="撤销 (Ctrl+Z)" disabled><i
-              data-lucide="undo-2"></i><span>撤销</span></button>
-          <button id="retouchRedo" class="btn small" type="button" title="重做 (Ctrl+Shift+Z)" disabled><i
-              data-lucide="redo-2"></i><span>重做</span></button>
+          <div class="retouch-history-actions">
+            <button id="retouchUndo" class="btn small icon-only" type="button" title="撤销 (Ctrl+Z)" aria-label="撤销"
+              disabled><i data-lucide="undo-2"></i></button>
+            <button id="retouchRedo" class="btn small icon-only" type="button" title="重做 (Ctrl+Shift+Z)" aria-label="重做"
+              disabled><i data-lucide="redo-2"></i></button>
           </div>
-          <div class="retouch-tool-group retouch-export"><span class="retouch-group-label">导出 PNG</span>
-            <label class="retouch-option"><span>尺寸</span><select id="retouchExportScale"><option value="1">原始尺寸</option><option value="0.75">75%</option><option value="0.5">50%</option><option value="0.25">25%</option></select></label>
-            <label class="retouch-option"><span>质量</span><select id="retouchExportQuality"><option value="1">最高</option><option value="0.9" selected>高</option><option value="0.75">标准</option></select></label>
-            <span id="retouchExportEstimate" class="retouch-file-info">正在估算…</span>
-            <button id="downloadRetouch" class="btn primary small" type="button"><i data-lucide="download"></i><span>下载 PNG</span></button>
+          <details class="retouch-menu retouch-more-menu">
+            <summary class="btn small"><i data-lucide="ellipsis"></i><span>更多</span></summary>
+            <div class="retouch-popover"><strong>查看与图片</strong>
+              <button id="retouchCompare" class="btn small" type="button" title="按住查看原图，也可按住 Ctrl"><i
+                  data-lucide="scan-eye"></i><span>查看原图 <kbd>Ctrl</kbd></span></button>
+              <label class="btn small retouch-replace" for="retouchSourceFiles"><i
+                  data-lucide="images"></i><span>替换图片</span></label>
+
+              <label class="brush-size retouch-zoom-control"><span>画布缩放</span><input id="retouchZoom" type="range"
+                  min="5" max="500" value="100"></label>
+            </div>
+          </details>
+          <div class="retouch-download-actions">
+            <button id="downloadRetouch" class="btn primary small" type="button"><i
+                data-lucide="download"></i><span>下载</span></button>
+            <details class="retouch-menu retouch-download-menu">
+              <summary class="btn primary small icon-only" title="更多下载选项" aria-label="更多下载选项"><i
+                  data-lucide="chevron-down"></i></summary>
+              <div class="retouch-popover"><strong>更多下载选项</strong>
+                <label class="retouch-option"><span>格式</span><select id="retouchExportFormat">
+                    <option value="png">PNG（支持透明）</option>
+                    <option value="jpeg">JPG（文件更小）</option>
+                  </select></label>
+                <label class="retouch-option"><span>调整方式</span><select id="retouchExportMode">
+                    <option value="percent">百分比</option>
+                    <option value="pixels">像素分辨率</option>
+                  </select></label>
+                <label id="retouchExportPercentRow" class="retouch-option"><span>尺寸</span><span
+                    class="retouch-number-field"><input id="retouchExportPercent" type="number" min="1" max="800"
+                      step="1" value="100"><b>%</b></span></label>
+                <div id="retouchExportPixelsRow" class="retouch-pixel-size" hidden>
+                  <label><span>宽度</span><input id="retouchExportWidth" type="number" min="1"
+                      step="1"></label><span>×</span><label><span>高度</span><input id="retouchExportHeight" type="number"
+                      min="1" step="1"></label>
+                </div>
+                <label class="retouch-option"><span>质量</span><span class="retouch-number-field"><input
+                      id="retouchExportQuality" type="number" min="1" max="100" step="1"
+                      value="90"><b>%</b></span></label>
+                <span class="retouch-ratio-hint"><i data-lucide="lock"></i> 自动保持原图比例</span>
+                <span id="retouchExportEstimate" class="retouch-file-info">正在估算…</span>
+              </div>
+            </details>
           </div>
         </div>
         <div class="retouch-canvas-scroll">
@@ -449,14 +506,19 @@
           <div id="retouchCanvasWrap" class="retouch-canvas-wrap">
             <canvas id="retouchCanvas"></canvas>
             <canvas id="retouchOverlay"></canvas>
+            <div class="retouch-erase-progress" aria-live="polite"><span></span><strong>正在消除并修复…</strong></div>
             <div id="retouchDropHint" class="retouch-drop-hint" hidden>松开以替换图片或批量抠图</div>
           </div>
-          <div id="retouchBusy" class="retouch-busy" hidden><span class="retouch-spinner"></span><strong>正在智能抠图</strong><span>模型正在识别主体，请稍候…</span></div>
+          <div id="retouchBusy" class="retouch-busy" hidden><span
+              class="retouch-spinner"></span><strong>正在智能抠图</strong><span>模型正在识别主体，请稍候…</span></div>
         </div>
         <div id="retouchBatch" class="retouch-batch" hidden>
-          <button id="retouchBatchToggle" class="retouch-batch-head" type="button"><strong>批量抠图</strong><span id="retouchBatchStatus"></span><i data-lucide="chevron-down"></i></button>
-          <div class="retouch-batch-body"><div id="retouchBatchList" class="retouch-batch-list"></div>
-          <button id="downloadRetouchBatch" class="btn primary small" type="button" hidden>下载全部</button></div>
+          <button id="retouchBatchToggle" class="retouch-batch-head" type="button"><strong>批量抠图</strong><span
+              id="retouchBatchStatus"></span><i data-lucide="chevron-down"></i></button>
+          <div class="retouch-batch-body">
+            <div id="retouchBatchList" class="retouch-batch-list"></div>
+            <button id="downloadRetouchBatch" class="btn primary small" type="button" hidden>下载全部</button>
+          </div>
         </div>
       </div>
     </div>

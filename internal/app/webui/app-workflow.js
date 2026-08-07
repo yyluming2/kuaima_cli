@@ -178,7 +178,7 @@
       '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-fine-edit-tab>' +
       iconHTML("scan-search") + '<span>图片编辑</span></button>' +
       '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-cutout-tab>' +
-      iconHTML("scissors") + '<span>抠图</span></button>' +
+      iconHTML("scissors") + '<span>一键抠图</span></button>' +
       '<button class="workflow-tab' + (agentActive ? " active" : "") + '" type="button" role="tab" aria-selected="' +
       String(agentActive) + '" data-mode-tab="agent" data-workflow-id="agent">' + iconHTML("bot-message-square") + '<span>对话模式</span></button>' +
       //'<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-mode-tab="generate" data-workflow-id="workflow-custom">' +
