@@ -1757,6 +1757,49 @@
     pointer-events: none;
   }
 
+  .retouch-magnifier {
+    position: absolute;
+    z-index: 8;
+    width: 128px;
+    height: 128px;
+    overflow: hidden;
+    pointer-events: none;
+    border: 3px solid #fff;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .3), 0 0 0 1px rgba(37, 99, 235, .5);
+  }
+
+  .retouch-magnifier canvas {
+    position: static;
+    width: 128px;
+    height: 128px;
+    image-rendering: pixelated;
+  }
+
+  .retouch-magnifier span::before,
+  .retouch-magnifier span::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    background: rgba(239, 68, 68, .9);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .8);
+  }
+
+  .retouch-magnifier span::before {
+    top: 0;
+    bottom: 0;
+    left: 63px;
+    width: 1px;
+  }
+
+  .retouch-magnifier span::after {
+    top: 63px;
+    right: 0;
+    left: 0;
+    height: 1px;
+  }
+
   .retouch-clone-sample {
     position: absolute;
     z-index: 4;

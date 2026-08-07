@@ -1,5 +1,5 @@
 (function () {
-  const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "pan", drawing: false, comparing: false, busy: false, cutoutProcessing: false, width: 0, height: 0, zoom: 1, panX: 0, panY: 0, spacePressed: false, panning: null, last: null, rectStart: null, sample: null, sampleDragging: null, cloneOffset: null, region: null, regionScope: "inside", regionTool: "", regionAdjusting: false, regionStart: null, regionPoints: [], regionHandleDrag: null, regionSelectedVertex: null, undo: [], redo: [], batch: [], batchDone: false, batchProcessing: false, batchCanceled: false, batchXHR: null, batchTimer: 0, estimateTimer: 0, estimateSeq: 0, profileNames: { product: "商品" } };
+  const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "pan", drawing: false, comparing: false, busy: false, cutoutProcessing: false, width: 0, height: 0, zoom: 1, panX: 0, panY: 0, spacePressed: false, panning: null, last: null, rectStart: null, sample: null, sampleDragging: null, cloneOffset: null, region: null, regionScope: "inside", regionTool: "", regionAdjusting: false, regionStart: null, regionPoints: [], regionHandleDrag: null, regionSelectedHandle: null, regionSelectedVertex: null, undo: [], redo: [], batch: [], batchDone: false, batchProcessing: false, batchCanceled: false, batchXHR: null, batchTimer: 0, estimateTimer: 0, estimateSeq: 0, profileNames: { product: "商品" } };
   const el = (id) => document.getElementById(id);
   const canvas = () => el("retouchCanvas");
   const overlay = () => el("retouchOverlay");
@@ -7,9 +7,16 @@
   const ctx = () => canvas().getContext("2d", { willReadFrequently: true });
 
   function setHint(text) { el("fineEditorHint").textContent = text; }
+  function operationMode() {
+    if (state.regionTool) return "绘制" + ({ rect: "矩形", circle: "圆形", polygon: "多边形" }[state.regionTool] || "") + "蒙版";
+    if (state.regionAdjusting) return "调整" + ({ rect: "矩形", circle: "圆形", polygon: "多边形" }[state.region?.type] || "") + "蒙版";
+    return { pan: "拖动画布", erase: "自由涂抹修复", rect: "框选消除", clone: "复制涂抹", cutout: "智能抠图" }[state.tool] || "查看";
+  }
   function updateCanvasInfo() {
     const width = canvas().width, height = canvas().height;
-    el("retouchImageInfo").textContent = state.width && width && height ? "当前画布：" + width + " × " + height + " px" : "尚未打开图片";
+    if (!state.width || !width || !height) { el("retouchImageInfo").textContent = "尚未打开图片"; return; }
+    const displayWidth = Math.max(1, Math.round(state.width * state.zoom)), displayHeight = Math.max(1, Math.round(state.height * state.zoom));
+    el("retouchImageInfo").textContent = "" + displayWidth + " × " + displayHeight + " · " + Math.round(state.zoom * 100) + "% · " + operationMode();
   }
   async function loadCutoutProfiles() {
     try {
@@ -66,7 +73,7 @@
   function setZoom(value) {
     state.zoom = Math.max(.05, Math.min(5, value));
     el("retouchZoom").value = String(Math.round(state.zoom * 100));
-    resizeDisplay();
+    resizeDisplay(); updateCanvasInfo(); if (state.regionSelectedHandle) showSelectedMagnifier();
   }
   function backgroundColor(background) {
     if (background === "white") return "#ffffff";
@@ -359,7 +366,7 @@
     if (state.regionAdjusting || preview !== state.region || preview.type === "polygon") {
       context.setLineDash([]); const radius = 7 / state.zoom;
       regionHandles(preview).forEach((handle) => {
-        const active = state.regionHandleDrag?.id === handle.id, selected = preview.type === "polygon" && handle.kind === "vertex" && handle.index === state.regionSelectedVertex;
+        const active = state.regionHandleDrag?.id === handle.id, selected = handle.id === state.regionSelectedHandle;
         context.beginPath(); context.arc(handle.x, handle.y, handle.kind === "move" ? radius * 1.15 : radius, 0, Math.PI * 2); context.fillStyle = active ? "#f59e0b" : (selected ? "#fed7aa" : (handle.kind === "move" ? "#dbeafe" : "#fff")); context.fill();
         context.lineWidth = Math.max(2, 3 / state.zoom); context.strokeStyle = active || selected ? "#b45309" : "#2563eb"; context.stroke();
       });
@@ -412,28 +419,57 @@
     }
     state.region = original; renderRegion();
   }
+  function hideMagnifier() { const magnifier = el("retouchMagnifier"); if (magnifier) magnifier.hidden = true; }
+  function updateMagnifier(p, handle = state.regionHandleDrag) {
+    const magnifier = el("retouchMagnifier");
+    if (!handle || handle.kind === "move" || !magnifier) { hideMagnifier(); return; }
+    const target = el("retouchMagnifierCanvas"), context = target.getContext("2d"), crop = 32, half = crop / 2, scale = target.width / crop;
+    const focus = { x: Math.max(0, Math.min(state.width, p.x)), y: Math.max(0, Math.min(state.height, p.y)) };
+    const sx = focus.x - half, sy = focus.y - half, clippedX = Math.max(0, sx), clippedY = Math.max(0, sy), clippedRight = Math.min(state.width, sx + crop), clippedBottom = Math.min(state.height, sy + crop);
+    context.clearRect(0, 0, target.width, target.height); context.fillStyle = "#e2e8f0"; context.fillRect(0, 0, target.width, target.height);
+    context.imageSmoothingEnabled = false;
+    if (clippedRight > clippedX && clippedBottom > clippedY) context.drawImage(canvas(), clippedX, clippedY, clippedRight - clippedX, clippedBottom - clippedY, (clippedX - sx) * scale, (clippedY - sy) * scale, (clippedRight - clippedX) * scale, (clippedBottom - clippedY) * scale);
+    const rightSide = focus.x / state.width < .72, lowerSide = focus.y / state.height < .55;
+    magnifier.style.left = focus.x / state.width * 100 + "%"; magnifier.style.top = focus.y / state.height * 100 + "%";
+    magnifier.style.transform = "translate(" + (rightSide ? "18px" : "calc(-100% - 18px)") + "," + (lowerSide ? "18px" : "calc(-100% - 18px)") + ")";
+    magnifier.hidden = false;
+  }
+  function selectedRegionHandle() { return regionHandles().find((handle) => handle.id === state.regionSelectedHandle) || null; }
+  function showSelectedMagnifier() { const handle = selectedRegionHandle(); if (handle) updateMagnifier(handle, handle); else hideMagnifier(); }
+  function nudgeSelectedRegionHandle(dx, dy) {
+    const handle = selectedRegionHandle(); if (!handle || !state.region) return false;
+    if (state.region.type === "circle" && handle.kind === "radius") {
+      const delta = dx || dy; state.region.rx = state.region.ry = Math.max(2, state.region.rx + delta);
+    } else {
+      state.regionHandleDrag = { ...handle, start: handle, original: JSON.parse(JSON.stringify(state.region)) };
+      moveRegionHandleTo({ x: handle.x + dx, y: handle.y + dy }); state.regionHandleDrag = null;
+    }
+    renderRegion(); showSelectedMagnifier(); return true;
+  }
   function finishRegion(region) {
-    state.region = region; state.regionTool = ""; state.regionAdjusting = true; state.regionStart = null; state.regionPoints = []; state.regionHandleDrag = null; state.regionSelectedVertex = null; overlay().style.pointerEvents = "auto"; renderRegion();
+    state.region = region; state.regionTool = ""; state.regionAdjusting = true; state.regionStart = null; state.regionPoints = []; state.regionHandleDrag = null; state.regionSelectedHandle = null; state.regionSelectedVertex = null; overlay().style.pointerEvents = "auto"; renderRegion();
     document.querySelectorAll("[data-retouch-region-shape]").forEach((button) => button.classList.toggle("active", button.dataset.retouchRegionShape === region.type));
     el("retouchClearRegion").disabled = false;
     el("retouchRegionHint").textContent = (state.regionScope === "inside" ? "只处理蒙版内部" : "只处理蒙版外部") + "；重新选择形状可替换";
+    updateCanvasInfo();
     setHint("蒙版区域已设置，接下来涂抹修复只会处理蒙版" + (state.regionScope === "inside" ? "内部" : "外部"));
   }
   function clearRegion() {
-    state.region = null; state.regionTool = ""; state.regionAdjusting = false; state.regionStart = null; state.regionPoints = []; state.regionHandleDrag = null; state.regionSelectedVertex = null; renderRegion();
+    state.region = null; state.regionTool = ""; state.regionAdjusting = false; state.regionStart = null; state.regionPoints = []; state.regionHandleDrag = null; state.regionSelectedHandle = null; state.regionSelectedVertex = null; hideMagnifier(); renderRegion();
     el("retouchClearRegion").disabled = true;
     document.querySelectorAll("[data-retouch-region-shape]").forEach((button) => button.classList.remove("active")); el("retouchRegionHint").textContent = "选择形状后立即在图片上绘制";
+    updateCanvasInfo();
   }
   function setRegionTool(type) {
     if (!state.width || state.busy) return;
     if (state.region?.type === type) {
-      state.regionTool = ""; state.regionAdjusting = true; state.regionStart = null; state.regionPoints = []; state.regionHandleDrag = null; overlay().style.pointerEvents = "auto"; renderRegion();
+      state.regionTool = ""; state.regionAdjusting = true; state.regionStart = null; state.regionPoints = []; state.regionHandleDrag = null; state.regionSelectedHandle = null; overlay().style.pointerEvents = "auto"; renderRegion();
       document.querySelectorAll("[data-retouch-region-shape]").forEach((button) => button.classList.toggle("active", button.dataset.retouchRegionShape === type));
-      el("retouchPaintMenu").open = false; setHint(type === "polygon" ? "多边形调整：拖动中心移动；点击边线加端点；双击端点删除" : (type === "rect" ? "矩形调整模式：拖动中心移动，拖动四角调整大小" : "圆形调整模式：拖动中心移动，拖动边缘点调整大小")); return;
+      el("retouchPaintMenu").open = false; updateCanvasInfo(); setHint(type === "polygon" ? "多边形调整：拖动中心移动；点击边线加端点；双击端点删除" : (type === "rect" ? "矩形调整模式：拖动中心移动，拖动四角调整大小" : "圆形调整模式：拖动中心移动，拖动边缘点调整大小")); return;
     }
     state.regionTool = type; state.regionAdjusting = false; state.regionStart = null; state.regionPoints = []; overlay().style.pointerEvents = "auto"; clearOverlay();
     document.querySelectorAll("[data-retouch-region-shape]").forEach((button) => button.classList.toggle("active", button.dataset.retouchRegionShape === type));
-    el("retouchPaintMenu").open = false; setHint(type === "polygon" ? "依次点击多边形顶点，双击或按 Enter 完成" : "在图片上拖动绘制" + (type === "rect" ? "矩形" : "圆形") + "蒙版");
+    el("retouchPaintMenu").open = false; updateCanvasInfo(); setHint(type === "polygon" ? "依次点击多边形顶点，双击或按 Enter 完成" : "在图片上拖动绘制" + (type === "rect" ? "矩形" : "圆形") + "蒙版");
   }
   function clipToRegion(context) {
     const path = regionPath(); if (!path) return;
@@ -516,7 +552,7 @@
   }
   function setTool(tool) {
     if (state.busy) return;
-    state.tool = ["pan", "cutout", "clone", "rect"].includes(tool) ? tool : "erase"; state.sample = null; state.sampleDragging = null; state.cloneOffset = null; state.rectStart = null; state.regionTool = ""; state.regionAdjusting = false; state.regionHandleDrag = null; state.regionSelectedVertex = null; state.regionStart = null; state.regionPoints = []; clearOverlay(); renderRegion(); updateCloneSample();
+    state.tool = ["pan", "cutout", "clone", "rect"].includes(tool) ? tool : "erase"; state.sample = null; state.sampleDragging = null; state.cloneOffset = null; state.rectStart = null; state.regionTool = ""; state.regionAdjusting = false; state.regionHandleDrag = null; state.regionSelectedHandle = null; state.regionSelectedVertex = null; state.regionStart = null; state.regionPoints = []; hideMagnifier(); clearOverlay(); renderRegion(); updateCloneSample();
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.classList.toggle("active", button.dataset.retouchTool === state.tool));
     const names = { erase: "自由涂抹", rect: "框选消除", clone: "复制涂抹" };
     if (names[state.tool]) el("retouchPaintLabel").textContent = names[state.tool];
@@ -524,6 +560,7 @@
     el("retouchCutoutMenu").querySelector("summary").classList.toggle("active", state.tool === "cutout");
     document.querySelector(".retouch-canvas-scroll")?.classList.toggle("pan-tool", state.tool === "pan");
     overlay().style.pointerEvents = state.tool === "cutout" ? "none" : "auto";
+    updateCanvasInfo();
     setHint(state.tool === "pan" ? "按住并拖动画布；滚轮缩放，选择涂抹工具后可编辑图片" : (state.tool === "cutout" ? "打开抠图设置并点击“开始抠图”" : (state.tool === "rect" ? "拖出矩形框，松开后自动消除框内内容" : (state.tool === "erase" ? "在需要移除的物体上涂抹，松开后自动修复" : "先点击取样位置，再在目标位置涂抹；按 Alt 点击可重新取样"))));
   }
   function open(url, initialTool) {
@@ -665,16 +702,20 @@
       }
       const handle = regionHandleAt(p);
       if (handle) {
+        state.regionSelectedHandle = handle.id;
         state.regionSelectedVertex = handle.kind === "vertex" ? handle.index : null;
         state.regionHandleDrag = { ...handle, start: p, original: JSON.parse(JSON.stringify(state.region)) }; state.drawing = true; overlay().setPointerCapture(event.pointerId); renderRegion();
+        updateMagnifier(p);
         setHint(handle.kind === "move" ? "拖动调整蒙版位置" : "拖动调整蒙版大小或端点位置"); return;
       }
       const segment = polygonSegmentAt(p);
       if (segment) {
         state.region.points.splice(segment.index + 1, 0, segment.point);
         const handle = { ...segment.point, id: "vertex-" + (segment.index + 1), kind: "vertex", index: segment.index + 1 };
+        state.regionSelectedHandle = handle.id;
         state.regionSelectedVertex = handle.index;
         state.regionHandleDrag = { ...handle, start: p, original: JSON.parse(JSON.stringify(state.region)) }; state.drawing = true; overlay().setPointerCapture(event.pointerId); renderRegion();
+        updateMagnifier(p);
         setHint("已在线段中增加端点，可直接拖动调整位置"); return;
       }
       if (state.regionAdjusting) return;
@@ -686,7 +727,7 @@
     overlay().addEventListener("pointermove", (event) => {
       const p = point(event);
       if (!state.drawing) { overlay().style.cursor = regionHandleAt(p) ? "grab" : (polygonSegmentAt(p) ? "copy" : "crosshair"); return; }
-      if (state.regionHandleDrag) { moveRegionHandleTo(p); return; }
+      if (state.regionHandleDrag) { moveRegionHandleTo(p); updateMagnifier(p); return; }
       if (state.regionTool && state.regionTool !== "polygon") {
         const a = state.regionStart;
         const radius = Math.hypot(p.x - a.x, p.y - a.y);
@@ -703,7 +744,7 @@
       if (!state.drawing) return; state.drawing = false;
       if (state.regionHandleDrag) {
         moveRegionHandleTo(point(event));
-        state.regionHandleDrag = null; renderRegion(); overlay().style.cursor = "crosshair"; setHint("蒙版已调整，可继续拖动控制点；选择涂抹模式后开始修复"); return;
+        state.regionHandleDrag = null; renderRegion(); showSelectedMagnifier(); overlay().style.cursor = "crosshair"; setHint("控制点已选中，可用方向键精确调整；按 Shift 每次移动 10 像素"); return;
       }
       if (state.regionTool) {
         if (state.regionTool === "polygon") return;
@@ -732,7 +773,7 @@
         if (handle?.kind === "vertex") {
           event.preventDefault();
           if (state.region.points.length <= 3) { setHint("多边形至少需要保留 3 个端点"); return; }
-          state.region.points.splice(handle.index, 1); state.regionHandleDrag = null; state.regionSelectedVertex = null; state.drawing = false; renderRegion(); setHint("端点已删除；多边形至少保留 3 个端点");
+          state.region.points.splice(handle.index, 1); state.regionHandleDrag = null; state.regionSelectedHandle = null; state.regionSelectedVertex = null; state.drawing = false; hideMagnifier(); renderRegion(); setHint("端点已删除；多边形至少保留 3 个端点");
         }
       }
     });
@@ -763,13 +804,18 @@
       if (command && event.key === "1") { event.preventDefault(); setZoom(1); return; }
       if (command && (event.key === "+" || event.key === "=")) { event.preventDefault(); setZoom(state.zoom * 1.25); return; }
       if (command && event.key === "-") { event.preventDefault(); setZoom(state.zoom / 1.25); return; }
+      if (!command && state.regionAdjusting && state.regionSelectedHandle && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+        event.preventDefault(); const step = event.shiftKey ? 10 : 1;
+        const dx = event.key === "ArrowLeft" ? -step : (event.key === "ArrowRight" ? step : 0), dy = event.key === "ArrowUp" ? -step : (event.key === "ArrowDown" ? step : 0);
+        if (nudgeSelectedRegionHandle(dx, dy)) setHint("已用方向键精确调整控制点" + (event.shiftKey ? " 10" : " 1") + " 像素"); return;
+      }
       if (!command && (event.key === "Delete" || event.key === "Backspace") && state.regionAdjusting && state.region?.type === "polygon" && state.regionSelectedVertex != null) {
         event.preventDefault();
         if (state.region.points.length <= 3) { setHint("多边形至少需要保留 3 个端点"); return; }
-        state.region.points.splice(state.regionSelectedVertex, 1); state.regionSelectedVertex = null; state.regionHandleDrag = null; state.drawing = false; renderRegion(); setHint("选中的端点已删除"); return;
+        state.region.points.splice(state.regionSelectedVertex, 1); state.regionSelectedHandle = null; state.regionSelectedVertex = null; state.regionHandleDrag = null; state.drawing = false; hideMagnifier(); renderRegion(); setHint("选中的端点已删除"); return;
       }
       if (!command && event.key === "Enter" && state.regionTool === "polygon" && state.regionPoints.length >= 3) { event.preventDefault(); finishRegion({ type: "polygon", points: state.regionPoints.slice() }); state.drawing = false; return; }
-      if (!command && event.key === "Escape" && (state.regionTool || state.regionAdjusting)) { event.preventDefault(); state.regionTool = ""; state.regionAdjusting = false; state.regionHandleDrag = null; state.regionSelectedVertex = null; state.regionPoints = []; state.drawing = false; overlay().style.pointerEvents = state.tool === "cutout" ? "none" : "auto"; renderRegion(); return; }
+      if (!command && event.key === "Escape" && (state.regionTool || state.regionAdjusting)) { event.preventDefault(); state.regionTool = ""; state.regionAdjusting = false; state.regionHandleDrag = null; state.regionSelectedHandle = null; state.regionSelectedVertex = null; state.regionPoints = []; state.drawing = false; hideMagnifier(); overlay().style.pointerEvents = state.tool === "cutout" ? "none" : "auto"; renderRegion(); updateCanvasInfo(); return; }
       if (!command && !event.altKey && key === "j") { event.preventDefault(); setTool("erase"); return; }
       if (!command && !event.altKey && key === "h") { event.preventDefault(); setTool("pan"); return; }
       if (!command && !event.altKey && key === "r") { event.preventDefault(); setTool("rect"); return; }
