@@ -24,7 +24,8 @@ if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
 }
 New-Item -ItemType Directory -Force -Path $dist, $work | Out-Null
 
-if (Test-Path -LiteralPath $localRuntimeDLL) {
+if ((Test-Path -LiteralPath $localRuntimeDLL) -and
+    ((Get-Item -LiteralPath $localRuntimeDLL).VersionInfo.ProductVersion -like "$runtimeVersion*")) {
     $runtimeDLL = $localRuntimeDLL
 } else {
     if (-not (Test-Path -LiteralPath $runtimeArchive)) {

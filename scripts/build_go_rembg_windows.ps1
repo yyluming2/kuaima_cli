@@ -16,8 +16,10 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 # Once the Python bundle has been migrated, rebuild only the small Go EXE.
 # Models can be multiple gigabytes and must not be duplicated on every build.
 $existing = if (Test-Path -LiteralPath $output) { Get-Item -LiteralPath $output -Force } else { $null }
-if ($existing -and -not $existing.LinkType -and
-    (Test-Path -LiteralPath (Join-Path $output "onnxruntime.dll"))) {
+$existingRuntime = Join-Path $output "onnxruntime.dll"
+$existingRuntimeMatches = (Test-Path -LiteralPath $existingRuntime) -and
+    ((Get-Item -LiteralPath $existingRuntime).VersionInfo.ProductVersion -like "$runtimeVersion*")
+if ($existing -and -not $existing.LinkType -and $existingRuntimeMatches) {
     New-Item -ItemType Directory -Force -Path (Join-Path $output "models") | Out-Null
     $newEngine = Join-Path $output "rembg-engine.new.exe"
     $env:CGO_ENABLED = "1"
@@ -34,7 +36,7 @@ if ($existing -and -not $existing.LinkType -and
 New-Item -ItemType Directory -Force -Path (Join-Path $stage "models") | Out-Null
 
 $runtimeCandidates = @(
-    (Join-Path $output "onnxruntime.dll"),
+    $(if ($existingRuntimeMatches) { $existingRuntime }),
     (Join-Path $output "_internal\onnxruntime\capi\onnxruntime.dll"),
     (Join-Path $dist "rembg-build-windows-go\onnxruntime-win-x64-$runtimeVersion\lib\onnxruntime.dll")
 )
