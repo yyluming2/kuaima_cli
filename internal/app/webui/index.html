@@ -380,6 +380,9 @@
       <div id="finePointEditorView" class="fine-editor-body">
         <div class="fine-editor-stage" id="fineEditorStage">
           <img id="fineEditorImage" alt="待编辑图片">
+          <button id="fineEditorSourceEmpty" class="fine-editor-source-empty" type="button" hidden>
+            <i data-lucide="image-up" aria-hidden="true"></i><strong>打开图片开始编辑</strong><span>点击选择，或将图片拖到这里</span>
+          </button>
           <div id="fineEditorMarkers" class="fine-editor-markers"></div>
           <div id="finePointQuickEditor" class="fine-point-quick-editor" hidden>
             <textarea id="finePointQuickInput" placeholder="快捷输入此处的修改描述"></textarea>
@@ -411,7 +414,7 @@
           <button class="btn small active" type="button" data-retouch-tool="pan" title="拖动画布（H）"><i
               data-lucide="hand"></i><span></span></button>
           <details id="retouchPaintMenu" class="retouch-menu retouch-tool-picker">
-            <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">消除</span><i
+            <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">修复</span><i
                 data-lucide="chevron-down"></i></summary>
             <div class="retouch-popover"><strong>涂抹模式</strong>
               <div class="retouch-mode-list" role="group" aria-label="涂抹模式">
@@ -514,6 +517,8 @@
           <div id="retouchCanvasWrap" class="retouch-canvas-wrap">
             <canvas id="retouchCanvas"></canvas>
             <canvas id="retouchOverlay"></canvas>
+            <button id="retouchCloneSample" class="retouch-clone-sample" type="button" aria-label="复制涂抹取样点，可拖动调整"
+              hidden></button>
             <div class="retouch-erase-progress" aria-live="polite"><span></span><strong>正在消除并修复…</strong></div>
             <div id="retouchDropHint" class="retouch-drop-hint" hidden>松开以替换图片或批量抠图</div>
           </div>
@@ -525,7 +530,15 @@
               id="retouchBatchStatus"></span><i data-lucide="chevron-down"></i></button>
           <div class="retouch-batch-body">
             <div id="retouchBatchList" class="retouch-batch-list"></div>
-            <button id="downloadRetouchBatch" class="btn primary small" type="button" hidden>下载全部</button>
+            <div class="retouch-batch-actions">
+              <label class="retouch-batch-sound"><input id="retouchBatchPlaySound" type="checkbox"
+                  checked><span>完成后播放声音</span></label>
+              <div class="retouch-batch-buttons">
+                <button id="cancelRetouchBatch" class="btn small danger" data-retouch-allow-busy type="button"
+                  hidden>取消</button>
+                <button id="downloadRetouchBatch" class="btn primary small" type="button" hidden>下载全部</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

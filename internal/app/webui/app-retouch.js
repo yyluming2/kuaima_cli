@@ -1,11 +1,15 @@
 (function () {
-  const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "pan", drawing: false, comparing: false, busy: false, width: 0, height: 0, zoom: 1, panX: 0, panY: 0, spacePressed: false, panning: null, last: null, rectStart: null, sample: null, cloneOffset: null, undo: [], redo: [], batch: [], batchDone: false, estimateTimer: 0, estimateSeq: 0, profileNames: { product: "商品" } };
+  const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "pan", drawing: false, comparing: false, busy: false, cutoutProcessing: false, width: 0, height: 0, zoom: 1, panX: 0, panY: 0, spacePressed: false, panning: null, last: null, rectStart: null, sample: null, sampleDragging: null, cloneOffset: null, undo: [], redo: [], batch: [], batchDone: false, batchProcessing: false, batchCanceled: false, batchXHR: null, batchTimer: 0, estimateTimer: 0, estimateSeq: 0, profileNames: { product: "商品" } };
   const el = (id) => document.getElementById(id);
   const canvas = () => el("retouchCanvas");
   const overlay = () => el("retouchOverlay");
   const ctx = () => canvas().getContext("2d", { willReadFrequently: true });
 
   function setHint(text) { el("fineEditorHint").textContent = text; }
+  function updateCanvasInfo() {
+    const width = canvas().width, height = canvas().height;
+    el("retouchImageInfo").textContent = state.width && width && height ? "当前画布：" + width + " × " + height + " px" : "尚未打开图片";
+  }
   async function loadCutoutProfiles() {
     try {
       const response = await fetch("/api/image/remove-background/profiles", { cache: "no-store" });
@@ -124,6 +128,7 @@
     el("fineEditor").setAttribute("aria-busy", String(busy));
     const controls = batch || batchProcessing ? el("fineEditor") : el("retouchEditor");
     controls.querySelectorAll("button,input,select,textarea").forEach((item) => {
+      if (item.hasAttribute("data-retouch-allow-busy")) return;
       if (busy) { item.dataset.retouchWasDisabled = String(item.disabled); item.disabled = true; }
       else { item.disabled = item.dataset.retouchWasDisabled === "true"; delete item.dataset.retouchWasDisabled; }
     });
@@ -199,10 +204,12 @@
   function xhrCutout(form) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest(); xhr.open("POST", "/api/image/remove-background"); xhr.responseType = "json"; xhr.timeout = 9 * 60 * 1000; xhr.setRequestHeader("Accept", "application/json");
-      xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body: xhr.response, warning: xhr.response?.warning || "" });
-      xhr.onerror = () => reject(new Error("抠图连接被中断（服务仍在运行时通常是系统内存不足或安全软件终止了模型进程）"));
-      xhr.ontimeout = () => reject(new Error("抠图请求超过 9 分钟"));
-      xhr.onabort = () => reject(new Error("抠图请求已取消"));
+      if (state.batchProcessing) state.batchXHR = xhr;
+      const finish = (callback) => { if (state.batchXHR === xhr) state.batchXHR = null; callback(); };
+      xhr.onload = () => finish(() => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body: xhr.response, warning: xhr.response?.warning || "" }));
+      xhr.onerror = () => finish(() => reject(new Error("抠图连接被中断（服务仍在运行时通常是系统内存不足或安全软件终止了模型进程）")));
+      xhr.ontimeout = () => finish(() => reject(new Error("抠图请求超过 9 分钟")));
+      xhr.onabort = () => finish(() => reject(new Error("抠图请求已取消")));
       xhr.send(form);
     });
   }
@@ -250,7 +257,7 @@
     if (!state.width || state.busy) return;
     const profileNames = state.profileNames, profile = el("retouchCutoutProfile").value;
     setHint("正在用“" + (profileNames[profile] || "商品") + "”模式抠图...");
-    setBusy(true);
+    state.cutoutProcessing = true; setBusy(true);
     try {
       const warning = await rembgCanvas(canvas()); clearOverlay(); snapshot();
       setHint(warning === "fallback_low_memory" ? "高质量模型内存不足，已自动降级并完成抠图" : (profileNames[profile] || "商品") + "模式抠图完成；可按住“看原图”对比，或继续用画笔补修");
@@ -258,7 +265,7 @@
       if (!error.unavailable) { setHint(error.message || "模型抠图失败，已保留当前图片"); return; }
       try { cutoutCanvas(canvas(), el("retouchAutoCenter").checked, el("retouchBackground").value); clearOverlay(); snapshot(); setHint("安装包缺少离线抠图引擎，已使用基础抠图"); }
       catch (fallbackError) { setHint(error.message || fallbackError.message); }
-    } finally { setBusy(false); scheduleEstimate(); }
+    } finally { state.cutoutProcessing = false; setBusy(false); scheduleEstimate(); }
   }
   function fileImage(file) { return new Promise((resolve, reject) => { const image = new Image(), url = URL.createObjectURL(file); image.onload = () => { URL.revokeObjectURL(url); resolve(image); }; image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("抠图结果不是可识别的图片，响应可能不完整")); }; image.src = url; }); }
   function urlImage(url, retry = false) { return new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => { if (retry) { setTimeout(() => { urlImage(url, false).then(resolve, reject); }, 250); } else reject(new Error("抠图结果下载失败")); }; image.src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now(); }); }
@@ -280,31 +287,56 @@
     const images = Array.from(files || []).filter((file) => String(file.type || "").startsWith("image/")); if (!images.length) return;
     state.batch.forEach((item) => { if (item.url) URL.revokeObjectURL(item.url); if (item.originalURL) URL.revokeObjectURL(item.originalURL); });
     state.batch = images.map((file) => ({ name: file.name.replace(/\.[^.]+$/, "") + "-cutout.png", originalName: file.name, originalURL: URL.createObjectURL(file), status: "等待中" }));
-    state.batchDone = false; el("retouchBatch").hidden = false; el("retouchBatch").classList.remove("collapsed"); renderBatch();
+    state.batchDone = false; state.batchCanceled = false; state.batchProcessing = true; state.cutoutProcessing = true; el("cancelRetouchBatch").disabled = false; el("retouchBatch").hidden = false; el("retouchBatch").classList.remove("collapsed"); renderBatch();
     setBusy(true, true);
     for (let i = 0; i < images.length; i++) {
-      const file = images[i], item = state.batch[i]; item.status = "处理中"; el("retouchBatchStatus").textContent = (i + 1) + " / " + images.length; renderBatch();
+      if (state.batchCanceled) break;
+      const file = images[i], item = state.batch[i]; item.status = "处理中"; item.startedAt = Date.now(); el("retouchBatchStatus").textContent = (i + 1) + " / " + images.length; renderBatch(); startBatchTimer();
       let out = null;
       try {
         const image = await fileImage(file); out = document.createElement("canvas"); out.width = image.naturalWidth; out.height = image.naturalHeight; out.getContext("2d").drawImage(image, 0, 0); image.src = "";
         // Batch input is encoded at its original dimensions but constrained to
         // a safe request size. The engine output remains full-size PNG.
         const upload = await batchUploadBlob(out);
+        if (state.batchCanceled) throw new Error("抠图请求已取消");
         try { await rembgCanvas(out, upload, true); } catch (error) { if (!error.unavailable) throw error; cutoutCanvas(out, el("retouchAutoCenter").checked, el("retouchBackground").value); }
         const blob = await new Promise((resolve) => out.toBlob(resolve, "image/png")); item.blob = blob; item.url = URL.createObjectURL(blob); item.status = "已完成"; renderBatch();
-      } catch (error) { item.error = error?.message || "抠图失败"; item.status = "失败"; renderBatch(); }
-      finally { if (out) out.width = out.height = 1; }
+      } catch (error) { if (state.batchCanceled) item.status = "已取消"; else { item.error = error?.message || "抠图失败"; item.status = "失败"; } renderBatch(); }
+      finally { item.elapsedMs = Date.now() - item.startedAt; delete item.startedAt; stopBatchTimer(); if (out) out.width = out.height = 1; renderBatch(); }
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
+    if (state.batchCanceled) state.batch.forEach((item) => { if (item.status === "等待中") item.status = "已取消"; });
     const failed = state.batch.filter((item) => item.error);
-    state.batchDone = true; renderBatch();
-    el("retouchBatchStatus").textContent = "完成 " + state.batch.filter((item) => item.blob).length + " 张" + (failed.length ? "，失败 " + failed.length + " 张：" + failed[0].error : "");
+    state.batchDone = true; state.batchProcessing = false; state.cutoutProcessing = false; state.batchXHR = null; renderBatch();
+    el("retouchBatchStatus").textContent = state.batchCanceled ? "已取消，完成 " + state.batch.filter((item) => item.blob).length + " 张" : "完成 " + state.batch.filter((item) => item.blob).length + " 张" + (failed.length ? "，失败 " + failed.length + " 张：" + failed[0].error : "");
     setBusy(false);
+    if (!state.batchCanceled && el("retouchBatchPlaySound").checked && typeof Audio !== "undefined") {
+      try { new Audio("done.mp3").play().catch(() => { }); } catch (_) { }
+    }
   }
+  function formatBatchTime(ms) {
+    const seconds = Math.max(0, Math.floor(ms / 1000)), minutes = Math.floor(seconds / 60), rest = seconds % 60;
+    return minutes ? minutes + "分" + String(rest).padStart(2, "0") + "秒" : seconds + "秒";
+  }
+  function updateBatchTimers() {
+    state.batch.forEach((item, i) => {
+      if (!item.startedAt && item.elapsedMs == null) return;
+      const timer = el("retouchBatchList").querySelector('[data-batch-time="' + i + '"]');
+      if (timer) timer.textContent = "耗时 " + formatBatchTime(item.startedAt ? Date.now() - item.startedAt : item.elapsedMs || 0);
+    });
+  }
+  function startBatchTimer() { stopBatchTimer(); updateBatchTimers(); state.batchTimer = window.setInterval(updateBatchTimers, 250); }
+  function stopBatchTimer() { if (state.batchTimer) { window.clearInterval(state.batchTimer); state.batchTimer = 0; } }
   function renderBatch() {
     const escape = (value) => String(value || "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-    el("retouchBatchList").innerHTML = state.batch.map((item, i) => '<div class="retouch-batch-item" title="' + escape(item.error || item.name) + '"><div class="retouch-batch-previews"><figure><div class="retouch-batch-thumb"><img src="' + item.originalURL + '" alt="原图预览"></div><figcaption>原图</figcaption></figure><figure><div class="retouch-batch-thumb retouch-batch-result">' + (item.url ? '<img src="' + item.url + '" alt="抠图结果预览">' : '<span>' + escape(item.status) + '</span>') + '</div><figcaption>抠图结果</figcaption></figure></div><div class="retouch-batch-meta"><strong>' + escape(item.originalName) + '</strong>' + (item.error ? '<span class="retouch-batch-error">' + escape(item.error) + '</span>' : '<span>' + escape(item.status) + '</span>') + '</div><button class="btn small" data-batch-download="' + i + '" ' + (!item.blob || state.busy ? 'disabled' : '') + '>' + (item.error ? '失败' : '下载') + '</button></div>').join("");
+    el("retouchBatchList").innerHTML = state.batch.map((item, i) => '<div class="retouch-batch-item" title="' + escape(item.error || item.name) + '"><div class="retouch-batch-previews"><figure><div class="retouch-batch-thumb"><img src="' + item.originalURL + '" alt="原图预览"></div><figcaption>原图</figcaption></figure><figure><div class="retouch-batch-thumb retouch-batch-result">' + (item.url ? '<img src="' + item.url + '" alt="抠图结果预览">' : '<span>' + escape(item.status) + '</span>') + '</div><figcaption>抠图结果</figcaption></figure></div><div class="retouch-batch-meta"><strong>' + escape(item.originalName) + '</strong>' + (item.error ? '<span class="retouch-batch-error">' + escape(item.error) + '</span>' : '<span>' + escape(item.status) + '</span>') + '<span class="retouch-batch-time" data-batch-time="' + i + '">耗时 ' + ((item.startedAt || item.elapsedMs != null) ? formatBatchTime(item.startedAt ? Date.now() - item.startedAt : item.elapsedMs) : '—') + '</span></div><button class="btn small" data-batch-download="' + i + '" ' + (!item.blob || state.busy ? 'disabled' : '') + '>' + (item.error ? '失败' : '下载') + '</button></div>').join("");
     el("downloadRetouchBatch").hidden = !state.batchDone || !state.batch.some((item) => item.blob);
+    el("cancelRetouchBatch").hidden = !state.batchProcessing;
+  }
+  function cancelBatch() {
+    if (!state.batchProcessing || state.batchCanceled) return;
+    state.batchCanceled = true; el("retouchBatchStatus").textContent = "正在取消…"; el("cancelRetouchBatch").disabled = true;
+    if (state.batchXHR) state.batchXHR.abort();
   }
   function saveBatchItem(item) { if (!item || !item.url) return; const a = document.createElement("a"); a.href = item.url; a.download = item.name; a.click(); }
   function clearOverlay() { overlay().getContext("2d").clearRect(0, 0, state.width, state.height); }
@@ -364,11 +396,26 @@
     gradient.addColorStop(0, "#fff"); gradient.addColorStop(1, "rgba(255,255,255,0)"); pc.fillStyle = gradient; pc.fillRect(0, 0, size, size);
     ctx().drawImage(patch, p.x - radius, p.y - radius, radius * 2, radius * 2);
   }
+  function updateCloneSample() {
+    const marker = el("retouchCloneSample"), visible = state.tool === "clone" && state.sample && state.width && state.height;
+    marker.hidden = !visible;
+    if (!visible) return;
+    marker.style.left = state.sample.x / state.width * 100 + "%";
+    marker.style.top = state.sample.y / state.height * 100 + "%";
+  }
+  function moveCloneSample(event) {
+    const rect = overlay().getBoundingClientRect();
+    state.sample = {
+      x: Math.max(0, Math.min(state.width, (event.clientX - rect.left) * state.width / rect.width)),
+      y: Math.max(0, Math.min(state.height, (event.clientY - rect.top) * state.height / rect.height)),
+    };
+    state.cloneOffset = null; updateCloneSample();
+  }
   function setTool(tool) {
     if (state.busy) return;
-    state.tool = ["pan", "cutout", "clone", "rect"].includes(tool) ? tool : "erase"; state.sample = null; state.cloneOffset = null; state.rectStart = null; clearOverlay();
+    state.tool = ["pan", "cutout", "clone", "rect"].includes(tool) ? tool : "erase"; state.sample = null; state.sampleDragging = null; state.cloneOffset = null; state.rectStart = null; clearOverlay(); updateCloneSample();
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.classList.toggle("active", button.dataset.retouchTool === state.tool));
-    const names = { erase: "涂抹消除", rect: "框选消除", clone: "复制涂抹" };
+    const names = { erase: "自由涂抹", rect: "框选消除", clone: "复制涂抹" };
     if (names[state.tool]) el("retouchPaintLabel").textContent = names[state.tool];
     el("retouchPaintMenu").querySelector("summary").classList.toggle("active", ["erase", "rect", "clone"].includes(state.tool));
     el("retouchCutoutMenu").querySelector("summary").classList.toggle("active", state.tool === "cutout");
@@ -376,11 +423,11 @@
     overlay().style.pointerEvents = state.tool === "cutout" ? "none" : "auto";
     setHint(state.tool === "pan" ? "按住并拖动画布；滚轮缩放，选择涂抹工具后可编辑图片" : (state.tool === "cutout" ? "打开抠图设置并点击“开始抠图”" : (state.tool === "rect" ? "拖出矩形框，松开后自动消除框内内容" : (state.tool === "erase" ? "在需要移除的物体上涂抹，松开后自动修复" : "先点击取样位置，再在目标位置涂抹；按 Alt 点击可重新取样"))));
   }
-  function open(url) {
+  function open(url, initialTool) {
     if (!url) return;
     el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false;
     document.querySelectorAll("[data-editor-tab]").forEach((button) => { const active = button.dataset.editorTab === "manual"; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
-    if (state.sourceURL === url && state.width) { resizeDisplay(); setTool(state.tool); return; }
+    if (state.sourceURL === url && state.width) { resizeDisplay(); setTool(initialTool || state.tool); return; }
     state.sourceURL = url; const image = new Image(); image.crossOrigin = "anonymous"; setHint("正在读取图片...");
     image.onload = () => {
       state.width = image.naturalWidth; state.height = image.naturalHeight;
@@ -390,9 +437,9 @@
       // Reuse the first undo buffer as the compare image. For very large images,
       // keeping even one additional 100+ MB original defeats the low-memory path.
       if (!lowMemoryImage()) state.original = state.undo[0];
-      updateHistoryButtons(); resizeDisplay(); setTool(state.tool || "erase");
+      updateHistoryButtons(); resizeDisplay(); setTool(initialTool || state.tool || "erase");
       el("retouchEmpty").hidden = true; el("retouchCanvasWrap").hidden = false;
-      el("retouchImageInfo").textContent = state.width + " × " + state.height + " px" + (state.sourceBytes ? " · " + formatBytes(state.sourceBytes) : "");
+      updateCanvasInfo();
       el("retouchExportWidth").value = String(state.width); el("retouchExportHeight").value = String(state.height);
       el("imageModal").hidden = true; el("fineEditor").hidden = false; requestAnimationFrame(() => { fitToView(); scheduleEstimate(); });
     };
@@ -401,13 +448,15 @@
   function openEmpty(tool = "cutout") {
     state.sourceURL = ""; state.sourceBytes = 0; state.width = 0; state.height = 0; state.original = null; state.undo = []; state.redo = []; updateHistoryButtons();
     el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false; el("fineEditor").hidden = false; el("imageModal").hidden = true;
-    el("retouchEmpty").hidden = false; el("retouchCanvasWrap").hidden = true; el("retouchImageInfo").textContent = "尚未打开图片";
+    el("retouchEmpty").hidden = false; el("retouchCanvasWrap").hidden = true; updateCanvasInfo();
     document.querySelectorAll("[data-editor-tab]").forEach((button) => { const active = button.dataset.editorTab === "manual"; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
     setTool(tool); setHint("选择或拖入图片后即可开始一键抠图");
   }
   function close() { state.drawing = false; el("fineEditor").hidden = true; }
   function init() {
     loadCutoutProfiles();
+    try { el("retouchBatchPlaySound").checked = localStorage.getItem("retouchBatchPlaySound") !== "false"; } catch (_) { }
+    el("retouchBatchPlaySound").addEventListener("change", (event) => { try { localStorage.setItem("retouchBatchPlaySound", String(event.target.checked)); } catch (_) { } });
     document.addEventListener("click", (event) => {
       document.querySelectorAll(".retouch-menu[open]").forEach((menu) => { if (!menu.contains(event.target)) menu.open = false; });
     });
@@ -487,10 +536,11 @@
     dropArea.addEventListener("drop", async (event) => { const files = (await droppedFiles(event.dataTransfer)).filter((file) => String(file.type || "").startsWith("image/")); if (files.length === 1) { state.sourceBytes = files[0].size; open(URL.createObjectURL(files[0])); } else processBatch(files); });
     el("retouchBatchToggle").addEventListener("click", () => el("retouchBatch").classList.toggle("collapsed"));
     el("retouchBatchList").addEventListener("click", (event) => { const button = event.target.closest("[data-batch-download]"); if (button) saveBatchItem(state.batch[Number(button.dataset.batchDownload)]); });
+    el("cancelRetouchBatch").addEventListener("click", cancelBatch);
     el("downloadRetouchBatch").addEventListener("click", async () => { for (const item of state.batch) { saveBatchItem(item); await new Promise((resolve) => setTimeout(resolve, 180)); } });
     overlay().addEventListener("pointerdown", (event) => {
       event.preventDefault(); const p = point(event);
-      if (state.tool === "clone" && (!state.sample || event.altKey)) { state.sample = p; state.cloneOffset = null; setHint("取样完成，请在要覆盖的位置按住并涂抹"); return; }
+      if (state.tool === "clone" && (!state.sample || event.altKey)) { state.sample = p; state.cloneOffset = null; updateCloneSample(); setHint("取样完成，可拖动标记调整位置，然后在目标位置按住并涂抹"); return; }
       state.drawing = true; state.last = p; overlay().setPointerCapture(event.pointerId);
       if (state.tool === "rect") { state.rectStart = p; clearOverlay(); }
       else if (state.tool === "clone") { if (!state.cloneOffset) state.cloneOffset = { x: state.sample.x - p.x, y: state.sample.y - p.y }; cloneStamp(p); } else markErase(p);
@@ -518,6 +568,20 @@
       state.rectStart = null;
     }
     overlay().addEventListener("pointerup", finish); overlay().addEventListener("pointercancel", finish);
+    el("retouchCloneSample").addEventListener("pointerdown", (event) => {
+      if (state.busy || state.tool !== "clone") return;
+      event.preventDefault(); event.stopPropagation(); state.sampleDragging = event.pointerId;
+      el("retouchCloneSample").setPointerCapture(event.pointerId); el("retouchCloneSample").classList.add("dragging");
+    });
+    el("retouchCloneSample").addEventListener("pointermove", (event) => {
+      if (state.sampleDragging !== event.pointerId) return; event.preventDefault(); moveCloneSample(event);
+    });
+    const stopSampleDrag = (event) => {
+      if (state.sampleDragging !== event.pointerId) return; moveCloneSample(event); state.sampleDragging = null;
+      el("retouchCloneSample").classList.remove("dragging"); setHint("取样点已调整，请在目标位置按住并涂抹");
+    };
+    el("retouchCloneSample").addEventListener("pointerup", stopSampleDrag);
+    el("retouchCloneSample").addEventListener("pointercancel", stopSampleDrag);
     window.addEventListener("keydown", (event) => {
       if (el("retouchEditor").hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) || event.target.isContentEditable) return;
       if (state.busy) return;
@@ -540,6 +604,7 @@
     });
     window.addEventListener("keyup", (event) => { if (event.key === "Control") stopCompare(); if (event.code === "Space") { state.spacePressed = false; dropArea.classList.remove("pan-ready"); } });
     window.addEventListener("blur", () => { stopCompare(); state.spacePressed = false; stopPan({}); dropArea.classList.remove("pan-ready"); });
+    window.addEventListener("beforeunload", (event) => { if (state.cutoutProcessing) { event.preventDefault(); event.returnValue = ""; } });
   }
   window.KuaimaRetouchEditor = { open, openEmpty, close }; init();
 })();

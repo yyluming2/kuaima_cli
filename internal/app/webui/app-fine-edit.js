@@ -12,9 +12,17 @@
     syncQuickEditor();
   }
 
+  function syncSourceEmpty() {
+    const empty = !state.sourceURL;
+    el("fineEditorSourceEmpty").hidden = !empty;
+    el("fineEditorImage").hidden = empty;
+    el("fineEditorEmpty").hidden = empty || state.points.length > 0;
+    el("fineEditorMarkers").hidden = empty;
+  }
+
   function renderPoints() {
     syncMarkerBounds();
-    el("fineEditorEmpty").hidden = state.points.length > 0;
+    el("fineEditorEmpty").hidden = !state.sourceURL || state.points.length > 0;
     el("fineEditorMarkers").innerHTML = state.points.map((point, index) =>
       '<button class="fine-marker' + (index === state.selectedIndex ? ' active' : '') + '" type="button" style="left:' + point.x + '%;top:' + point.y + '%" data-fine-index="' + index + '" aria-label="修改点 ' + (index + 1) + '，可拖动或用方向键微调">' + (index + 1) + '</button>'
     ).join("");
@@ -74,13 +82,19 @@
   function showPointTab() {
     el("finePointEditorView").hidden = false;
     el("retouchEditor").hidden = true;
-    el("fineEditorHint").textContent = "直接点击图片添加修改点，再描述这个位置要如何更改";
+    el("fineEditorHint").textContent = state.sourceURL ? "直接点击图片添加修改点，再描述这个位置要如何更改" : "点击或拖入图片后，即可指哪改哪";
     document.querySelectorAll("[data-editor-tab]").forEach((button) => {
       const active = button.dataset.editorTab === "point";
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", String(active));
     });
-    syncMarkerBounds();
+    syncSourceEmpty(); syncMarkerBounds();
+  }
+
+  function openEmpty() {
+    state.sourceURL = ""; state.points = []; state.selectedIndex = -1; state.files = [];
+    el("fineEditorImage").removeAttribute("src"); el("fineEditorNote").value = ""; el("fineEditorStatus").textContent = "";
+    renderPoints(); renderFiles(); showPointTab(); el("imageModal").hidden = true; el("fineEditor").hidden = false;
   }
 
   function open(url) {
@@ -94,7 +108,7 @@
     el("fineEditorNote").value = "";
     el("fineEditorFiles").value = "";
     el("fineEditorStatus").textContent = "";
-    renderPoints();
+    syncSourceEmpty(); renderPoints();
     renderFiles();
     showPointTab();
     el("imageModal").hidden = true;
@@ -184,6 +198,7 @@
     document.addEventListener("click", (event) => {
       if (event.target.closest("[data-fine-edit-tab]")) el("fineEditorSourceFiles").click();
     });
+    el("fineEditorSourceEmpty").addEventListener("click", () => el("fineEditorSourceFiles").click());
     el("fineEditorSourceFiles").addEventListener("change", (event) => {
       const file = Array.from(event.target.files || [])[0];
       event.target.value = "";
@@ -191,10 +206,11 @@
     });
     el("openFineEditor").addEventListener("click", () => open(el("imageModal").dataset.previewUrl));
     document.querySelector('[data-editor-tab="point"]').addEventListener("click", showPointTab);
-    document.querySelector('[data-editor-tab="manual"]').addEventListener("click", () => window.KuaimaRetouchEditor.open(state.sourceURL));
+    document.querySelector('[data-editor-tab="manual"]').addEventListener("click", () => state.sourceURL ? window.KuaimaRetouchEditor.open(state.sourceURL, "pan") : window.KuaimaRetouchEditor.openEmpty("pan"));
     el("closeFineEditor").addEventListener("click", close);
     el("fineEditor").addEventListener("click", (event) => { if (event.target === el("fineEditor")) close(); });
     el("fineEditorStage").addEventListener("click", (event) => {
+      if (!state.sourceURL) return;
       if (event.target.closest(".fine-marker, .fine-point-quick-editor")) return;
       const img = el("fineEditorImage");
       const rect = img.getBoundingClientRect();
@@ -202,6 +218,16 @@
       state.points.push({ x: (event.clientX - rect.left) / rect.width * 100, y: (event.clientY - rect.top) / rect.height * 100, description: "" });
       selectPoint(state.points.length - 1);
       el("finePointQuickInput").focus();
+    });
+    ["dragenter", "dragover"].forEach((name) => el("fineEditorStage").addEventListener(name, (event) => {
+      if (state.sourceURL) return; event.preventDefault(); el("fineEditorStage").classList.add("drag-over");
+    }));
+    ["dragleave", "drop"].forEach((name) => el("fineEditorStage").addEventListener(name, (event) => {
+      if (state.sourceURL) return; event.preventDefault(); el("fineEditorStage").classList.remove("drag-over");
+    }));
+    el("fineEditorStage").addEventListener("drop", (event) => {
+      if (state.sourceURL) return; const file = Array.from(event.dataTransfer?.files || []).find((item) => String(item.type || "").startsWith("image/"));
+      if (file) open(imagePreviewURL(file));
     });
     el("finePointList").addEventListener("input", (event) => {
       if (event.target.dataset.fineDescription != null) {
@@ -270,6 +296,6 @@
     window.addEventListener("resize", syncMarkerBounds);
   }
 
-  window.KuaimaFineEditor = { init, open, close };
+  window.KuaimaFineEditor = { init, open, openEmpty, close };
   init();
 })();

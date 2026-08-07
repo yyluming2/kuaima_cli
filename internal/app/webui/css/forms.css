@@ -1597,6 +1597,40 @@
     cursor: pointer;
   }
 
+  .fine-editor-stage.drag-over {
+    background: #dbeafe;
+    outline: 3px dashed #2563eb;
+    outline-offset: -12px;
+  }
+
+  .fine-editor-source-empty {
+    display: grid;
+    place-items: center;
+    gap: 8px;
+    min-width: min(360px, calc(100% - 40px));
+    min-height: 220px;
+    padding: 32px;
+    border: 2px dashed rgba(37, 99, 235, .45);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .72);
+    color: #2563eb;
+    cursor: pointer;
+  }
+
+  .fine-editor-source-empty[hidden] {
+    display: none;
+  }
+
+  .fine-editor-source-empty i {
+    width: 34px;
+    height: 34px;
+  }
+
+  .fine-editor-source-empty span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
   .retouch-color-option output,
   .retouch-pan-hint {
     color: var(--muted);
@@ -1648,6 +1682,48 @@
     z-index: 2;
     cursor: crosshair;
     touch-action: none;
+  }
+
+  .retouch-clone-sample {
+    position: absolute;
+    z-index: 4;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    transform: translate(-50%, -50%);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #f97316;
+    box-shadow: 0 0 0 2px #9a3412, 0 3px 10px rgba(15, 23, 42, .35);
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .retouch-clone-sample[hidden] {
+    display: none;
+  }
+
+  .retouch-clone-sample::before,
+  .retouch-clone-sample::after {
+    content: "";
+    position: absolute;
+    inset: 50% 3px auto;
+    height: 2px;
+    background: #fff;
+    transform: translateY(-50%);
+  }
+
+  .retouch-clone-sample::after {
+    inset: 3px auto;
+    left: 50%;
+    width: 2px;
+    height: auto;
+    transform: translateX(-50%);
+  }
+
+  .retouch-clone-sample.dragging {
+    cursor: grabbing;
+    box-shadow: 0 0 0 4px rgba(249, 115, 22, .3), 0 3px 10px rgba(15, 23, 42, .35);
   }
 
   .retouch-erase-progress {
@@ -1920,6 +1996,33 @@
   .retouch-batch-meta .retouch-batch-error {
     color: #dc2626;
     white-space: normal;
+  }
+
+  .retouch-batch-meta .retouch-batch-time {
+    color: #2563eb;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .retouch-batch-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .retouch-batch-sound {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .retouch-batch-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .fine-editor.retouch-batch-processing::after {
