@@ -87,6 +87,8 @@ textarea {
   gap: 10px;
   font-size: 16px;
   font-weight: 760;
+  text-decoration: none;
+  color: var(--muted);
 }
 
 .topbar-workbench {
@@ -286,4 +288,3 @@ label,
 .paybox span {
   font-size: 12px;
 }
-
