@@ -1,12 +1,74 @@
 (function () {
   const $ = (selector) => document.querySelector(selector);
+  const STORAGE_KEY = "kuaima.webui.agent.chats.v1";
+  const HISTORY_LIMIT = 50;
 
   const state = {
     history: [],
+    chats: [],
+    activeChatId: "",
     attachments: [],
     activeController: null,
     pendingAssistant: null,
   };
+
+  function nowISO() { return new Date().toISOString(); }
+  function newChat() {
+    const now = nowISO();
+    return { id: "chat-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8), title: "新对话", createdAt: now, updatedAt: now, messages: [] };
+  }
+  function loadChats() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      state.chats = Array.isArray(saved) ? saved.filter((chat) => chat && Array.isArray(chat.messages)).slice(0, HISTORY_LIMIT) : [];
+    } catch (_) { state.chats = []; }
+  }
+  function saveChats() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.chats.slice(0, HISTORY_LIMIT))); } catch (_) {}
+  }
+  function currentChat() { return state.chats.find((chat) => chat.id === state.activeChatId) || null; }
+  function formatTime(value, withDate) {
+    const date = new Date(value || Date.now());
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("zh-CN", withDate ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+  function deriveTitle(messages) {
+    const first = messages.find((item) => item.role === "user");
+    const part = first && (first.content || []).find((item) => item.type === "input_text" && item.text);
+    return part ? part.text.trim().replace(/\s+/g, " ").slice(0, 24) : "图片对话";
+  }
+  function renderChatHistory() {
+    const list = $("#agentHistoryList");
+    if (!list) return;
+    if (!state.chats.length) { list.innerHTML = '<div class="agent-history-empty">暂无对话</div>'; return; }
+    list.innerHTML = state.chats.map((chat) => '<div class="agent-history-item' + (chat.id === state.activeChatId ? " active" : "") + '">' +
+      '<button class="agent-history-open" type="button" data-agent-chat-id="' + esc(chat.id) + '"><strong>' + esc(chat.title || "新对话") + '</strong><small>' + esc(formatTime(chat.updatedAt, true)) + '</small></button>' +
+      '<button class="icon-btn" type="button" data-agent-delete-chat="' + esc(chat.id) + '" aria-label="删除对话">' + iconHTML("trash-2") + '</button></div>').join("");
+  }
+  function activateChat(id) {
+    const chat = state.chats.find((item) => item.id === id);
+    state.activeChatId = chat ? chat.id : "";
+    state.history = chat ? chat.messages : [];
+    renderChatHistory(); renderChat();
+  }
+  function startNewChat() {
+    if (state.activeController) state.activeController.abort();
+    clearAttachments();
+    $("#agentPrompt").value = "";
+    state.activeChatId = ""; state.history = []; state.pendingAssistant = null;
+    renderChatHistory(); renderChat();
+  }
+  function persistCurrentChat() {
+    let chat = currentChat();
+    if (!chat) {
+      chat = newChat(); state.activeChatId = chat.id; state.chats.unshift(chat);
+    }
+    chat.messages = state.history;
+    chat.title = deriveTitle(chat.messages);
+    chat.updatedAt = nowISO();
+    state.chats = [chat].concat(state.chats.filter((item) => item.id !== chat.id)).slice(0, HISTORY_LIMIT);
+    saveChats(); renderChatHistory();
+  }
 
   function renderMode(mode) {
     document.querySelectorAll("[data-mode-tab]").forEach((button) => {
@@ -62,7 +124,7 @@
     const outputImages = (Array.isArray(message.images) ? message.images : []).filter(Boolean);
     return (
       '<div class="chat-message ' + esc(role) + '" data-message-index="' + index + '">' +
-        '<div class="chat-role">' + esc(role === "assistant" ? "assistant" : role) + '</div>' +
+        '<div class="chat-meta"><div class="chat-role">' + esc(role === "assistant" ? "assistant" : role) + '</div><time class="chat-time">' + esc(formatTime(message.createdAt)) + '</time></div>' +
         (textParts.length ? '<div class="chat-text">' + esc(textParts.join("\n")) + '</div>' : "") +
         (imageParts.length ? '<div class="chat-images">' + imageParts.map((part) => (
           '<button class="chat-image" type="button" data-preview-image="' + esc(part.image_url) + '">' +
@@ -83,7 +145,7 @@
     }
     const el = document.createElement("div");
     el.className = "chat-message assistant";
-    el.innerHTML = '<div class="chat-role">assistant</div><div class="chat-text"></div>';
+    el.innerHTML = '<div class="chat-meta"><div class="chat-role">assistant</div><time class="chat-time">' + esc(formatTime(Date.now())) + '</time></div><div class="chat-text"><span class="chat-waiting" aria-label="正在等待回复"><i></i><i></i><i></i></span></div>';
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
     return el;
@@ -185,7 +247,7 @@
     state.attachments.forEach((item) => {
       content.push({ type: "input_image", image_url: item.url });
     });
-    return { role: "user", content };
+    return { role: "user", content, createdAt: nowISO() };
   }
 
   function appendMessage(message) {
@@ -222,11 +284,12 @@
 
     const userMessage = buildUserMessage(prompt);
     state.history.push(userMessage);
+    persistCurrentChat();
     appendMessage(userMessage);
     $("#agentPrompt").value = "";
     clearAttachments();
 
-    const assistantMessage = { role: "assistant", content: [] };
+    const assistantMessage = { role: "assistant", content: [], createdAt: nowISO() };
     state.pendingAssistant = appendPendingAssistant();
     const controller = new AbortController();
     state.activeController = controller;
@@ -238,11 +301,13 @@
       await apiStream("/api/agent/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: state.history }),
+        body: JSON.stringify({ messages: state.history.map((item) => ({ role: item.role, content: item.content })) }),
         signal: controller.signal,
       }, {
         status(payload) {
-          setPendingAssistantText(payload.message || "正在回复...");
+          if (payload.message && state.pendingAssistant) {
+            state.pendingAssistant.querySelector(".chat-waiting")?.setAttribute("aria-label", payload.message);
+          }
         },
         text(payload) {
           if (payload.text) {
@@ -275,6 +340,7 @@
       assistantMessage.content = responseText ? [{ type: "output_text", text: responseText }] : [];
       assistantMessage.images = responseImages;
       state.history.push(assistantMessage);
+      persistCurrentChat();
     } catch (error) {
       if (error && error.name === "AbortError") {
         if (state.pendingAssistant) {
@@ -282,6 +348,9 @@
         }
       } else {
         setPendingAssistantText("错误: " + (error && error.message ? error.message : "agent failed"));
+        assistantMessage.content = [{ type: "output_text", text: "错误: " + (error && error.message ? error.message : "agent failed") }];
+        state.history.push(assistantMessage);
+        persistCurrentChat();
       }
     } finally {
       state.pendingAssistant = null;
@@ -324,9 +393,15 @@
   $("#agentForm").addEventListener("submit", submitAgentMessage);
 
   $("#clearAgentChat").addEventListener("click", () => {
+    if ((state.history.length > 0 || state.activeChatId) && !window.confirm("确定要清空当前对话吗？清空后无法恢复。")) {
+      return;
+    }
     if (state.activeController) {
       state.activeController.abort();
     }
+    const chat = currentChat();
+    if (chat) state.chats = state.chats.filter((item) => item.id !== chat.id);
+    state.activeChatId = "";
     state.history = [];
     state.pendingAssistant = null;
     state.activeController = null;
@@ -334,6 +409,22 @@
     clearAttachments();
     $("#agentPrompt").value = "";
     renderChat();
+    saveChats(); renderChatHistory();
+  });
+
+  $("#newAgentChat").addEventListener("click", startNewChat);
+  $("#agentHistoryList").addEventListener("click", (event) => {
+    const open = event.target.closest("[data-agent-chat-id]");
+    if (open) { activateChat(open.dataset.agentChatId); return; }
+    const remove = event.target.closest("[data-agent-delete-chat]");
+    if (!remove) return;
+    const id = remove.dataset.agentDeleteChat;
+    const chat = state.chats.find((item) => item.id === id);
+    const title = chat && chat.title ? chat.title : "这条对话";
+    if (!window.confirm("确定要删除“" + title + "”吗？删除后无法恢复。")) return;
+    state.chats = state.chats.filter((chat) => chat.id !== id);
+    saveChats();
+    if (id === state.activeChatId) startNewChat(); else renderChatHistory();
   });
 
   $("#cancelAgentSend").addEventListener("click", () => {
@@ -349,7 +440,11 @@
     }
   });
 
+  window.KuaimaAgent = { addAttachments };
+  loadChats();
+  if (state.chats.length) activateChat(state.chats[0].id);
   renderMode("generate");
   renderAttachmentList();
+  renderChatHistory();
   renderChat();
 })();

@@ -294,7 +294,20 @@
       </div>
     </section>
 
-    <section id="agentPane" class="panel agent-pane mode-pane" data-mode-pane="agent" hidden>
+    <section id="agentPane" class="agent-pane mode-pane" data-mode-pane="agent" hidden>
+      <aside class="panel agent-history-sidebar">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Chats</p>
+            <h2 class="panel-title"><i data-lucide="history" aria-hidden="true"></i><span>对话历史</span></h2>
+          </div>
+          <button id="newAgentChat" class="icon-btn" type="button" aria-label="新建对话" title="新建对话">
+            <i data-lucide="message-square-plus" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div id="agentHistoryList" class="agent-history-list"></div>
+      </aside>
+      <div class="panel agent-chat-panel">
       <div class="panel-head">
         <div>
           <p class="eyebrow">Agent</p>
@@ -329,6 +342,7 @@
           </div>
         </div>
       </form>
+      </div>
     </section>
   </main>
 

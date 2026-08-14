@@ -201,6 +201,11 @@
       return;
     }
     event.preventDefault();
+    const agentPane = $("#agentPane");
+    if (agentPane && !agentPane.hidden && window.KuaimaAgent) {
+      await window.KuaimaAgent.addAttachments(files);
+      return;
+    }
     await addReferenceFiles(files, "粘贴");
   });
 
