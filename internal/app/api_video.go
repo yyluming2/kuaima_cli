@@ -16,7 +16,7 @@ func (c *client) createVideoGeneration(ctx context.Context, req videoGenerationR
 }
 
 func (c *client) getVideoGeneration(ctx context.Context, taskID string) (*videoGenerationTask, error) {
-	return c.videoRequest(ctx, http.MethodGet, "/v1/videos/generations/"+url.PathEscape(strings.TrimSpace(taskID)), nil, "video generation status")
+	return c.videoRequest(ctx, http.MethodGet, "/v1/video/generations/"+url.PathEscape(strings.TrimSpace(taskID)), nil, "video generation status")
 }
 
 func (c *client) videoRequest(ctx context.Context, method, path string, payload any, operation string) (*videoGenerationTask, error) {

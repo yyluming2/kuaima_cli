@@ -312,7 +312,8 @@
             <label>生成模式</label>
             <select id="videoMode" name="mode">
               <option value="frames">首尾帧模式</option>
-              <option value="references">参考图模式</option>
+              <option value="references">参考素材模式</option>
+              <option value="edit">视频编辑模式</option>
             </select>
           </div>
           <div class="field">
@@ -320,10 +321,23 @@
             <input name="model" type="text" required placeholder="输入视频模型名称">
           </div>
         </div>
+        <div id="videoFramesFields">
+          <div class="row">
+            <div class="field"><label>首帧（可选）</label><input id="videoFirstFrame" name="first_frame" type="file" accept="image/*"></div>
+            <div class="field"><label>尾帧（可选）</label><input id="videoLastFrame" name="last_frame" type="file" accept="image/*"></div>
+          </div>
+          <p class="field-note">首帧、尾帧任选一张即可，也可以两张都传。</p>
+        </div>
+        <div id="videoReferencesField" class="field" hidden>
+          <label>参考素材</label>
+          <input id="videoReferences" name="references" type="file" accept="image/*,video/*,audio/*" multiple>
+          <p class="field-note">支持参考图片、视频和声音文件。</p>
+        </div>
+        <div id="videoEditField" class="field" hidden>
+          <label>待编辑视频</label>
+          <input id="videoEditInput" name="video" type="file" accept="video/*">
+        </div>
         <div class="field">
-          <label id="videoImagesLabel">首帧与尾帧</label>
-          <input id="videoImages" name="images" type="file" accept="image/*" multiple>
-          <p id="videoImagesHint" class="field-note">第 1 张作为首帧（必选），第 2 张作为尾帧（可选）。</p>
           <div id="videoImagePreviews" class="video-image-previews"></div>
         </div>
         <div class="row">
@@ -335,6 +349,10 @@
             <label>分辨率</label>
             <input name="size" type="text" placeholder="例如 720p">
           </div>
+        </div>
+        <div class="row">
+          <label class="check"><input name="audio" type="checkbox" value="true" checked><span>生成声音</span></label>
+          <label class="check"><input name="watermark" type="checkbox" value="true"><span>生成水印</span></label>
         </div>
         <button id="videoSubmit" class="btn primary" type="submit"><i data-lucide="clapperboard"
             aria-hidden="true"></i><span>生成视频</span></button>
@@ -350,6 +368,10 @@
         <div id="videoMetadata" class="video-metadata"></div>
         <a id="videoDownload" class="btn primary" target="_blank" rel="noopener" download>下载视频</a>
       </section>
+      <aside class="panel video-history">
+        <div class="panel-head"><div><p class="eyebrow">Tasks</p><h2 class="panel-title">视频历史记录</h2></div></div>
+        <div id="videoHistory"><div class="history-empty">暂无视频任务</div></div>
+      </aside>
     </section>
 
     <section id="agentPane" class="agent-pane mode-pane" data-mode-pane="agent" hidden>

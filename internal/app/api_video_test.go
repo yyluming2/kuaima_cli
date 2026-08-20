@@ -48,7 +48,10 @@ func TestVideoGenerationAPI(t *testing.T) {
 }
 
 func TestVideoReferenceImagesJSON(t *testing.T) {
-	data, err := json.Marshal(videoGenerationRequest{Model: "m", Prompt: "p", Images: []string{"one", "two"}})
+	data, err := json.Marshal(videoGenerationRequest{
+		Model: "m", Prompt: "p", Images: []string{"one", "two"},
+		Metadata: map[string]any{"audio": true, "watermark": false},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,5 +67,23 @@ func TestVideoReferenceImagesJSON(t *testing.T) {
 	}
 	if _, ok := value["last_frame"]; ok {
 		t.Fatalf("last_frame should be omitted in reference mode: %s", data)
+	}
+	metadata, ok := value["metadata"].(map[string]any)
+	if !ok || metadata["audio"] != true || metadata["watermark"] != false {
+		t.Fatalf("unexpected metadata: %s", data)
+	}
+}
+
+func TestVideoEditJSON(t *testing.T) {
+	data, err := json.Marshal(videoGenerationRequest{Model: "m", Mode: "edit", Prompt: "p", Video: "https://example.com/input.mp4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(data, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value["video"] != "https://example.com/input.mp4" {
+		t.Fatalf("video missing: %s", data)
 	}
 }

@@ -1,8 +1,13 @@
 package app
 
 import (
+	"encoding/base64"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -31,22 +36,58 @@ func (s *webUIServer) handleVideoGenerate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer c.Close()
-	refs, err := uploadedVideoImages(r, c)
+	refs, err := uploadedVideoMedia(r, c, s.fileFormat, "references", 16)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	legacyRefs, err := uploadedVideoMedia(r, c, s.fileFormat, "images", 16-len(refs))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	refs = append(refs, legacyRefs...)
 	mode := strings.TrimSpace(r.FormValue("mode"))
-	req := videoGenerationRequest{Model: strings.TrimSpace(r.FormValue("model")), Mode: mode, Prompt: prompt, Duration: duration, Size: strings.TrimSpace(r.FormValue("size"))}
+	req := videoGenerationRequest{
+		Model: strings.TrimSpace(r.FormValue("model")), Mode: mode, Prompt: prompt, Duration: duration,
+		Size:     strings.TrimSpace(r.FormValue("size")),
+		Metadata: map[string]any{"audio": formBool(r.FormValue("audio"), true), "watermark": formBool(r.FormValue("watermark"), false)},
+	}
 	if mode == "frames" {
-		if len(refs) == 0 {
-			writeError(w, http.StatusBadRequest, "首帧图片不能为空")
+		first, firstErr := uploadedVideoMedia(r, c, s.fileFormat, "first_frame", 1)
+		last, lastErr := uploadedVideoMedia(r, c, s.fileFormat, "last_frame", 1)
+		if firstErr != nil || lastErr != nil {
+			writeError(w, http.StatusBadRequest, firstError(firstErr, lastErr).Error())
 			return
 		}
-		req.Image = refs[0]
-		if len(refs) > 1 {
-			req.LastFrame = refs[1]
+		// Keep accepting the old positional images field for API compatibility.
+		if len(first) == 0 && len(last) == 0 && len(refs) > 0 {
+			first = refs[:1]
+			if len(refs) > 1 {
+				last = refs[1:2]
+			}
 		}
+		if len(first) == 0 && len(last) == 0 {
+			writeError(w, http.StatusBadRequest, "首帧或尾帧至少上传一张")
+			return
+		}
+		if len(first) > 0 {
+			req.Image = first[0]
+		}
+		if len(last) > 0 {
+			req.LastFrame = last[0]
+		}
+	} else if mode == "edit" {
+		videos, videoErr := uploadedVideoMedia(r, c, s.fileFormat, "video", 1)
+		if videoErr != nil {
+			writeError(w, http.StatusBadRequest, videoErr.Error())
+			return
+		}
+		if len(videos) == 0 {
+			writeError(w, http.StatusBadRequest, "编辑模式必须上传视频")
+			return
+		}
+		req.Video = videos[0]
 	} else {
 		req.Images = refs
 	}
@@ -63,20 +104,62 @@ func (s *webUIServer) handleVideoGenerate(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusAccepted, task)
 }
 
-func uploadedVideoImages(r *http.Request, c *client) ([]string, error) {
-	files := r.MultipartForm.File["images"]
-	if len(files) > 16 {
-		return nil, fmt.Errorf("too many video image inputs: got %d, expected at most 16", len(files))
+func uploadedVideoMedia(r *http.Request, c *client, fileFormat, field string, limit int) ([]string, error) {
+	files := r.MultipartForm.File[field]
+	if len(files) > limit {
+		return nil, fmt.Errorf("too many %s inputs: got %d, expected at most %d", field, len(files), limit)
 	}
 	result := make([]string, 0, len(files))
-	for _, file := range files {
-		ref, err := uploadedImageRef(r, c, fileFormatBase64, file)
+	for _, header := range files {
+		file, err := header.Open()
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, ref.ImageURL)
+		data, readErr := io.ReadAll(file)
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		mediaType := strings.TrimSpace(strings.Split(header.Header.Get("Content-Type"), ";")[0])
+		if mediaType == "" {
+			mediaType = mime.TypeByExtension(filepath.Ext(header.Filename))
+		}
+		if mediaType == "" {
+			mediaType = http.DetectContentType(data)
+		}
+		value := "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data)
+		if strings.EqualFold(strings.TrimSpace(fileFormat), fileFormatURL) {
+			if uploaded, uploadErr := c.uploadLocalData(r.Context(), data, header.Filename); uploadErr == nil && strings.TrimSpace(uploaded) != "" {
+				value = uploaded
+			}
+		}
+		result = append(result, value)
 	}
 	return result, nil
+}
+
+func formBool(value string, fallback bool) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func firstError(errors ...error) error {
+	for _, err := range errors {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *webUIServer) handleVideoStatus(w http.ResponseWriter, r *http.Request) {
