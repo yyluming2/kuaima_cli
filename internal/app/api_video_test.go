@@ -23,7 +23,7 @@ func TestVideoGenerationAPI(t *testing.T) {
 				t.Fatalf("unexpected request: %+v", req)
 			}
 			_ = json.NewEncoder(w).Encode(videoGenerationTask{TaskID: "task-1", Status: "queued"})
-		case "/v1/videos/generations/task-1":
+		case "/v1/video/generations/task-1":
 			if r.Method != http.MethodGet {
 				t.Fatalf("method = %s", r.Method)
 			}
