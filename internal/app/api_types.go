@@ -64,6 +64,26 @@ type imageRef struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
+type videoGenerationRequest struct {
+	Model     string   `json:"model"`
+	Mode      string   `json:"mode"`
+	Prompt    string   `json:"prompt"`
+	Images    []string `json:"images,omitempty"`
+	Image     string   `json:"image,omitempty"`
+	LastFrame string   `json:"last_frame,omitempty"`
+	Duration  int      `json:"duration,omitempty"`
+	Size      string   `json:"size,omitempty"`
+}
+
+type videoGenerationTask struct {
+	TaskID   string         `json:"task_id"`
+	Status   string         `json:"status"`
+	URL      string         `json:"url,omitempty"`
+	Format   string         `json:"format,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+	Error    *apiError      `json:"error,omitempty"`
+}
+
 type responsePayload struct {
 	ID         string           `json:"id"`
 	OutputText string           `json:"output_text"`

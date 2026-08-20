@@ -163,6 +163,8 @@
     const current = currentWorkflowId();
     const agentPane = document.querySelector('[data-mode-pane="agent"]');
     const agentActive = Boolean(agentPane && !agentPane.hidden);
+    const videoPane = document.querySelector('[data-mode-pane="video"]');
+    const videoActive = Boolean(videoPane && !videoPane.hidden);
     const items = [{ id: "single", name: "图片生成" }];
     const workflowButtons = items.map((item) => (
       '<button class="workflow-tab' + (!agentActive && String(item.id) === String(current) ? " active" : "") + '" type="button" role="tab" ' +
@@ -175,6 +177,8 @@
       iconHTML(item.icon || "workflow") + '<span>' + esc(item.name) + '</span></button>'
     )).join("");
     container.innerHTML = workflowButtons +
+      '<button class="workflow-tab' + (videoActive ? " active" : "") + '" type="button" role="tab" aria-selected="' +
+      String(videoActive) + '" data-mode-tab="video">' + iconHTML("video") + '<span>视频生成</span></button>' +
       '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-fine-edit-tab>' +
       iconHTML("scan-search") + '<span>图片编辑</span></button>' +
       '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-cutout-tab>' +

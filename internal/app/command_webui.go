@@ -188,6 +188,8 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/prompt/auto", s.handleAutoPrompt)
 	mux.HandleFunc("/api/generate", s.handleGenerate)
 	mux.HandleFunc("/api/generate/stream", s.handleGenerateStream)
+	mux.HandleFunc("/api/video/generate", s.handleVideoGenerate)
+	mux.HandleFunc("/api/video/status/", s.handleVideoStatus)
 	mux.HandleFunc("/api/agent/upload", s.handleAgentUpload)
 	mux.HandleFunc("/api/agent/stream", s.handleAgentStream)
 	mux.HandleFunc("/api/balance", s.handleBalance)

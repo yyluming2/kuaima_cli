@@ -294,6 +294,64 @@
       </div>
     </section>
 
+    <section id="videoPane" class="mode-pane video-pane" data-mode-pane="video" hidden>
+      <form id="videoForm" class="panel video-generator">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Video</p>
+            <h2 class="panel-title"><i data-lucide="video" aria-hidden="true"></i><span>视频生成</span></h2>
+          </div>
+          <span id="videoStatus" class="status" aria-live="polite"></span>
+        </div>
+        <div class="field prompt-field">
+          <label>提示词</label>
+          <textarea name="prompt" required placeholder="描述镜头运动、主体动作、场景和视觉风格"></textarea>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>生成模式</label>
+            <select id="videoMode" name="mode">
+              <option value="frames">首尾帧模式</option>
+              <option value="references">参考图模式</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>模型</label>
+            <input name="model" type="text" required placeholder="输入视频模型名称">
+          </div>
+        </div>
+        <div class="field">
+          <label id="videoImagesLabel">首帧与尾帧</label>
+          <input id="videoImages" name="images" type="file" accept="image/*" multiple>
+          <p id="videoImagesHint" class="field-note">第 1 张作为首帧（必选），第 2 张作为尾帧（可选）。</p>
+          <div id="videoImagePreviews" class="video-image-previews"></div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>时长（秒）</label>
+            <input name="duration" type="number" min="1" step="1" placeholder="例如 5">
+          </div>
+          <div class="field">
+            <label>分辨率</label>
+            <input name="size" type="text" placeholder="例如 720p">
+          </div>
+        </div>
+        <button id="videoSubmit" class="btn primary" type="submit"><i data-lucide="clapperboard"
+            aria-hidden="true"></i><span>生成视频</span></button>
+      </form>
+      <section id="videoResult" class="panel video-result" hidden>
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Output</p>
+            <h2 class="panel-title"><i data-lucide="play" aria-hidden="true"></i><span>视频预览</span></h2>
+          </div>
+        </div>
+        <video id="videoPlayer" controls playsinline></video>
+        <div id="videoMetadata" class="video-metadata"></div>
+        <a id="videoDownload" class="btn primary" target="_blank" rel="noopener" download>下载视频</a>
+      </section>
+    </section>
+
     <section id="agentPane" class="agent-pane mode-pane" data-mode-pane="agent" hidden>
       <aside class="panel agent-history-sidebar">
         <div class="panel-head">
@@ -308,40 +366,40 @@
         <div id="agentHistoryList" class="agent-history-list"></div>
       </aside>
       <div class="panel agent-chat-panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Agent</p>
-          <h2 class="panel-title"><i data-lucide="bot-message-square" aria-hidden="true"></i><span>直接对话</span></h2>
-        </div>
-        <div class="agent-head-actions">
-          <button id="clearAgentChat" class="btn small" type="button">
-            <i data-lucide="eraser" aria-hidden="true"></i>
-            <span>清空</span>
-          </button>
-        </div>
-      </div>
-      <div id="agentChatLog" class="agent-chat-log" aria-live="polite"></div>
-      <form id="agentForm" class="agent-composer">
-        <input id="agentImageInput" class="sr-only" type="file" accept="image/*" multiple>
-        <div id="agentAttachmentList" class="agent-attachment-list"></div>
-        <label class="upload-button agent-upload" for="agentImageInput" title="上传图片">
-          <span class="upload-icon"><i data-lucide="image-up" aria-hidden="true"></i></span>
-          <span>图片</span>
-        </label>
-        <div class="agent-input-row">
-          <textarea id="agentPrompt" placeholder="输入消息，Shift+Enter 换行"></textarea>
-          <div class="agent-actions">
-            <button id="cancelAgentSend" class="btn cancel-generate" type="button" hidden>
-              <i data-lucide="circle-x" aria-hidden="true"></i>
-              <span>取消</span>
-            </button>
-            <button class="btn primary" type="submit">
-              <i data-lucide="send-horizontal" aria-hidden="true"></i>
-              <span>发送</span>
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Agent</p>
+            <h2 class="panel-title"><i data-lucide="bot-message-square" aria-hidden="true"></i><span>直接对话</span></h2>
+          </div>
+          <div class="agent-head-actions">
+            <button id="clearAgentChat" class="btn small" type="button">
+              <i data-lucide="eraser" aria-hidden="true"></i>
+              <span>清空</span>
             </button>
           </div>
         </div>
-      </form>
+        <div id="agentChatLog" class="agent-chat-log" aria-live="polite"></div>
+        <form id="agentForm" class="agent-composer">
+          <input id="agentImageInput" class="sr-only" type="file" accept="image/*" multiple>
+          <div id="agentAttachmentList" class="agent-attachment-list"></div>
+          <label class="upload-button agent-upload" for="agentImageInput" title="上传图片">
+            <span class="upload-icon"><i data-lucide="image-up" aria-hidden="true"></i></span>
+            <span>图片</span>
+          </label>
+          <div class="agent-input-row">
+            <textarea id="agentPrompt" placeholder="输入消息，Shift+Enter 换行"></textarea>
+            <div class="agent-actions">
+              <button id="cancelAgentSend" class="btn cancel-generate" type="button" hidden>
+                <i data-lucide="circle-x" aria-hidden="true"></i>
+                <span>取消</span>
+              </button>
+              <button class="btn primary" type="submit">
+                <i data-lucide="send-horizontal" aria-hidden="true"></i>
+                <span>发送</span>
+              </button>
+            </div>
+          </div>
+        </form>
       </div>
     </section>
   </main>
@@ -695,6 +753,7 @@
   <script src="/app-history.js"></script>
   <script src="/app-workflow.js"></script>
   <script src="/app-generation.js"></script>
+  <script src="/app-video.js"></script>
   <script src="/app-agent.js"></script>
   <script src="/app-mask.js"></script>
   <script src="/app-fine-edit.js"></script>

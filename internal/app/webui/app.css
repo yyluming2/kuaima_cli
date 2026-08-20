@@ -5,6 +5,16 @@
 @import url("/css/billing-modals.css");
 @import url("/css/responsive.css");
 
+.video-pane { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .8fr); gap: 16px; }
+.video-generator, .video-result { padding: 18px; }
+.video-image-previews { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.video-image-previews figure { width: 112px; margin: 0; }
+.video-image-previews img { display: block; width: 112px; height: 80px; border-radius: 8px; object-fit: cover; }
+.video-image-previews figcaption { margin-top: 4px; color: var(--muted); font-size: 12px; text-align: center; }
+.video-result video { display: block; width: 100%; max-height: 68vh; border-radius: 8px; background: #0f172a; }
+.video-metadata { margin: 12px 0; color: var(--muted); }
+@media (max-width: 900px) { .video-pane { grid-template-columns: 1fr; } }
+
 .workflow-run-options-compact {
   margin-top: 8px;
   padding: 10px 12px;
