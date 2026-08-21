@@ -10,6 +10,8 @@
   const durationInput = document.querySelector("#videoDuration");
   const ratioInput = document.querySelector("#videoRatio");
   const resolutionInput = document.querySelector("#videoResolution");
+  const modelInput = form.elements.model;
+  const faceReferenceWarning = document.querySelector("#videoFaceReferenceWarning");
   const legacyHistoryKey = "kuaima.webui.video.history.v1";
   const dbName = "kuaima-webui-video-history";
   const storeName = "tasks";
@@ -19,6 +21,8 @@
   let draggedReferenceIndex = -1;
   let polling = new Set();
   let dbPromise;
+  const sketchOriginals = new WeakMap();
+  let sketchProcessingKey = "";
 
   function setStatus(text, error) {
     status.textContent = text || "";
@@ -43,6 +47,77 @@
     referenceFiles.forEach((file) => transfer.items.add(file));
     referencesInput.files = transfer.files;
   }
+  function isSeedanceModel() { return /seedance/i.test(String(modelInput.value || "")); }
+  function syncFaceReferenceWarning() {
+    faceReferenceWarning.hidden = !isSeedanceModel();
+  }
+  function loadSketchImage(file) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      const url = URL.createObjectURL(file);
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("图片读取失败：" + file.name)); };
+      image.src = url;
+    });
+  }
+  function canvasBlob(canvas) {
+    return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("素描图片生成失败")), "image/jpeg", .9));
+  }
+  async function sketchFile(file) {
+    const image = await loadSketchImage(file);
+    const maxSide = 2048;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(image, 0, 0, width, height);
+    const pixels = context.getImageData(0, 0, width, height); const data = pixels.data;
+    const gray = new Uint8ClampedArray(width * height);
+    for (let index = 0; index < gray.length; index++) { const offset = index * 4; gray[index] = Math.round(data[offset] * .299 + data[offset + 1] * .587 + data[offset + 2] * .114); }
+    const sample = (x, y) => gray[Math.max(0, Math.min(height - 1, y)) * width + Math.max(0, Math.min(width - 1, x))];
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const gx = -sample(x - 1, y - 1) + sample(x + 1, y - 1) - 2 * sample(x - 1, y) + 2 * sample(x + 1, y) - sample(x - 1, y + 1) + sample(x + 1, y + 1);
+      const gy = -sample(x - 1, y - 1) - 2 * sample(x, y - 1) - sample(x + 1, y - 1) + sample(x - 1, y + 1) + 2 * sample(x, y + 1) + sample(x + 1, y + 1);
+      const tone = Math.max(0, 255 - Math.min(255, Math.hypot(gx, gy) * 1.35)); const offset = (y * width + x) * 4;
+      data[offset] = data[offset + 1] = data[offset + 2] = tone; data[offset + 3] = 255;
+    }
+    context.putImageData(pixels, 0, 0);
+    const blob = await canvasBlob(canvas); const base = String(file.name || "reference").replace(/\.[^.]*$/, "").replace(/-sketch$/, "");
+    return new File([blob], base + "-sketch.jpg", { type: "image/jpeg", lastModified: Date.now() });
+  }
+  function replaceInputFile(input, file) { const transfer = new DataTransfer(); if (file) transfer.items.add(file); input.files = transfer.files; }
+  function replaceEntryFile(field, index, file) {
+    if (field === "references") { referenceFiles[index] = file; syncReferenceInput(); }
+    else replaceInputFile(form.elements[field], file);
+  }
+  async function aiSketchFile(file) {
+    const data = new FormData();
+    data.set("prompt", "将这张参考图片转换为清晰自然的黑白铅笔素描，保留原始人物身份特征、五官、姿态、构图和画面比例，不添加文字，不改变主体。");
+    data.set("image_model", (document.querySelector('#genForm [name="image_model"]') || {}).value || "gpt-image-2");
+    data.set("image_endpoint", "response"); data.set("image_count", "1"); data.set("image_size", "1024x1024"); data.set("image_quality", "medium");
+    data.append("images", file, file.name || "reference-image.png");
+    const result = await api("/api/generate", { method: "POST", body: data });
+    const url = result.images && result.images[0]; if (!url) throw new Error("AI 未返回素描图片");
+    const response = await fetch(url); if (!response.ok) throw new Error("AI 素描图片下载失败");
+    const blob = await response.blob(); const base = String(file.name || "reference").replace(/\.[^.]*$/, "").replace(/-(ai-)?sketch$/, "");
+    return new File([blob], base + "-ai-sketch." + (blob.type.includes("jpeg") ? "jpg" : "png"), { type: blob.type || "image/png", lastModified: Date.now() });
+  }
+  async function transformEntry(field, index, method) {
+    const file = field === "references" ? referenceFiles[index] : form.elements[field].files[0]; if (!file) return;
+    const key = field + ":" + index; sketchProcessingKey = key; renderPreviews();
+    setStatus(method === "ai" ? "正在用 AI 转换该图片为素描..." : "正在本地转换该图片为素描...");
+    try {
+      const original = sketchOriginals.get(file) || file;
+      const transformed = method === "ai" ? await aiSketchFile(file) : await sketchFile(file);
+      sketchOriginals.set(transformed, original); replaceEntryFile(field, index, transformed);
+      setStatus(method === "ai" ? "AI 素描已替换，可撤销恢复原图" : "快速素描已替换，可撤销恢复原图");
+    } catch (error) { setStatus(error.message || "转素描失败", true); } finally { sketchProcessingKey = ""; renderPreviews(); }
+  }
+  function undoEntrySketch(field, index) {
+    const file = field === "references" ? referenceFiles[index] : form.elements[field].files[0]; const original = file && sketchOriginals.get(file); if (!original) return;
+    replaceEntryFile(field, index, original); renderPreviews(); setStatus("已撤销素描转换，恢复原图");
+  }
   function activeFiles() {
     if (mode.value === "frames") return [document.querySelector("#videoFirstFrame"), document.querySelector("#videoLastFrame")].flatMap((input) => Array.from(input.files || []).map((file) => ({ file, field: input.name })));
     const result = referenceFiles.map((file, index) => ({ file, field: "references", referenceIndex: index }));
@@ -54,6 +129,7 @@
     document.querySelector("#videoReferencesField").hidden = mode.value === "frames";
     document.querySelector("#videoEditField").hidden = mode.value !== "edit";
     document.querySelector("#videoReferenceUpload").hidden = mode.value === "frames";
+    syncFaceReferenceWarning();
     renderPreviews();
   }
   function syncDuration() { document.querySelector("#videoDurationValue").textContent = durationInput.value + " 秒"; }
@@ -77,15 +153,20 @@
     const entries = activeFiles();
     previewURLs = entries.map((entry) => URL.createObjectURL(entry.file));
     previews.classList.toggle("empty", entries.length === 0);
+    syncFaceReferenceWarning();
     if (!entries.length) { previews.textContent = "上传素材后可预览、删除和调整顺序"; return; }
     previews.innerHTML = entries.map((entry, index) => {
       const file = entry.file;
       const preview = file.type.startsWith("image/") ? '<button class="video-preview-button" type="button" data-video-image-preview aria-label="放大预览 ' + esc(file.name) + '"><img src="' + previewURLs[index] + '" alt="参考素材"></button>' :
         file.type.startsWith("video/") ? '<video src="' + previewURLs[index] + '" muted></video>' : '<div class="video-file-icon">声音</div>';
       const draggable = entry.field === "references";
+      const entryKey = entry.field + ":" + (entry.referenceIndex == null ? 0 : entry.referenceIndex);
+      const imageActions = file.type.startsWith("image/") && isSeedanceModel() ? '<button class="btn small" type="button" data-video-sketch="local" data-video-field="' + esc(entry.field) + '" data-video-entry-index="' + (entry.referenceIndex == null ? 0 : entry.referenceIndex) + '"' + (sketchProcessingKey ? ' disabled' : '') + '><i data-lucide="pencil" aria-hidden="true"></i><span>' + (sketchProcessingKey === entryKey ? '转换中' : '快速素描') + '</span></button>' +
+        '<button class="btn small" type="button" data-video-sketch="ai" data-video-field="' + esc(entry.field) + '" data-video-entry-index="' + (entry.referenceIndex == null ? 0 : entry.referenceIndex) + '"' + (sketchProcessingKey ? ' disabled' : '') + '><i data-lucide="sparkles" aria-hidden="true"></i><span>AI 转素描</span></button>' +
+        (sketchOriginals.has(file) ? '<button class="btn small" type="button" data-video-sketch="undo" data-video-field="' + esc(entry.field) + '" data-video-entry-index="' + (entry.referenceIndex == null ? 0 : entry.referenceIndex) + '"' + (sketchProcessingKey ? ' disabled' : '') + '><i data-lucide="undo-2" aria-hidden="true"></i><span>撤销</span></button>' : '') : '';
       return '<div class="video-preview-item" ' + (draggable ? 'draggable="true" data-video-reference-index="' + entry.referenceIndex + '"' : '') + '>' + preview +
         '<div class="video-preview-meta"><strong>' + esc(file.name) + '</strong><span>' + (entry.field === "video" ? "待编辑视频" : entry.field === "first_frame" ? "首帧" : entry.field === "last_frame" ? "尾帧" : "参考素材 " + (entry.referenceIndex + 1)) + '</span></div>' +
-        '<button class="icon-btn" type="button" data-video-remove="' + esc(entry.field) + '" data-video-remove-index="' + (entry.referenceIndex == null ? "" : entry.referenceIndex) + '" aria-label="删除素材" title="删除"><i data-lucide="trash-2" aria-hidden="true"></i></button></div>';
+        '<div class="video-preview-actions">' + imageActions + '<button class="icon-btn" type="button" data-video-remove="' + esc(entry.field) + '" data-video-remove-index="' + (entry.referenceIndex == null ? "" : entry.referenceIndex) + '" aria-label="删除素材" title="删除"><i data-lucide="trash-2" aria-hidden="true"></i></button></div></div>';
     }).join("");
     if (window.lucide) window.lucide.createIcons();
   }
@@ -170,12 +251,19 @@
     } } finally { clearInterval(timer); polling.delete(taskID); }
   }
   mode.addEventListener("change", syncMode);
+  modelInput.addEventListener("input", renderPreviews);
+  modelInput.addEventListener("change", renderPreviews);
   durationInput.addEventListener("input", syncDuration);
   ratioInput.addEventListener("change", syncRatioPreview);
   window.addEventListener("kuaima:account", syncResolutionAccess);
   ["#videoFirstFrame", "#videoLastFrame", "#videoEditInput"].forEach((selector) => document.querySelector(selector).addEventListener("change", renderPreviews));
   referencesInput.addEventListener("change", () => { referenceFiles = referenceFiles.concat(Array.from(referencesInput.files || [])); syncReferenceInput(); renderPreviews(); });
-  previews.addEventListener("click", (event) => { const imageButton = event.target.closest("[data-video-image-preview]"); if (imageButton) { openImagePreview(imageButton); return; } const button = event.target.closest("[data-video-remove]"); if (!button) return; const field = button.dataset.videoRemove; if (field === "references") { referenceFiles.splice(Number(button.dataset.videoRemoveIndex), 1); syncReferenceInput(); } else { form.elements[field].value = ""; } renderPreviews(); });
+  previews.addEventListener("click", (event) => {
+    const sketch = event.target.closest("[data-video-sketch]");
+    if (sketch) { const field = sketch.dataset.videoField; const index = Number(sketch.dataset.videoEntryIndex || 0); if (sketch.dataset.videoSketch === "undo") undoEntrySketch(field, index); else transformEntry(field, index, sketch.dataset.videoSketch); return; }
+    const imageButton = event.target.closest("[data-video-image-preview]"); if (imageButton) { openImagePreview(imageButton); return; }
+    const button = event.target.closest("[data-video-remove]"); if (!button) return; const field = button.dataset.videoRemove; if (field === "references") { referenceFiles.splice(Number(button.dataset.videoRemoveIndex), 1); syncReferenceInput(); } else { form.elements[field].value = ""; } renderPreviews();
+  });
   previews.addEventListener("dragstart", (event) => { const item = event.target.closest("[data-video-reference-index]"); if (!item) return; draggedReferenceIndex = Number(item.dataset.videoReferenceIndex); item.classList.add("dragging"); event.dataTransfer.effectAllowed = "move"; });
   previews.addEventListener("dragover", (event) => { if (draggedReferenceIndex >= 0 && event.target.closest("[data-video-reference-index]")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } });
   previews.addEventListener("drop", (event) => { const item = event.target.closest("[data-video-reference-index]"); if (!item || draggedReferenceIndex < 0) return; event.preventDefault(); const target = Number(item.dataset.videoReferenceIndex); const moved = referenceFiles.splice(draggedReferenceIndex, 1)[0]; referenceFiles.splice(target, 0, moved); draggedReferenceIndex = -1; syncReferenceInput(); renderPreviews(); });

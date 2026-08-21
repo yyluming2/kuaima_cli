@@ -332,9 +332,9 @@
           <div class="field">
             <label>生成模式</label>
             <select id="videoMode" name="mode">
-              <option value="frames">首尾帧模式</option>
-              <option value="references" selected>参考素材模式</option>
-              <option value="edit">视频编辑模式</option>
+              <option value="frames">首尾帧</option>
+              <option value="references" selected>参考素材</option>
+              <option value="edit">视频编辑</option>
             </select>
           </div>
           <div class="field">
@@ -345,6 +345,13 @@
               <option value="MiniMax-H3"></option>
               <option value="doubao-seedance-2.0-mini"></option>
             </datalist>
+          </div>
+        </div>
+        <div id="videoFaceReferenceWarning" class="video-model-warning" role="note" hidden>
+          <i data-lucide="triangle-alert" aria-hidden="true"></i>
+          <div>
+            <strong>Seedance 可能不支持真人脸参考图片</strong>
+            <span>若素材中有真人脸，建议在对应图片上选择“快速素描”或“AI 转素描”，可提高审核通过率。</span>
           </div>
         </div>
         <div id="videoFramesFields" hidden>

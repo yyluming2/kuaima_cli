@@ -89,6 +89,27 @@
 .video-composer-actions { grid-template-columns: auto 1fr; }
 .video-toggles .original-image-toggle { justify-content: center; }
 
+.video-model-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(217, 119, 6, .3);
+  border-radius: 8px;
+  color: #92400e;
+  background: rgba(255, 247, 237, .9);
+}
+.video-model-warning[hidden] { display: none; }
+.video-model-warning > i { width: 20px; height: 20px; }
+.video-model-warning strong,
+.video-model-warning span { display: block; }
+.video-model-warning span { margin-top: 2px; font-size: 12px; line-height: 1.45; }
+.video-preview-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.video-preview-actions .btn { min-height: 30px; padding: 5px 8px; font-size: 12px; }
+.video-preview-actions .icon-btn { width: 30px; height: 30px; }
+
 .video-result video {
   display: block;
   width: 100%;
