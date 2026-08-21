@@ -37,6 +37,11 @@ func (s *webUIServer) handleVideoGenerate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer c.Close()
+	group := accountGroupFromClient(r.Context(), c)
+	if group != "vip" && group != "svip" && !strings.EqualFold(strings.TrimSpace(r.FormValue("size")), "480p") {
+		writeError(w, http.StatusForbidden, "普通用户只能生成 480p 视频")
+		return
+	}
 	refs, err := uploadedVideoMedia(r, c, s.fileFormat, "references", 16)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
