@@ -190,6 +190,7 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/generate/stream", s.handleGenerateStream)
 	mux.HandleFunc("/api/video/generate", s.handleVideoGenerate)
 	mux.HandleFunc("/api/video/status/", s.handleVideoStatus)
+	mux.HandleFunc("/api/video/download/", s.handleVideoDownload)
 	mux.HandleFunc("/api/agent/upload", s.handleAgentUpload)
 	mux.HandleFunc("/api/agent/stream", s.handleAgentStream)
 	mux.HandleFunc("/api/balance", s.handleBalance)

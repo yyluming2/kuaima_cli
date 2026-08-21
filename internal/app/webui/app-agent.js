@@ -83,6 +83,11 @@
     document.querySelectorAll("[data-mode-pane]").forEach((pane) => {
       pane.hidden = pane.dataset.modePane !== mode;
     });
+    const generationStatus = $("#genStatus");
+    if (generationStatus) {
+      generationStatus.textContent = mode === "video" ? "准备生成视频" : mode === "agent" ? "对话模式" : "准备生成图片";
+      generationStatus.className = "status gen-status";
+    }
   }
 
   function renderAttachmentList() {

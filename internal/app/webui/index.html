@@ -19,7 +19,7 @@
       <span class="brand-name">快马AI</span>
     </a>
     <div class="topbar-workbench">
-      <div id="genStatus" class="status gen-status" aria-live="polite">图片生成</div>
+      <div id="genStatus" class="status gen-status" aria-live="polite">准备生成图片</div>
       <div class="workbench-tabs">
         <input id="workflowId" name="workflow_id" type="hidden" value="single">
         <input id="workflowTemplates" name="workflow_templates" type="hidden" value="">
@@ -324,23 +324,29 @@
             <label>生成模式</label>
             <select id="videoMode" name="mode">
               <option value="frames">首尾帧模式</option>
-              <option value="references">参考素材模式</option>
+              <option value="references" selected>参考素材模式</option>
               <option value="edit">视频编辑模式</option>
             </select>
           </div>
           <div class="field">
             <label>模型</label>
-            <input name="model" type="text" required placeholder="输入视频模型名称">
+            <input name="model" type="text" list="videoModelOptions" required placeholder="选择或输入视频模型名称" autocomplete="off">
+            <datalist id="videoModelOptions">
+              <option value="CogVideoX-Flash"></option>
+              <option value="CogVideoX-3"></option>
+              <option value="doubao-seedance-2.0-mini"></option>
+              <option value="MiniMax-H3"></option>
+            </datalist>
           </div>
         </div>
-        <div id="videoFramesFields">
+        <div id="videoFramesFields" hidden>
           <div class="row">
             <div class="field"><label>首帧（可选）</label><label class="upload-button" for="videoFirstFrame"><span class="upload-icon"><i data-lucide="image-up" aria-hidden="true"></i></span><span>选择首帧</span></label><input id="videoFirstFrame" class="sr-only" name="first_frame" type="file" accept="image/*"></div>
             <div class="field"><label>尾帧（可选）</label><label class="upload-button" for="videoLastFrame"><span class="upload-icon"><i data-lucide="image-up" aria-hidden="true"></i></span><span>选择尾帧</span></label><input id="videoLastFrame" class="sr-only" name="last_frame" type="file" accept="image/*"></div>
           </div>
           <p class="field-note">首帧、尾帧任选一张即可，也可以两张都传。</p>
         </div>
-        <div id="videoReferencesField" class="field" hidden>
+        <div id="videoReferencesField" class="field">
           <label>参考素材</label>
           <input id="videoReferences" class="sr-only" name="references" type="file" accept="image/*,video/*,audio/*" multiple>
           <p class="field-note">支持参考图片、视频和声音文件，可删除或拖动调整顺序。</p>
@@ -356,12 +362,12 @@
         </div>
         <div class="row">
           <div class="field">
-            <label>时长（秒）</label>
-            <input name="duration" type="number" min="1" step="1" placeholder="例如 5">
+            <label for="videoDuration">时长：<strong id="videoDurationValue">5 秒</strong></label>
+            <input id="videoDuration" name="duration" type="range" min="4" max="30" step="1" value="5">
           </div>
           <div class="field">
             <label>视频比例</label>
-            <select name="ratio">
+            <div class="video-ratio-control"><span id="videoRatioPreview" class="video-ratio-preview" aria-hidden="true"></span><select id="videoRatio" name="ratio">
               <option value="">自动</option>
               <option value="16:9">16:9</option>
               <option value="4:3">4:3</option>
@@ -369,13 +375,13 @@
               <option value="3:4">3:4</option>
               <option value="9:16">9:16</option>
               <option value="21:9">21:9</option>
-            </select>
+            </select></div>
           </div>
         </div>
         <div class="row">
           <div class="field">
             <label>分辨率</label>
-            <input name="size" type="text" placeholder="例如 720p">
+            <select name="size"><option value="480p">480p</option><option value="720p" selected>720p</option><option value="768p">768p</option><option value="1080p">1080p</option><option value="2k">2K</option><option value="4k">4K</option></select>
           </div>
         </div>
         <div class="row video-toggles">

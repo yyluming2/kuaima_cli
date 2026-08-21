@@ -7,6 +7,8 @@
   const referencesInput = document.querySelector("#videoReferences");
   const submit = document.querySelector("#videoSubmit");
   const historyPanel = document.querySelector("#videoHistory");
+  const durationInput = document.querySelector("#videoDuration");
+  const ratioInput = document.querySelector("#videoRatio");
   const legacyHistoryKey = "kuaima.webui.video.history.v1";
   const dbName = "kuaima-webui-video-history";
   const storeName = "tasks";
@@ -19,6 +21,11 @@
   function setStatus(text, error) {
     status.textContent = text || "";
     status.className = "status" + (error ? " error" : "");
+    const globalStatus = document.querySelector("#genStatus");
+    if (globalStatus && !document.querySelector("#videoPane").hidden) {
+      globalStatus.textContent = text || "准备生成视频";
+      globalStatus.className = "status gen-status" + (error ? " error" : "");
+    }
   }
   function statusLabel(value) {
     return ({ queued: "排队中", pending: "等待中", in_progress: "生成中", processing: "处理中", completed: "已完成", succeeded: "已完成", failed: "失败", cancelled: "已取消", canceled: "已取消" })[String(value || "").toLowerCase()] || "等待中";
@@ -47,6 +54,15 @@
     document.querySelector("#videoReferenceUpload").hidden = mode.value === "frames";
     renderPreviews();
   }
+  function syncDuration() { document.querySelector("#videoDurationValue").textContent = durationInput.value + " 秒"; }
+  function syncRatioPreview() {
+    const parts = String(ratioInput.value || "16:9").split(":").map(Number);
+    const ratio = parts[0] > 0 && parts[1] > 0 ? parts[0] / parts[1] : 16 / 9;
+    const preview = document.querySelector("#videoRatioPreview");
+    if (ratio >= 1) { preview.style.width = "44px"; preview.style.height = Math.max(12, 44 / ratio) + "px"; }
+    else { preview.style.height = "38px"; preview.style.width = Math.max(12, 38 * ratio) + "px"; }
+    preview.title = ratioInput.value ? "视频比例 " + ratioInput.value : "自动比例示意";
+  }
   function renderPreviews() {
     previewURLs.forEach(URL.revokeObjectURL);
     const entries = activeFiles();
@@ -55,7 +71,7 @@
     if (!entries.length) { previews.textContent = "上传素材后可预览、删除和调整顺序"; return; }
     previews.innerHTML = entries.map((entry, index) => {
       const file = entry.file;
-      const preview = file.type.startsWith("image/") ? '<img src="' + previewURLs[index] + '" alt="参考素材">' :
+      const preview = file.type.startsWith("image/") ? '<button class="video-preview-button" type="button" data-video-image-preview aria-label="放大预览 ' + esc(file.name) + '"><img src="' + previewURLs[index] + '" alt="参考素材"></button>' :
         file.type.startsWith("video/") ? '<video src="' + previewURLs[index] + '" muted></video>' : '<div class="video-file-icon">声音</div>';
       const draggable = entry.field === "references";
       return '<div class="video-preview-item" ' + (draggable ? 'draggable="true" data-video-reference-index="' + entry.referenceIndex + '"' : '') + '>' + preview +
@@ -101,9 +117,9 @@
   function setFiles(input, records) { const transfer = new DataTransfer(); records.forEach((record) => transfer.items.add(new File([record.blob], record.name, { type: record.type, lastModified: record.lastModified }))); input.files = transfer.files; }
   function reuseTask(item) {
     const params = item.params || item;
-    form.elements.prompt.value = params.prompt || ""; mode.value = params.mode || "frames"; form.elements.model.value = params.model || ""; form.elements.duration.value = params.duration || ""; form.elements.size.value = params.size || ""; form.elements.ratio.value = params.ratio || ""; form.elements.audio.checked = params.audio !== false; form.elements.watermark.checked = params.watermark === true;
+    form.elements.prompt.value = params.prompt || ""; mode.value = params.mode || "references"; form.elements.model.value = params.model || ""; form.elements.duration.value = params.duration || ""; form.elements.size.value = params.size || ""; form.elements.ratio.value = params.ratio || ""; form.elements.audio.checked = params.audio !== false; form.elements.watermark.checked = params.watermark === true;
     ["first_frame", "last_frame", "video"].forEach((field) => setFiles(form.elements[field], (item.files || []).filter((file) => file.field === field)));
-    setFiles(referencesInput, (item.files || []).filter((file) => file.field === "references")); referenceFiles = Array.from(referencesInput.files); syncMode(); form.scrollIntoView({ behavior: "smooth", block: "start" }); setStatus("已复用历史参数和参考文件");
+    setFiles(referencesInput, (item.files || []).filter((file) => file.field === "references")); referenceFiles = Array.from(referencesInput.files); syncMode(); syncDuration(); syncRatioPreview(); form.scrollIntoView({ behavior: "smooth", block: "start" }); setStatus("已复用历史参数和参考文件");
   }
   async function renderHistory() {
     const items = await historyItems();
@@ -117,27 +133,33 @@
   }
   function showResult(result, autoDownload) {
     if (!result.url) throw new Error("任务已完成，但没有返回视频地址");
-    const player = document.querySelector("#videoPlayer"); const download = document.querySelector("#videoDownload"); player.src = result.url; download.href = result.url;
+    const player = document.querySelector("#videoPlayer"); const download = document.querySelector("#videoDownload"); player.src = result.url; download.href = "/api/video/download/" + encodeURIComponent(result.task_id);
     const meta = result.metadata || {}; const dimensions = meta.width && meta.height ? meta.width + "×" + meta.height : "";
     document.querySelector("#videoMetadata").textContent = [result.format, meta.duration ? meta.duration + " 秒" : "", dimensions].filter(Boolean).join(" · ");
     document.querySelector("#videoTiming").textContent = result.elapsed_ms ? "本次生成耗时 " + elapsedLabel(Number(result.elapsed_ms)) : "";
     document.querySelector("#videoResult").hidden = false; player.load();
-    if (autoDownload) { const link = document.createElement("a"); link.href = result.url; link.download = ""; link.target = "_blank"; link.rel = "noopener"; document.body.appendChild(link); link.click(); link.remove(); }
+    if (autoDownload) { const frame = document.createElement("iframe"); frame.hidden = true; frame.src = download.href; document.body.appendChild(frame); setTimeout(() => frame.remove(), 60000); }
   }
   async function waitForTask(taskID, startedAt, autoDownload) {
     if (!taskID) throw new Error("视频 API 未返回 task_id"); if (polling.has(taskID)) return; polling.add(taskID);
+    let latestStatus = "queued";
+    const updateTimer = () => { const elapsedMs = Date.now() - startedAt; setStatus((latestStatus === "in_progress" || latestStatus === "processing" ? "视频生成中，已用时 " : "任务排队中，已用时 ") + elapsedLabel(elapsedMs)); };
+    const timer = setInterval(updateTimer, 1000); updateTimer();
     try { for (;;) {
       const task = await api("/api/video/status/" + encodeURIComponent(taskID));
-      const elapsedMs = Date.now() - startedAt; task.elapsed_ms = elapsedMs; await saveTask(task, { elapsed_ms: elapsedMs });
-      if (task.status === "completed") { showResult(task, autoDownload); setStatus("视频生成完成，耗时 " + elapsedLabel(elapsedMs)); return task; }
-      if (task.status === "failed") throw new Error(task.error && task.error.message || "视频生成失败");
-      setStatus((task.status === "in_progress" ? "视频生成中，已用时 " : "任务排队中，已用时 ") + elapsedLabel(elapsedMs)); await new Promise((resolve) => setTimeout(resolve, 2000));
-    } } finally { polling.delete(taskID); }
+      latestStatus = String(task.status || "queued").toLowerCase(); const elapsedMs = Date.now() - startedAt; task.elapsed_ms = elapsedMs; await saveTask(task, { elapsed_ms: elapsedMs });
+      if (["completed", "succeeded"].includes(latestStatus)) { showResult(task, autoDownload); setStatus("视频生成完成，耗时 " + elapsedLabel(elapsedMs)); return task; }
+      if (latestStatus === "failed") throw new Error(task.error && task.error.message || "视频生成失败");
+      if (["cancelled", "canceled"].includes(latestStatus)) throw new Error("视频任务已取消");
+      updateTimer(); await new Promise((resolve) => setTimeout(resolve, 10000));
+    } } finally { clearInterval(timer); polling.delete(taskID); }
   }
   mode.addEventListener("change", syncMode);
+  durationInput.addEventListener("input", syncDuration);
+  ratioInput.addEventListener("change", syncRatioPreview);
   ["#videoFirstFrame", "#videoLastFrame", "#videoEditInput"].forEach((selector) => document.querySelector(selector).addEventListener("change", renderPreviews));
   referencesInput.addEventListener("change", () => { referenceFiles = referenceFiles.concat(Array.from(referencesInput.files || [])); syncReferenceInput(); renderPreviews(); });
-  previews.addEventListener("click", (event) => { const button = event.target.closest("[data-video-remove]"); if (!button) return; const field = button.dataset.videoRemove; if (field === "references") { referenceFiles.splice(Number(button.dataset.videoRemoveIndex), 1); syncReferenceInput(); } else { form.elements[field].value = ""; } renderPreviews(); });
+  previews.addEventListener("click", (event) => { const imageButton = event.target.closest("[data-video-image-preview]"); if (imageButton) { openImagePreview(imageButton); return; } const button = event.target.closest("[data-video-remove]"); if (!button) return; const field = button.dataset.videoRemove; if (field === "references") { referenceFiles.splice(Number(button.dataset.videoRemoveIndex), 1); syncReferenceInput(); } else { form.elements[field].value = ""; } renderPreviews(); });
   previews.addEventListener("dragstart", (event) => { const item = event.target.closest("[data-video-reference-index]"); if (!item) return; draggedReferenceIndex = Number(item.dataset.videoReferenceIndex); item.classList.add("dragging"); event.dataTransfer.effectAllowed = "move"; });
   previews.addEventListener("dragover", (event) => { if (draggedReferenceIndex >= 0 && event.target.closest("[data-video-reference-index]")) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } });
   previews.addEventListener("drop", (event) => { const item = event.target.closest("[data-video-reference-index]"); if (!item || draggedReferenceIndex < 0) return; event.preventDefault(); const target = Number(item.dataset.videoReferenceIndex); const moved = referenceFiles.splice(draggedReferenceIndex, 1)[0]; referenceFiles.splice(target, 0, moved); draggedReferenceIndex = -1; syncReferenceInput(); renderPreviews(); });
@@ -157,8 +179,8 @@
     try { const params = savedParams(); const files = savedFiles(); const data = new FormData(form); if (!form.elements.audio.checked) data.set("audio", "false"); if (!form.elements.watermark.checked) data.set("watermark", "false");
       const task = await api("/api/video/generate", { method: "POST", body: data }); task.elapsed_ms = Date.now() - startedAt;
       await saveTask(task, { prompt: params.prompt, mode: params.mode, params, files, created_at: new Date(startedAt).toISOString(), started_at: startedAt, elapsed_ms: task.elapsed_ms });
-      if (task.status === "completed") { showResult(task, true); setStatus("视频生成完成，耗时 " + elapsedLabel(task.elapsed_ms)); } else await waitForTask(task.task_id, startedAt, true);
+      if (["completed", "succeeded"].includes(String(task.status || "").toLowerCase())) { showResult(task, true); setStatus("视频生成完成，耗时 " + elapsedLabel(task.elapsed_ms)); } else await waitForTask(task.task_id, startedAt, true);
     } catch (error) { setStatus(error.message || "视频生成失败", true); } finally { submit.disabled = false; }
   });
-  (async () => { try { await migrateLegacyHistory(); syncMode(); await renderHistory(); (await historyItems()).filter((item) => item.task_id && !["completed", "failed"].includes(item.status)).forEach((item) => waitForTask(item.task_id, item.started_at || Date.parse(item.created_at) || Date.now(), false).catch((error) => setStatus(error.message, true))); } catch (error) { setStatus("视频历史记录加载失败：" + error.message, true); syncMode(); } })();
+  (async () => { try { await migrateLegacyHistory(); syncMode(); syncDuration(); syncRatioPreview(); await renderHistory(); (await historyItems()).filter((item) => item.task_id && !["completed", "succeeded", "failed"].includes(item.status)).forEach((item) => waitForTask(item.task_id, item.started_at || Date.parse(item.created_at) || Date.now(), false).catch((error) => setStatus(error.message, true))); } catch (error) { setStatus("视频历史记录加载失败：" + error.message, true); syncMode(); } })();
 })();
