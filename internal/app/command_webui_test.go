@@ -1171,8 +1171,8 @@ func TestWebUIHandleAgentStreamNormalizesAssistantContent(t *testing.T) {
 	if got := gotRequest.Input[2].Content[0].Type; got != "output_text" {
 		t.Fatalf("expected assistant output_text, got %q", got)
 	}
-	if len(gotRequest.Tools) != 1 || gotRequest.Tools[0]["type"] != "image_generation" {
-		t.Fatalf("expected image generation tool, got %#v", gotRequest.Tools)
+	if len(gotRequest.Tools) != 2 || gotRequest.Tools[0]["type"] != "image_generation" || gotRequest.Tools[1]["name"] != "generate_video" {
+		t.Fatalf("expected image and video generation tools, got %#v", gotRequest.Tools)
 	}
 }
 
@@ -1188,8 +1188,8 @@ func TestWebUIHandleAgentStreamSavesGeneratedImages(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
 			t.Fatal(err)
 		}
-		if len(gotRequest.Tools) != 1 || gotRequest.Tools[0]["type"] != "image_generation" {
-			t.Fatalf("expected image generation tool, got %#v", gotRequest.Tools)
+		if len(gotRequest.Tools) != 2 || gotRequest.Tools[0]["type"] != "image_generation" || gotRequest.Tools[1]["name"] != "generate_video" {
+			t.Fatalf("expected image and video generation tools, got %#v", gotRequest.Tools)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(
@@ -1236,6 +1236,80 @@ func TestWebUIHandleAgentStreamSavesGeneratedImages(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(saveDir); err != nil || len(entries) != 1 {
 		t.Fatalf("expected 1 saved image in %s, entries=%v err=%v", saveDir, entries, err)
+	}
+}
+
+func TestNormalizeAgentMessagesDropsNullAndEmptyContent(t *testing.T) {
+	messages := []inputMessage{
+		{Role: "user", Content: nil},
+		{Role: "assistant", Content: []inputContent{{Type: "output_text", Text: "  "}}},
+		{Role: "assistant", Content: []inputContent{{Type: "input_text", Text: " previous reply "}}},
+		{Role: "user", Content: []inputContent{{Type: "input_text", Text: " next question "}, {Type: "input_image"}}},
+	}
+
+	got := normalizeAgentMessages(messages)
+	if len(got) != 2 {
+		t.Fatalf("expected empty messages to be dropped, got %#v", got)
+	}
+	if got[0].Role != "assistant" || got[0].Content[0].Type != "output_text" || got[0].Content[0].Text != "previous reply" {
+		t.Fatalf("unexpected normalized assistant message: %#v", got[0])
+	}
+	if got[1].Role != "user" || got[1].Content[0].Text != "next question" {
+		t.Fatalf("unexpected normalized user message: %#v", got[1])
+	}
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"content":null`) {
+		t.Fatalf("normalized messages must not contain null content: %s", data)
+	}
+}
+
+func TestWebUIHandleAgentStreamRunsVideoTool(t *testing.T) {
+	var responseCalls int
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/responses":
+			responseCalls++
+			var req responseRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			if responseCalls == 1 {
+				_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_video\",\"output\":[{\"type\":\"function_call\",\"name\":\"generate_video\",\"call_id\":\"call_1\",\"arguments\":\"{\\\"prompt\\\":\\\"a running cat\\\"}\"}]}}\n\n"))
+				return
+			}
+			input, ok := req.Input.([]any)
+			if !ok || len(input) == 0 {
+				t.Fatalf("expected compatible full follow-up input, got %#v", req.Input)
+			}
+			_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_done\",\"output_text\":\"视频任务已提交\",\"output\":[]}}\n\n"))
+		case "/v1/video/generations":
+			var req videoGenerationRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req.Prompt != "a running cat" || req.Model != "MiniMax-H3" || req.Duration != 5 || req.Size != "480p" {
+				t.Fatalf("unexpected video request: %#v", req)
+			}
+			_ = json.NewEncoder(w).Encode(videoGenerationTask{TaskID: "video-1", Status: "queued"})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer apiServer.Close()
+
+	ui := &webUIServer{clientOpts: clientOptions{
+		model: stringPtr("gpt-test"), imageModel: stringPtr("image-test"), baseURL: stringPtr(apiServer.URL),
+		ossURL: stringPtr(""), apiKey: stringPtr("secret"), username: stringPtr(""), password: stringPtr(""), verbose: boolPtr(false), logFile: stringPtr(""),
+	}, fileFormat: fileFormatBase64, saveDir: t.TempDir()}
+	req := httptest.NewRequest(http.MethodPost, "/api/agent/stream", strings.NewReader(`{"messages":[{"role":"user","content":[{"type":"input_text","text":"生成猫咪视频"}]}]}`))
+	rr := httptest.NewRecorder()
+	ui.handleAgentStream(rr, req)
+	if responseCalls != 2 || !strings.Contains(rr.Body.String(), "event: video") || !strings.Contains(rr.Body.String(), "video-1") {
+		t.Fatalf("expected completed video tool flow, calls=%d body=%s", responseCalls, rr.Body.String())
 	}
 }
 

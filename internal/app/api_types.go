@@ -96,12 +96,15 @@ type responsePayload struct {
 }
 
 type responseOutput struct {
-	ID      string            `json:"id"`
-	Type    string            `json:"type"`
-	Role    string            `json:"role"`
-	Content []responseContent `json:"content"`
-	Result  string            `json:"result"`
-	Status  string            `json:"status"`
+	ID        string            `json:"id"`
+	Type      string            `json:"type"`
+	Name      string            `json:"name"`
+	CallID    string            `json:"call_id"`
+	Arguments string            `json:"arguments"`
+	Role      string            `json:"role"`
+	Content   []responseContent `json:"content"`
+	Result    string            `json:"result"`
+	Status    string            `json:"status"`
 }
 
 type responseContent struct {

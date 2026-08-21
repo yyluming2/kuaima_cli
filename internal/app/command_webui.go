@@ -591,17 +591,81 @@ func (s *webUIServer) handleAgentStream(w http.ResponseWriter, r *http.Request) 
 	stream := newWebUIEventStream(w)
 	stream.send("status", map[string]string{"message": "正在回复..."})
 	imageOpts := s.agentImageOptions()
+	tools := []map[string]any{imageOpts.responseTool(), agentVideoTool()}
 	resp, err := c.createResponseStream(r.Context(), responseRequest{
-		Model:      model,
-		Input:      messages,
-		Tools:      []map[string]any{imageOpts.responseTool()},
-		ToolChoice: map[string]any{"type": "image_generation"},
-		Reasoning:  defaultImageReasoning,
-		Stream:     true,
+		Model:     model,
+		Input:     messages,
+		Tools:     tools,
+		Reasoning: defaultImageReasoning,
+		Stream:    true,
 	}, stream.textWriter())
 	if err != nil {
 		stream.send("error", map[string]string{"error": err.Error()})
 		return
+	}
+	videoTasks := make([]*videoGenerationTask, 0)
+	for _, output := range resp.Output {
+		if output.Type != "function_call" || output.Name != "generate_video" {
+			continue
+		}
+		var args struct {
+			Prompt   string   `json:"prompt"`
+			Model    string   `json:"model"`
+			Images   []string `json:"images"`
+			Duration int      `json:"duration"`
+			Size     string   `json:"size"`
+			Ratio    string   `json:"ratio"`
+		}
+		if err := json.Unmarshal([]byte(output.Arguments), &args); err != nil {
+			stream.send("error", map[string]string{"error": "视频工具参数无效: " + err.Error()})
+			return
+		}
+		if strings.TrimSpace(args.Model) == "" {
+			args.Model = "MiniMax-H3"
+		}
+		if args.Duration < 4 || args.Duration > 30 {
+			args.Duration = 5
+		}
+		if strings.TrimSpace(args.Size) == "" {
+			args.Size = "480p"
+		}
+		if strings.TrimSpace(args.Ratio) == "" {
+			args.Ratio = "16:9"
+		}
+		task, toolErr := c.createVideoGeneration(r.Context(), videoGenerationRequest{
+			Model: args.Model, Mode: "references", Prompt: args.Prompt, Images: args.Images,
+			Duration: args.Duration, Size: args.Size, Ratio: args.Ratio,
+			Metadata: map[string]any{"audio": true, "watermark": false},
+		})
+		result := map[string]any{"ok": toolErr == nil}
+		if toolErr != nil {
+			result["error"] = toolErr.Error()
+		} else {
+			videoTasks = append(videoTasks, task)
+			stream.send("video", task)
+			result["task"] = task
+		}
+		resultJSON, _ := json.Marshal(result)
+		followupInput := make([]any, 0, len(messages)+2)
+		for _, message := range messages {
+			followupInput = append(followupInput, message)
+		}
+		followupInput = append(followupInput,
+			map[string]any{
+				"type": "function_call", "name": output.Name, "call_id": output.CallID,
+				"arguments": output.Arguments,
+			},
+			map[string]any{"type": "function_call_output", "call_id": output.CallID, "output": string(resultJSON)},
+		)
+		followup, followupErr := c.createResponseStream(r.Context(), responseRequest{
+			Model: model, Input: followupInput,
+			Tools: tools, Reasoning: defaultImageReasoning, Stream: true,
+		}, stream.textWriter())
+		if followupErr != nil {
+			stream.send("error", map[string]string{"error": followupErr.Error()})
+			return
+		}
+		resp = followup
 	}
 	saved, err := newResponseImageSaver(r.Context(), c.httpClient, s.saveDirectory(), boolValue(imageOpts.upscale, s.defaults.ImageUpscale), stringValue(imageOpts.size)).saveResponse(resp)
 	if err != nil {
@@ -612,7 +676,26 @@ func (s *webUIServer) handleAgentStream(w http.ResponseWriter, r *http.Request) 
 	for _, imageURL := range imageURLs {
 		stream.send("image", map[string]string{"url": imageURL})
 	}
-	stream.send("done", map[string]any{"text": strings.TrimSpace(resp.OutputText), "images": imageURLs, "saved": saved})
+	stream.send("done", map[string]any{"text": strings.TrimSpace(resp.OutputText), "images": imageURLs, "videos": videoTasks, "saved": saved})
+}
+
+func agentVideoTool() map[string]any {
+	return map[string]any{
+		"type": "function", "name": "generate_video",
+		"description": "Generate a video only when the user explicitly asks to create or edit a video.",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"prompt":   map[string]any{"type": "string"},
+				"model":    map[string]any{"type": "string", "description": "Optional video model; default MiniMax-H3"},
+				"images":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Input image URLs copied exactly from the conversation"},
+				"duration": map[string]any{"type": "integer", "minimum": 4, "maximum": 30},
+				"size":     map[string]any{"type": "string", "enum": []string{"480p", "720p", "1080p"}},
+				"ratio":    map[string]any{"type": "string"},
+			},
+			"required": []string{"prompt"},
+		},
+	}
 }
 
 func (s *webUIServer) agentImageOptions() imageOptions {
@@ -637,7 +720,7 @@ func (s *webUIServer) agentImageOptions() imageOptions {
 }
 
 func (s *webUIServer) agentSystemPrompt() string {
-	base := "You are a helpful multimodal assistant. Answer normal conversation directly. When the user asks you to create, generate, draw, or edit an image, use the image_generation tool instead of only describing an image prompt. If the user provides reference images, use them as visual references. Do not call the image tool for ordinary non-image questions."
+	base := "You are a helpful multimodal assistant. Answer normal conversation directly. When the user asks you to create, generate, draw, or edit an image, use the image_generation tool instead of only describing an image prompt. When the user explicitly asks to create a video, call generate_video and copy any supplied input_image URLs exactly into images. If the user provides reference images, use them as visual references. Do not call generation tools for ordinary questions."
 	if size := strings.TrimSpace(s.defaults.ImageSize); size != "" {
 		base += " Preferred image size: " + size + "."
 	}
@@ -658,6 +741,22 @@ func normalizeAgentMessages(messages []inputMessage) []inputMessage {
 		next := inputMessage{Role: role}
 		for _, part := range message.Content {
 			part.Type = strings.TrimSpace(part.Type)
+			// Browser history may contain legacy/null or otherwise incomplete
+			// content entries. Never forward them to the Responses API.
+			switch part.Type {
+			case "input_text", "output_text":
+				part.Text = strings.TrimSpace(part.Text)
+				if part.Text == "" {
+					continue
+				}
+			case "input_image":
+				part.ImageURL = strings.TrimSpace(part.ImageURL)
+				if part.ImageURL == "" {
+					continue
+				}
+			default:
+				continue
+			}
 			switch role {
 			case "assistant":
 				if part.Type == "input_text" {
@@ -669,6 +768,11 @@ func normalizeAgentMessages(messages []inputMessage) []inputMessage {
 				}
 			}
 			next.Content = append(next.Content, part)
+		}
+		// In particular, omit image-only assistant placeholders. A nil slice
+		// marshals as content:null, which the API correctly rejects.
+		if len(next.Content) == 0 {
+			continue
 		}
 		normalized = append(normalized, next)
 	}

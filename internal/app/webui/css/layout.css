@@ -177,6 +177,7 @@
 }
 
 .chat-images,
+.chat-videos,
 .agent-attachment-list {
   display: flex;
   flex-wrap: wrap;
@@ -191,6 +192,21 @@
   border-radius: 8px;
   overflow: hidden;
   background: #fff;
+}
+
+.chat-videos video {
+  display: block;
+  width: min(100%, 640px);
+  max-height: 480px;
+  border-radius: 12px;
+  background: #000;
+}
+
+.chat-video-task {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
 }
 
 .chat-meta { display: flex; align-items: center; gap: 8px; }

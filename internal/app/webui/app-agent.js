@@ -127,6 +127,7 @@
     const textParts = parts.filter((part) => part && (part.type === "input_text" || part.type === "output_text") && part.text).map((part) => part.text);
     const imageParts = parts.filter((part) => part && part.type === "input_image" && part.image_url);
     const outputImages = (Array.isArray(message.images) ? message.images : []).filter(Boolean);
+	const outputVideos = (Array.isArray(message.videos) ? message.videos : []).filter((item) => item && (item.url || item.task_id));
     return (
       '<div class="chat-message ' + esc(role) + '" data-message-index="' + index + '">' +
         '<div class="chat-meta"><div class="chat-role">' + esc(role === "assistant" ? "assistant" : role) + '</div><time class="chat-time">' + esc(formatTime(message.createdAt)) + '</time></div>' +
@@ -139,6 +140,9 @@
           '<button class="chat-image" type="button" data-preview-image="' + esc(url) + '">' +
           '<img src="' + esc(url) + '" alt="图片预览"></button>'
         )).join("") + '</div>' : "") +
+        (outputVideos.length ? '<div class="chat-videos">' + outputVideos.map((item) => item.url ?
+          '<video controls src="' + esc(item.url) + '"></video>' :
+          '<div class="chat-video-task" data-video-task-id="' + esc(item.task_id) + '">视频任务已提交：' + esc(item.task_id) + '</div>').join("") + '</div>' : "") +
       '</div>'
     );
   }
@@ -204,6 +208,35 @@
     }
   }
 
+  function appendPendingAssistantVideo(task) {
+    if (!task || (!task.task_id && !task.url)) return;
+    if (!state.pendingAssistant) state.pendingAssistant = appendPendingAssistant();
+    let holder = state.pendingAssistant.querySelector(".chat-videos");
+    if (!holder) { holder = document.createElement("div"); holder.className = "chat-videos"; state.pendingAssistant.appendChild(holder); }
+    const item = document.createElement(task.url ? "video" : "div");
+    if (task.url) { item.controls = true; item.src = task.url; }
+    else { item.className = "chat-video-task"; item.dataset.videoTaskId = task.task_id; item.textContent = "视频任务已提交：" + task.task_id; }
+    holder.appendChild(item);
+  }
+
+  async function pollAgentVideo(task) {
+    if (!task || !task.task_id || task.url) return;
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      const next = await api("/api/video/status/" + encodeURIComponent(task.task_id));
+      Object.assign(task, next);
+      const status = String(task.status || "").toLowerCase();
+	  const pending = document.querySelector('[data-video-task-id="' + CSS.escape(task.task_id) + '"]');
+      if (pending) pending.textContent = status === "processing" || status === "in_progress" ? "视频生成中…" : "视频任务状态：" + (task.status || "queued");
+      if (["completed", "succeeded"].includes(status)) {
+        if (pending && task.url) { const video = document.createElement("video"); video.controls = true; video.src = task.url; pending.replaceWith(video); }
+		persistCurrentChat();
+        return;
+      }
+      if (["failed", "cancelled", "canceled"].includes(status)) throw new Error(task.error && task.error.message || "视频生成失败");
+    }
+  }
+
   function clearAttachments() {
     state.attachments = [];
     const input = $("#agentImageInput");
@@ -255,6 +288,13 @@
     return { role: "user", content, createdAt: nowISO() };
   }
 
+  function requestMessages() {
+    return state.history.map((item) => ({
+      role: item && item.role || "user",
+      content: Array.isArray(item && item.content) ? item.content.filter((part) => part && part.type) : [],
+    })).filter((item) => item.content.length > 0);
+  }
+
   function appendMessage(message) {
     const log = $("#agentChatLog");
     if (!log) {
@@ -302,11 +342,12 @@
 
     let responseText = "";
     const responseImages = [];
+	const responseVideos = [];
     try {
       await apiStream("/api/agent/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: state.history.map((item) => ({ role: item.role, content: item.content })) }),
+        body: JSON.stringify({ messages: requestMessages() }),
         signal: controller.signal,
       }, {
         status(payload) {
@@ -326,6 +367,16 @@
             appendPendingAssistantImage(payload.url);
           }
         },
+		video(payload) {
+		  if (payload && payload.task_id && !responseVideos.some((item) => item.task_id === payload.task_id)) {
+			responseVideos.push(payload); appendPendingAssistantVideo(payload);
+			pollAgentVideo(payload).catch((error) => {
+			  const pending = document.querySelector('[data-video-task-id="' + CSS.escape(payload.task_id) + '"]');
+			  if (pending) pending.textContent = "视频生成失败: " + error.message;
+			  persistCurrentChat();
+			});
+		  }
+		},
         done(payload) {
           if (payload && payload.text) {
             responseText = payload.text;
@@ -337,6 +388,9 @@
               appendPendingAssistantImage(url);
             }
           });
+		  (payload && payload.videos || []).forEach((task) => {
+			if (task && !responseVideos.some((item) => item.task_id === task.task_id)) { responseVideos.push(task); appendPendingAssistantVideo(task); }
+		  });
         },
         error(payload) {
           throw new Error(payload.error || "agent failed");
@@ -344,6 +398,7 @@
       });
       assistantMessage.content = responseText ? [{ type: "output_text", text: responseText }] : [];
       assistantMessage.images = responseImages;
+	  assistantMessage.videos = responseVideos;
       state.history.push(assistantMessage);
       persistCurrentChat();
     } catch (error) {
