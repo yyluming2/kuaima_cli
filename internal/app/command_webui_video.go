@@ -51,6 +51,7 @@ func (s *webUIServer) handleVideoGenerate(w http.ResponseWriter, r *http.Request
 	req := videoGenerationRequest{
 		Model: strings.TrimSpace(r.FormValue("model")), Mode: mode, Prompt: prompt, Duration: duration,
 		Size:     strings.TrimSpace(r.FormValue("size")),
+		Ratio:    strings.TrimSpace(r.FormValue("ratio")),
 		Metadata: map[string]any{"audio": formBool(r.FormValue("audio"), true), "watermark": formBool(r.FormValue("watermark"), false)},
 	}
 	if mode == "frames" {
@@ -88,6 +89,7 @@ func (s *webUIServer) handleVideoGenerate(w http.ResponseWriter, r *http.Request
 			return
 		}
 		req.Video = videos[0]
+		req.Images = refs
 	} else {
 		req.Images = refs
 	}

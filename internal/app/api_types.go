@@ -74,6 +74,7 @@ type videoGenerationRequest struct {
 	Video     string         `json:"video,omitempty"`
 	Duration  int            `json:"duration,omitempty"`
 	Size      string         `json:"size,omitempty"`
+	Ratio     string         `json:"ratio,omitempty"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 

@@ -19,7 +19,7 @@ func TestVideoGenerationAPI(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatal(err)
 			}
-			if req.Model != "video-model" || req.Prompt != "pan right" || req.Image != "data:image/png;base64,AAA" || req.LastFrame != "data:image/png;base64,BBB" || req.Duration != 5 || req.Size != "1280x720" {
+			if req.Model != "video-model" || req.Prompt != "pan right" || req.Image != "data:image/png;base64,AAA" || req.LastFrame != "data:image/png;base64,BBB" || req.Duration != 5 || req.Size != "1280x720" || req.Ratio != "16:9" {
 				t.Fatalf("unexpected request: %+v", req)
 			}
 			_ = json.NewEncoder(w).Encode(videoGenerationTask{TaskID: "task-1", Status: "queued"})
@@ -36,7 +36,7 @@ func TestVideoGenerationAPI(t *testing.T) {
 
 	c := &client{baseURL: server.URL, apiKey: "test", httpClient: server.Client()}
 	task, err := c.createVideoGeneration(context.Background(), videoGenerationRequest{
-		Model: "video-model", Prompt: "pan right", Image: "data:image/png;base64,AAA", LastFrame: "data:image/png;base64,BBB", Duration: 5, Size: "1280x720",
+		Model: "video-model", Prompt: "pan right", Image: "data:image/png;base64,AAA", LastFrame: "data:image/png;base64,BBB", Duration: 5, Size: "1280x720", Ratio: "16:9",
 	})
 	if err != nil || task.TaskID != "task-1" || task.Status != "queued" {
 		t.Fatalf("create task = %+v, err = %v", task, err)
@@ -75,7 +75,7 @@ func TestVideoReferenceImagesJSON(t *testing.T) {
 }
 
 func TestVideoEditJSON(t *testing.T) {
-	data, err := json.Marshal(videoGenerationRequest{Model: "m", Mode: "edit", Prompt: "p", Video: "https://example.com/input.mp4"})
+	data, err := json.Marshal(videoGenerationRequest{Model: "m", Mode: "edit", Prompt: "p", Video: "https://example.com/input.mp4", Images: []string{"reference"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,5 +85,8 @@ func TestVideoEditJSON(t *testing.T) {
 	}
 	if value["video"] != "https://example.com/input.mp4" {
 		t.Fatalf("video missing: %s", data)
+	}
+	if images, ok := value["images"].([]any); !ok || len(images) != 1 || images[0] != "reference" {
+		t.Fatalf("edit references missing: %s", data)
 	}
 }
