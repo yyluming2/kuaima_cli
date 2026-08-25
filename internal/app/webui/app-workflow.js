@@ -172,22 +172,21 @@
       iconHTML("image-plus") + '<span>' + esc(item.name) + '</span></button>'
     )).join("");
     const catalogButtons = state.catalog.map((item) => (
-      '<button class="workflow-tab' + (!agentActive && String(item.id) === String(current) ? " active" : "") + '" type="button" role="tab" ' +
+      '<button class="workflow-submenu-item' + (!agentActive && String(item.id) === String(current) ? " active" : "") + '" type="button" role="tab" ' +
       'aria-selected="' + String(!agentActive && String(item.id) === String(current)) + '" data-mode-tab="generate" data-workflow-id="' + esc(item.id) + '">' +
       iconHTML(item.icon || "workflow") + '<span>' + esc(item.name) + '</span></button>'
     )).join("");
     container.innerHTML = workflowButtons +
       '<button class="workflow-tab' + (videoActive ? " active" : "") + '" type="button" role="tab" aria-selected="' +
       String(videoActive) + '" data-mode-tab="video">' + iconHTML("video") + '<span>视频生成</span></button>' +
-      '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-fine-edit-tab>' +
-      iconHTML("scan-search") + '<span>图片编辑</span></button>' +
-      '<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-cutout-tab>' +
-      iconHTML("scissors") + '<span>一键抠图</span></button>' +
       '<button class="workflow-tab' + (agentActive ? " active" : "") + '" type="button" role="tab" aria-selected="' +
       String(agentActive) + '" data-mode-tab="agent" data-workflow-id="agent">' + iconHTML("bot-message-square") + '<span>对话模式</span></button>' +
       //'<button class="workflow-tab" type="button" role="tab" aria-selected="false" data-mode-tab="generate" data-workflow-id="workflow-custom">' +
       //iconHTML("sparkles") + '<span>联系客服</span></button>' +
-      catalogButtons;
+      (catalogButtons ? '<details class="workflow-tab-menu"><summary class="workflow-tab" role="tab">' + iconHTML("workflow") + '<span>工作流</span></summary><div class="workflow-submenu">' + catalogButtons + '</div></details>' : "") +
+      '<details class="workflow-tab-menu"><summary class="workflow-tab" role="tab">' + iconHTML("wallpaper") + '<span>图片工具</span></summary>' +
+      '<div class="workflow-submenu"><button class="workflow-submenu-item" type="button" data-fine-edit-tab>' + iconHTML("scan-search") + '<span>图片编辑</span></button>' +
+      '<button class="workflow-submenu-item" type="button" data-cutout-tab>' + iconHTML("scissors") + '<span>一键抠图</span></button></div></details>';
   }
 
   function buildInputValue(field, cached) {

@@ -170,7 +170,6 @@ textarea {
 
 .billing-dropdown {
   position: fixed;
-  top: 220px;
   left: 50%;
   transform: translateX(-50%);
   width: min(430px, calc(100vw - 28px));

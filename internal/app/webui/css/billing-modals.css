@@ -479,6 +479,7 @@ button.billing-promo {
   position: relative;
   width: min(760px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
+  overflow-y: auto;
   display: grid;
   gap: 16px;
   padding: 20px;
@@ -577,4 +578,3 @@ button.billing-promo {
   font-size: 12px;
   line-height: 1.4;
 }
-
