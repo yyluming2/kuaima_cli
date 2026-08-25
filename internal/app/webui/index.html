@@ -190,11 +190,12 @@
           <div class="row">
             <div class="field">
               <label>模型</label>
-              <select name="image_model">
+              <select id="imageModel" name="image_model">
                 <option value="gpt-image-2">gpt-image-2</option>
                 <option value="gpt-image-1.5">gpt-image-1.5</option>
                 <option value="gpt-image-1">gpt-image-1</option>
               </select>
+              <p id="imageModelInfo" class="field-note"></p>
             </div>
             <div id="singleGenerationControls" class="field">
               <label>张数</label>
@@ -339,12 +340,11 @@
           </div>
           <div class="field">
             <label>模型</label>
-            <input name="model" type="text" list="videoModelOptions" required placeholder="选择或输入视频模型名称"
-              autocomplete="off">
-            <datalist id="videoModelOptions">
-              <option value="MiniMax-H3"></option>
-              <option value="doubao-seedance-2.0-mini"></option>
-            </datalist>
+            <select id="videoModel" name="model" required>
+              <option value="MiniMax-H3">MiniMax-H3</option>
+              <option value="doubao-seedance-2.0-mini">doubao-seedance-2.0-mini</option>
+            </select>
+            <p id="videoModelInfo" class="field-note"></p>
           </div>
         </div>
         <div id="videoFaceReferenceWarning" class="video-model-warning" role="note" hidden>
@@ -413,7 +413,7 @@
               <option value="2k">2K</option>
               <option value="4k">4K</option>
             </select>
-            <p id="videoResolutionNote" class="field-note">普通用户仅支持 480p，VIP/SVIP 可选择更高分辨率。</p>
+            <p id="videoResolutionNote" class="field-note">分辨率由当前视频模型决定。</p>
           </div>
         </div>
         <div class="row video-toggles">

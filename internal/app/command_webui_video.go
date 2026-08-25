@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -10,7 +12,68 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const pricingCacheTTL = 24 * time.Hour
+
+func (s *webUIServer) handlePricing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	s.pricingMu.Lock()
+	defer s.pricingMu.Unlock()
+	if len(s.pricingData) > 0 && time.Since(s.pricingCachedAt) < pricingCacheTTL {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+		_, _ = w.Write(s.pricingData)
+		return
+	}
+	c, err := s.clientOpts.newClient()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer c.Close()
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, c.baseURL+"/api/ipricing", nil)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		writeError(w, http.StatusBadGateway, "pricing API request failed: "+resp.Status)
+		return
+	}
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Video []json.RawMessage `json:"video"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil || !payload.Success || payload.Data.Video == nil {
+		writeError(w, http.StatusBadGateway, "pricing API returned invalid data")
+		return
+	}
+	s.pricingData = bytes.Clone(data)
+	s.pricingCachedAt = time.Now()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	_, _ = w.Write(data)
+}
 
 func (s *webUIServer) handleVideoGenerate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -37,11 +100,6 @@ func (s *webUIServer) handleVideoGenerate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer c.Close()
-	group := accountGroupFromClient(r.Context(), c)
-	if group != "vip" && group != "svip" && !strings.EqualFold(strings.TrimSpace(r.FormValue("size")), "480p") {
-		writeError(w, http.StatusForbidden, "普通用户只能生成 480p 视频")
-		return
-	}
 	refs, err := uploadedVideoMedia(r, c, s.fileFormat, "references", 16)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

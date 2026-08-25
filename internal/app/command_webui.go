@@ -41,6 +41,9 @@ type webUIServer struct {
 	cutoutResults   map[string]cutoutResult
 	diagnosticLog   io.Writer
 	diagnosticMu    sync.Mutex
+	pricingMu       sync.Mutex
+	pricingData     []byte
+	pricingCachedAt time.Time
 }
 
 type webUIDefaults struct {
@@ -189,6 +192,7 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/generate", s.handleGenerate)
 	mux.HandleFunc("/api/generate/stream", s.handleGenerateStream)
 	mux.HandleFunc("/api/video/generate", s.handleVideoGenerate)
+	mux.HandleFunc("/api/ipricing", s.handlePricing)
 	mux.HandleFunc("/api/video/status/", s.handleVideoStatus)
 	mux.HandleFunc("/api/video/download/", s.handleVideoDownload)
 	mux.HandleFunc("/api/agent/upload", s.handleAgentUpload)

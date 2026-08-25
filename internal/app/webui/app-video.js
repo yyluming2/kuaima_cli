@@ -11,6 +11,9 @@
   const ratioInput = document.querySelector("#videoRatio");
   const resolutionInput = document.querySelector("#videoResolution");
   const modelInput = form.elements.model;
+  const imageModelInput = document.querySelector("#imageModel");
+  let videoModels = [];
+  let imageModels = [];
   const faceReferenceWarning = document.querySelector("#videoFaceReferenceWarning");
   const legacyHistoryKey = "kuaima.webui.video.history.v1";
   const dbName = "kuaima-webui-video-history";
@@ -133,6 +136,57 @@
     renderPreviews();
   }
   function syncDuration() { document.querySelector("#videoDurationValue").textContent = durationInput.value + " 秒"; }
+  function parseDuration(value) {
+    const parts = String(value || "").match(/^\s*(\d+)\s*-\s*(\d+)\s*$/);
+    return parts ? [Number(parts[1]), Number(parts[2])] : [4, 30];
+  }
+  function modelResolutions(model) {
+    const info = model && Array.isArray(model.price_info) ? model.price_info[0] : null;
+    return info && typeof info === "object" ? Object.keys(info) : [];
+  }
+  function modelInfo(model) {
+    if (!model) return "";
+    const info = Array.isArray(model.price_info) ? model.price_info[0] : null;
+    const prices = info && typeof info === "object" ? Object.entries(info).map(([name, price]) => name.toUpperCase() + " ¥" + price).join(" / ") : "";
+    return [model.description || "", prices ? "价格：" + prices : ""].filter(Boolean).join(" · ");
+  }
+  function syncImageModelInfo() {
+    const selected = imageModels.find((item) => item.model_name === imageModelInput.value);
+    document.querySelector("#imageModelInfo").textContent = modelInfo(selected);
+  }
+  function syncModelOptions() {
+    const selected = videoModels.find((item) => item.model_name === modelInput.value) || videoModels[0];
+    if (!selected) return;
+    if (modelInput.value !== selected.model_name) modelInput.value = selected.model_name;
+    document.querySelector("#videoModelInfo").textContent = modelInfo(selected);
+    const [min, max] = parseDuration(selected.duration);
+    durationInput.min = String(min); durationInput.max = String(max);
+    durationInput.value = String(Math.min(max, Math.max(min, Number(durationInput.value) || min)));
+    const previousResolution = resolutionInput.value;
+    const resolutions = modelResolutions(selected);
+    resolutionInput.innerHTML = resolutions.map((value) => '<option value="' + esc(value) + '">' + esc(value.toUpperCase()) + '</option>').join("");
+    if (resolutions.includes(previousResolution)) resolutionInput.value = previousResolution;
+    syncDuration(); syncResolutionAccess(); renderPreviews();
+  }
+  async function loadPricingModels() {
+    const payload = await api("/api/ipricing");
+    const data = payload && payload.data;
+    const models = data && data.video;
+    if (!Array.isArray(models) || !models.length) throw new Error("接口没有返回视频模型");
+    const previous = modelInput.value;
+    videoModels = models.filter((item) => item && item.model_name);
+    if (!videoModels.length) throw new Error("接口没有返回有效的视频模型");
+    modelInput.innerHTML = videoModels.map((item) => '<option value="' + esc(item.model_name) + '" title="' + esc(item.description || "") + '">' + esc(item.model_name) + '</option>').join("");
+    if (videoModels.some((item) => item.model_name === previous)) modelInput.value = previous;
+    syncModelOptions();
+    const imagePrevious = imageModelInput.value;
+    imageModels = Array.isArray(data.img) ? data.img.filter((item) => item && item.model_name) : [];
+    if (imageModels.length) {
+      imageModelInput.innerHTML = imageModels.map((item) => '<option value="' + esc(item.model_name) + '">' + esc(item.model_name) + '</option>').join("");
+      if (imageModels.some((item) => item.model_name === imagePrevious)) imageModelInput.value = imagePrevious;
+      syncImageModelInfo();
+    }
+  }
   function syncRatioPreview() {
     const parts = String(ratioInput.value || "16:9").split(":").map(Number);
     const ratio = parts[0] > 0 && parts[1] > 0 ? parts[0] / parts[1] : 16 / 9;
@@ -142,11 +196,8 @@
     preview.title = ratioInput.value ? "视频比例 " + ratioInput.value : "自动比例示意";
   }
   function syncResolutionAccess() {
-    const group = String((window.KuaimaAccount && window.KuaimaAccount.group) || "default").toLowerCase();
-    const restricted = group !== "vip" && group !== "svip";
-    Array.from(resolutionInput.options).forEach((option) => { option.disabled = restricted && option.value !== "480p"; });
-    if (restricted) resolutionInput.value = "480p";
-    document.querySelector("#videoResolutionNote").textContent = restricted ? "普通用户仅支持 480p 视频。" : "当前套餐支持选择更高视频分辨率。";
+    resolutionInput.disabled = resolutionInput.options.length === 0;
+    document.querySelector("#videoResolutionNote").textContent = resolutionInput.disabled ? "当前模型没有可用分辨率。" : "分辨率由当前视频模型决定。";
   }
   function renderPreviews() {
     previewURLs.forEach(URL.revokeObjectURL);
@@ -209,7 +260,7 @@
     const params = item.params || item;
     form.elements.prompt.value = params.prompt || ""; mode.value = params.mode || "references"; form.elements.model.value = params.model || ""; form.elements.duration.value = params.duration || ""; form.elements.size.value = params.size || ""; form.elements.ratio.value = params.ratio || ""; form.elements.audio.checked = params.audio !== false; form.elements.watermark.checked = params.watermark === true;
     ["first_frame", "last_frame", "video"].forEach((field) => setFiles(form.elements[field], (item.files || []).filter((file) => file.field === field)));
-    setFiles(referencesInput, (item.files || []).filter((file) => file.field === "references")); referenceFiles = Array.from(referencesInput.files); syncMode(); syncDuration(); syncRatioPreview(); syncResolutionAccess(); form.scrollIntoView({ behavior: "smooth", block: "start" }); setStatus("已复用历史参数和参考文件");
+    setFiles(referencesInput, (item.files || []).filter((file) => file.field === "references")); referenceFiles = Array.from(referencesInput.files); syncMode(); syncModelOptions(); syncRatioPreview(); form.scrollIntoView({ behavior: "smooth", block: "start" }); setStatus("已复用历史参数和参考文件");
   }
   async function renderHistory() {
     const items = await historyItems();
@@ -251,8 +302,8 @@
     } } finally { clearInterval(timer); polling.delete(taskID); }
   }
   mode.addEventListener("change", syncMode);
-  modelInput.addEventListener("input", renderPreviews);
-  modelInput.addEventListener("change", renderPreviews);
+  modelInput.addEventListener("change", syncModelOptions);
+  imageModelInput.addEventListener("change", syncImageModelInfo);
   durationInput.addEventListener("input", syncDuration);
   ratioInput.addEventListener("change", syncRatioPreview);
   window.addEventListener("kuaima:account", syncResolutionAccess);
@@ -287,5 +338,5 @@
       if (["completed", "succeeded"].includes(String(task.status || "").toLowerCase())) { showResult(task, true); setStatus("视频生成完成，耗时 " + elapsedLabel(task.elapsed_ms)); } else await waitForTask(task.task_id, startedAt, true);
     } catch (error) { setStatus(error.message || "视频生成失败", true); } finally { submit.disabled = false; }
   });
-  (async () => { try { await migrateLegacyHistory(); syncMode(); syncDuration(); syncRatioPreview(); syncResolutionAccess(); await renderHistory(); (await historyItems()).filter((item) => item.task_id && !["completed", "succeeded", "failed"].includes(item.status)).forEach((item) => waitForTask(item.task_id, item.started_at || Date.parse(item.created_at) || Date.now(), false).catch((error) => setStatus(error.message, true))); } catch (error) { setStatus("视频历史记录加载失败：" + error.message, true); syncMode(); } })();
+  (async () => { try { await migrateLegacyHistory(); syncMode(); syncDuration(); syncRatioPreview(); syncResolutionAccess(); try { await loadPricingModels(); } catch (error) { setStatus("模型配置加载失败，正在使用内置选项：" + error.message, true); } await renderHistory(); (await historyItems()).filter((item) => item.task_id && !["completed", "succeeded", "failed"].includes(item.status)).forEach((item) => waitForTask(item.task_id, item.started_at || Date.parse(item.created_at) || Date.now(), false).catch((error) => setStatus(error.message, true))); } catch (error) { setStatus("视频历史记录加载失败：" + error.message, true); syncMode(); } })();
 })();
