@@ -15,6 +15,9 @@
   let videoModels = [];
   let imageModels = [];
   const faceReferenceWarning = document.querySelector("#videoFaceReferenceWarning");
+  const faceReferenceWarningClose = document.querySelector("#videoFaceReferenceWarningClose");
+  const faceReferenceWarningDismissedKey = "kuaima.webui.video.face-reference-warning-dismissed";
+  let faceReferenceWarningDismissed = localStorage.getItem(faceReferenceWarningDismissedKey) === "1";
   const legacyHistoryKey = "kuaima.webui.video.history.v1";
   const dbName = "kuaima-webui-video-history";
   const storeName = "tasks";
@@ -52,7 +55,7 @@
   }
   function isSeedanceModel() { return /seedance/i.test(String(modelInput.value || "")); }
   function syncFaceReferenceWarning() {
-    faceReferenceWarning.hidden = !isSeedanceModel();
+    faceReferenceWarning.hidden = faceReferenceWarningDismissed || !isSeedanceModel();
   }
   function loadSketchImage(file) {
     return new Promise((resolve, reject) => {
@@ -303,6 +306,11 @@
   }
   mode.addEventListener("change", syncMode);
   modelInput.addEventListener("change", syncModelOptions);
+  faceReferenceWarningClose.addEventListener("click", () => {
+    faceReferenceWarningDismissed = true;
+    localStorage.setItem(faceReferenceWarningDismissedKey, "1");
+    faceReferenceWarning.hidden = true;
+  });
   imageModelInput.addEventListener("change", syncImageModelInfo);
   durationInput.addEventListener("input", syncDuration);
   ratioInput.addEventListener("change", syncRatioPreview);

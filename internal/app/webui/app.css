@@ -91,7 +91,7 @@
 
 .video-model-warning {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   margin: 10px 0;
@@ -103,6 +103,7 @@
 }
 .video-model-warning[hidden] { display: none; }
 .video-model-warning > i { width: 20px; height: 20px; }
+.video-model-warning .icon-btn { align-self: start; width: 28px; height: 28px; }
 .video-model-warning strong,
 .video-model-warning span { display: block; }
 .video-model-warning span { margin-top: 2px; font-size: 12px; line-height: 1.45; }

@@ -118,7 +118,7 @@ textarea {
   width: 30px;
   height: 30px;
   flex: 0 0 30px;
-  border-radius: 8px;
+  border-radius: 50%;
   background: url("/logo.png") center / contain no-repeat, linear-gradient(135deg, #2563eb, #0f9f8f);
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.22);
 }
