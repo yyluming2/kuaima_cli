@@ -1,4 +1,26 @@
 (function () {
+  const generationStatus = $("#genStatus");
+  if (generationStatus) {
+    const collapsedKey = "kuaima.webui.gen-status-collapsed.v1";
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(collapsedKey) === "1"; } catch (_) {}
+    const applyCollapsed = () => {
+      generationStatus.classList.toggle("collapsed", collapsed);
+      generationStatus.setAttribute("aria-expanded", String(!collapsed));
+      generationStatus.title = collapsed ? "点击展开状态信息" : "点击收起状态信息";
+    };
+    const toggleCollapsed = () => {
+      collapsed = !collapsed;
+      try { localStorage.setItem(collapsedKey, collapsed ? "1" : "0"); } catch (_) {}
+      applyCollapsed();
+    };
+    generationStatus.addEventListener("click", toggleCollapsed);
+    generationStatus.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleCollapsed(); }
+    });
+    new MutationObserver(applyCollapsed).observe(generationStatus, { attributes: true, attributeFilter: ["class"] });
+    applyCollapsed();
+  }
   $("#ratioSelect").onchange = updateSize;
   $("#resolutionSelect").onchange = (event) => {
     const select = event.target;

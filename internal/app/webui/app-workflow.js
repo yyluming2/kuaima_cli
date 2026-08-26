@@ -167,13 +167,13 @@
     const videoActive = Boolean(videoPane && !videoPane.hidden);
     const items = [{ id: "single", name: "图片生成" }];
     const workflowButtons = items.map((item) => (
-      '<button class="workflow-tab' + (!agentActive && String(item.id) === String(current) ? " active" : "") + '" type="button" role="tab" ' +
-      'aria-selected="' + String(!agentActive && String(item.id) === String(current)) + '" data-mode-tab="generate" data-workflow-id="' + esc(item.id) + '">' +
+      '<button class="workflow-tab' + (!agentActive && !videoActive && String(item.id) === String(current) ? " active" : "") + '" type="button" role="tab" ' +
+      'aria-selected="' + String(!agentActive && !videoActive && String(item.id) === String(current)) + '" data-mode-tab="generate" data-workflow-id="' + esc(item.id) + '">' +
       iconHTML("image-plus") + '<span>' + esc(item.name) + '</span></button>'
     )).join("");
     const catalogButtons = state.catalog.map((item) => (
-      '<button class="workflow-submenu-item' + (!agentActive && String(item.id) === String(current) ? " active" : "") + '" type="button" role="tab" ' +
-      'aria-selected="' + String(!agentActive && String(item.id) === String(current)) + '" data-mode-tab="generate" data-workflow-id="' + esc(item.id) + '">' +
+      '<button class="workflow-submenu-item' + (!agentActive && !videoActive && String(item.id) === String(current) ? " active" : "") + '" type="button" role="tab" ' +
+      'aria-selected="' + String(!agentActive && !videoActive && String(item.id) === String(current)) + '" data-mode-tab="generate" data-workflow-id="' + esc(item.id) + '">' +
       iconHTML(item.icon || "workflow") + '<span>' + esc(item.name) + '</span></button>'
     )).join("");
     container.innerHTML = workflowButtons +

@@ -138,7 +138,10 @@
     syncFaceReferenceWarning();
     renderPreviews();
   }
-  function syncDuration() { document.querySelector("#videoDurationValue").textContent = durationInput.value + " 秒"; }
+  function syncDuration() {
+    document.querySelector("#videoDurationValue").textContent = durationInput.value + " 秒";
+    syncVideoModelInfo();
+  }
   function parseDuration(value) {
     const parts = String(value || "").match(/^\s*(\d+)\s*-\s*(\d+)\s*$/);
     return parts ? [Number(parts[1]), Number(parts[2])] : [4, 30];
@@ -153,6 +156,17 @@
     const prices = info && typeof info === "object" ? Object.entries(info).map(([name, price]) => name.toUpperCase() + " ¥" + price).join(" / ") : "";
     return [model.description || "", prices ? "价格：" + prices : ""].filter(Boolean).join(" · ");
   }
+  function syncVideoModelInfo() {
+    const selected = videoModels.find((item) => item.model_name === modelInput.value);
+    if (!selected) return;
+    const info = Array.isArray(selected.price_info) ? selected.price_info[0] : null;
+    const unitPrice = info && typeof info === "object" ? Number(info[resolutionInput.value]) : NaN;
+    const duration = Number(durationInput.value);
+    const estimate = Number.isFinite(unitPrice) && Number.isFinite(duration)
+      ? "预估价格：¥" + (unitPrice * duration).toFixed(2).replace(/\.00$/, "") + "（" + resolutionInput.value.toUpperCase() + " · " + duration + " 秒）"
+      : "";
+    document.querySelector("#videoModelInfo").textContent = [selected.description || "", estimate].filter(Boolean).join(" · ");
+  }
   function syncImageModelInfo() {
     const selected = imageModels.find((item) => item.model_name === imageModelInput.value);
     document.querySelector("#imageModelInfo").textContent = modelInfo(selected);
@@ -161,7 +175,6 @@
     const selected = videoModels.find((item) => item.model_name === modelInput.value) || videoModels[0];
     if (!selected) return;
     if (modelInput.value !== selected.model_name) modelInput.value = selected.model_name;
-    document.querySelector("#videoModelInfo").textContent = modelInfo(selected);
     const [min, max] = parseDuration(selected.duration);
     durationInput.min = String(min); durationInput.max = String(max);
     durationInput.value = String(Math.min(max, Math.max(min, Number(durationInput.value) || min)));
@@ -313,6 +326,7 @@
   });
   imageModelInput.addEventListener("change", syncImageModelInfo);
   durationInput.addEventListener("input", syncDuration);
+  resolutionInput.addEventListener("change", syncVideoModelInfo);
   ratioInput.addEventListener("change", syncRatioPreview);
   window.addEventListener("kuaima:account", syncResolutionAccess);
   ["#videoFirstFrame", "#videoLastFrame", "#videoEditInput"].forEach((selector) => document.querySelector(selector).addEventListener("change", renderPreviews));

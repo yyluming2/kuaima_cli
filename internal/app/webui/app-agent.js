@@ -1,6 +1,7 @@
 (function () {
   const $ = (selector) => document.querySelector(selector);
   const STORAGE_KEY = "kuaima.webui.agent.chats.v1";
+  const MODE_STORAGE_KEY = "kuaima.webui.workflow-tab.v1";
   const HISTORY_LIMIT = 50;
 
   const state = {
@@ -71,6 +72,7 @@
   }
 
   function renderMode(mode) {
+    mode = ["generate", "video", "agent"].includes(mode) ? mode : "generate";
     document.querySelectorAll("[data-mode-tab]").forEach((button) => {
       let active = button.dataset.modeTab === mode;
       if (active && mode === "generate" && button.dataset.workflowId != null) {
@@ -88,6 +90,7 @@
       generationStatus.textContent = mode === "video" ? "准备生成视频" : mode === "agent" ? "对话模式" : "准备生成图片";
       generationStatus.className = "status gen-status";
     }
+    try { localStorage.setItem(MODE_STORAGE_KEY, mode); } catch (_) {}
   }
 
   function renderAttachmentList() {
@@ -424,6 +427,7 @@
     if (!button) {
       return;
     }
+    try { localStorage.setItem(MODE_STORAGE_KEY, button.dataset.modeTab); } catch (_) {}
     renderMode(button.dataset.modeTab);
   });
 
@@ -503,7 +507,9 @@
   window.KuaimaAgent = { addAttachments };
   loadChats();
   if (state.chats.length) activateChat(state.chats[0].id);
-  renderMode("generate");
+  let initialMode = "generate";
+  try { initialMode = localStorage.getItem(MODE_STORAGE_KEY) || initialMode; } catch (_) {}
+  renderMode(initialMode);
   renderAttachmentList();
   renderChatHistory();
   renderChat();
