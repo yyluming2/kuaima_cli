@@ -11,6 +11,7 @@
     attachments: [],
     activeController: null,
     pendingAssistant: null,
+    editingIndex: -1,
   };
 
   function nowISO() { return new Date().toISOString(); }
@@ -48,6 +49,8 @@
   }
   function activateChat(id) {
     const chat = state.chats.find((item) => item.id === id);
+    state.editingIndex = -1;
+    clearAttachments();
     state.activeChatId = chat ? chat.id : "";
     state.history = chat ? chat.messages : [];
     renderChatHistory(); renderChat();
@@ -56,7 +59,7 @@
     if (state.activeController) state.activeController.abort();
     clearAttachments();
     $("#agentPrompt").value = "";
-    state.activeChatId = ""; state.history = []; state.pendingAssistant = null;
+    state.activeChatId = ""; state.history = []; state.pendingAssistant = null; state.editingIndex = -1;
     renderChatHistory(); renderChat();
   }
   function persistCurrentChat() {
@@ -133,7 +136,8 @@
 	const outputVideos = (Array.isArray(message.videos) ? message.videos : []).filter((item) => item && (item.url || item.task_id));
     return (
       '<div class="chat-message ' + esc(role) + '" data-message-index="' + index + '">' +
-        '<div class="chat-meta"><div class="chat-role">' + esc(role === "assistant" ? "assistant" : role) + '</div><time class="chat-time">' + esc(formatTime(message.createdAt)) + '</time></div>' +
+        '<div class="chat-meta"><div class="chat-role">' + esc(role === "assistant" ? "assistant" : role) + '</div><time class="chat-time">' + esc(formatTime(message.createdAt)) + '</time>' +
+        (role === "user" ? '<button class="chat-edit-button" type="button" data-agent-edit-message="' + index + '" aria-label="编辑并重新发送" title="编辑并重新发送">' + iconHTML("pencil") + '</button>' : '') + '</div>' +
         (textParts.length ? '<div class="chat-text">' + esc(textParts.join("\n")) + '</div>' : "") +
         (imageParts.length ? '<div class="chat-images">' + imageParts.map((part) => (
           '<button class="chat-image" type="button" data-preview-image="' + esc(part.image_url) + '">' +
@@ -145,9 +149,18 @@
         )).join("") + '</div>' : "") +
         (outputVideos.length ? '<div class="chat-videos">' + outputVideos.map((item) => item.url ?
           '<video controls src="' + esc(item.url) + '"></video>' :
-          '<div class="chat-video-task" data-video-task-id="' + esc(item.task_id) + '">视频任务已提交：' + esc(item.task_id) + '</div>').join("") + '</div>' : "") +
+          '<div class="chat-video-task" data-video-task-id="' + esc(item.task_id) + '">' + esc(videoTaskLabel(item)) + '</div>').join("") + '</div>' : "") +
       '</div>'
     );
+  }
+
+  function videoTaskLabel(task) {
+    const status = String(task && task.status || "").toLowerCase();
+    if (["failed", "cancelled", "canceled"].includes(status)) {
+      return "视频生成失败：" + (task.error && task.error.message || "服务未提供详细原因");
+    }
+    if (["processing", "in_progress"].includes(status)) return "视频生成中…";
+    return "视频任务已提交：" + (task.task_id || "等待任务编号");
   }
 
   function appendPendingAssistant() {
@@ -157,7 +170,9 @@
     }
     const el = document.createElement("div");
     el.className = "chat-message assistant";
-    el.innerHTML = '<div class="chat-meta"><div class="chat-role">assistant</div><time class="chat-time">' + esc(formatTime(Date.now())) + '</time></div><div class="chat-text"><span class="chat-waiting" aria-label="正在等待回复"><i></i><i></i><i></i></span></div>';
+    el.innerHTML = '<div class="chat-meta"><div class="chat-role">assistant</div><time class="chat-time">' + esc(formatTime(Date.now())) + '</time></div>' +
+      '<div class="chat-text" hidden></div>' +
+      '<div class="chat-stream-status"><span class="chat-waiting" aria-label="正在等待回复"><i></i><i></i><i></i></span><span class="chat-stream-status-text">正在等待回复...</span></div>';
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
     return el;
@@ -173,11 +188,22 @@
     const textEl = state.pendingAssistant.querySelector(".chat-text");
     if (textEl) {
       textEl.textContent = text || "";
+      textEl.hidden = !text;
     }
     const log = $("#agentChatLog");
     if (log) {
       log.scrollTop = log.scrollHeight;
     }
+  }
+
+  function setPendingAssistantStatus(text) {
+    if (!state.pendingAssistant) state.pendingAssistant = appendPendingAssistant();
+    if (!state.pendingAssistant) return;
+    const status = state.pendingAssistant.querySelector(".chat-stream-status");
+    const label = state.pendingAssistant.querySelector(".chat-stream-status-text");
+    if (status) status.hidden = !text;
+    if (label) label.textContent = text || "";
+    state.pendingAssistant.querySelector(".chat-waiting")?.setAttribute("aria-label", text || "");
   }
 
   function appendPendingAssistantImage(url) {
@@ -330,10 +356,15 @@
       return;
     }
 
+    const isEditing = state.editingIndex >= 0 && state.editingIndex < state.history.length;
+    if (isEditing) {
+      state.history = state.history.slice(0, state.editingIndex);
+    }
+    state.editingIndex = -1;
     const userMessage = buildUserMessage(prompt);
     state.history.push(userMessage);
     persistCurrentChat();
-    appendMessage(userMessage);
+    if (isEditing) renderChat(); else appendMessage(userMessage);
     $("#agentPrompt").value = "";
     clearAttachments();
 
@@ -354,9 +385,7 @@
         signal: controller.signal,
       }, {
         status(payload) {
-          if (payload.message && state.pendingAssistant) {
-            state.pendingAssistant.querySelector(".chat-waiting")?.setAttribute("aria-label", payload.message);
-          }
+          if (payload.message) setPendingAssistantStatus(payload.message);
         },
         text(payload) {
           if (payload.text) {
@@ -394,6 +423,7 @@
 		  (payload && payload.videos || []).forEach((task) => {
 			if (task && !responseVideos.some((item) => item.task_id === task.task_id)) { responseVideos.push(task); appendPendingAssistantVideo(task); }
 		  });
+          setPendingAssistantStatus("");
         },
         error(payload) {
           throw new Error(payload.error || "agent failed");
@@ -402,6 +432,11 @@
       assistantMessage.content = responseText ? [{ type: "output_text", text: responseText }] : [];
       assistantMessage.images = responseImages;
 	  assistantMessage.videos = responseVideos;
+      if (!responseText && responseImages.length === 0 && responseVideos.length === 0) {
+        responseText = "本次请求已结束，但服务没有返回可显示的内容。";
+        assistantMessage.content = [{ type: "output_text", text: responseText }];
+        setPendingAssistantText(responseText);
+      }
       state.history.push(assistantMessage);
       persistCurrentChat();
     } catch (error) {
@@ -410,6 +445,7 @@
           state.pendingAssistant.remove();
         }
       } else {
+        setPendingAssistantStatus("");
         setPendingAssistantText("错误: " + (error && error.message ? error.message : "agent failed"));
         assistantMessage.content = [{ type: "output_text", text: "错误: " + (error && error.message ? error.message : "agent failed") }];
         state.history.push(assistantMessage);
@@ -423,6 +459,51 @@
   }
 
   document.addEventListener("click", (event) => {
+    const cancelEdit = event.target.closest("[data-agent-cancel-edit]");
+    if (cancelEdit) {
+      state.editingIndex = -1;
+      renderChat();
+      return;
+    }
+    const resendEdit = event.target.closest("[data-agent-resend-edit]");
+    if (resendEdit) {
+      if (state.activeController) return;
+      const index = Number(resendEdit.dataset.agentResendEdit);
+      const message = state.history[index];
+      const editor = resendEdit.closest(".chat-message")?.querySelector(".chat-inline-editor");
+      if (!message || message.role !== "user" || !editor) return;
+      state.editingIndex = index;
+      state.attachments = (message.content || []).filter((part) => part && part.type === "input_image" && part.image_url).map((part) => ({ name: "已附加图片", url: part.image_url }));
+      $("#agentPrompt").value = editor.value;
+      $("#agentForm").requestSubmit();
+      return;
+    }
+    const edit = event.target.closest("[data-agent-edit-message]");
+    if (edit) {
+      if (state.activeController) return;
+      const index = Number(edit.dataset.agentEditMessage);
+      const message = state.history[index];
+      if (!message || message.role !== "user") return;
+      const parts = Array.isArray(message.content) ? message.content : [];
+      const text = parts.filter((part) => part && part.type === "input_text").map((part) => part.text || "").join("\n");
+      renderChat();
+      const holder = $("#agentChatLog").querySelector('[data-message-index="' + index + '"]');
+      const textEl = holder && holder.querySelector(".chat-text");
+      if (!holder) return;
+      state.editingIndex = index;
+      const editor = document.createElement("textarea");
+      editor.className = "chat-inline-editor";
+      editor.value = text;
+      editor.rows = Math.max(2, Math.min(10, text.split("\n").length + 1));
+      if (textEl) textEl.replaceWith(editor); else holder.querySelector(".chat-meta").insertAdjacentElement("afterend", editor);
+      const actions = document.createElement("div");
+      actions.className = "chat-inline-actions";
+      actions.innerHTML = '<button class="btn" type="button" data-agent-cancel-edit>取消</button><button class="btn primary" type="button" data-agent-resend-edit="' + index + '">重新发送</button>';
+      holder.appendChild(actions);
+      editor.focus();
+      editor.setSelectionRange(text.length, text.length);
+      return;
+    }
     const button = event.target.closest("[data-mode-tab]");
     if (!button) {
       return;
@@ -467,6 +548,7 @@
     if (chat) state.chats = state.chats.filter((item) => item.id !== chat.id);
     state.activeChatId = "";
     state.history = [];
+    state.editingIndex = -1;
     state.pendingAssistant = null;
     state.activeController = null;
     setStreaming(false);

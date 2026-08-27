@@ -636,6 +636,7 @@ func (s *webUIServer) handleAgentStream(w http.ResponseWriter, r *http.Request) 
 		if strings.TrimSpace(args.Ratio) == "" {
 			args.Ratio = "16:9"
 		}
+		stream.send("status", map[string]string{"message": "正在提交视频生成任务..."})
 		task, toolErr := c.createVideoGeneration(r.Context(), videoGenerationRequest{
 			Model: args.Model, Mode: "references", Prompt: args.Prompt, Images: args.Images,
 			Duration: args.Duration, Size: args.Size, Ratio: args.Ratio,
@@ -643,7 +644,8 @@ func (s *webUIServer) handleAgentStream(w http.ResponseWriter, r *http.Request) 
 		})
 		result := map[string]any{"ok": toolErr == nil}
 		if toolErr != nil {
-			result["error"] = toolErr.Error()
+			stream.send("error", map[string]string{"error": "视频生成失败: " + toolErr.Error()})
+			return
 		} else {
 			videoTasks = append(videoTasks, task)
 			stream.send("video", task)
@@ -1730,6 +1732,12 @@ func (s *webUIEventStream) textWriter() io.Writer {
 
 type webUIStreamTextWriter struct {
 	s *webUIEventStream
+}
+
+func (w webUIStreamTextWriter) ResponseStreamEvent(event string) {
+	if event == "function_call" {
+		w.s.send("status", map[string]string{"message": "正在解析视频生成参数..."})
+	}
 }
 
 func (w webUIStreamTextWriter) Write(p []byte) (int, error) {

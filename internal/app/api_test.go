@@ -148,6 +148,60 @@ func TestCreateResponseStreamAggregatesOutputItemEvents(t *testing.T) {
 	}
 }
 
+func TestCreateResponseStreamAggregatesFunctionCallArgumentDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"name\":\"generate_video\",\"call_id\":\"call_1\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"prompt\\\":\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"\\\"a cat\\\"}\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"output\":[{\"type\":\"function_call\",\"name\":\"generate_video\",\"call_id\":\"call_1\"}]}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	c, err := newClient(server.URL, "", "secret-token", "", "", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	resp, err := c.createResponseStream(t.Context(), responseRequest{Model: "test-model", Input: "video"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Output) != 1 || resp.Output[0].Name != "generate_video" || resp.Output[0].CallID != "call_1" || resp.Output[0].Arguments != `{"prompt":"a cat"}` {
+		t.Fatalf("unexpected function call output: %#v", resp.Output)
+	}
+}
+
+type responseStreamObserverBuffer struct {
+	bytes.Buffer
+	events []string
+}
+
+func (b *responseStreamObserverBuffer) ResponseStreamEvent(event string) {
+	b.events = append(b.events, event)
+}
+
+func TestCreateResponseStreamNotifiesFunctionCallImmediately(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\"}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	c, err := newClient(server.URL, "", "secret-token", "", "", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	out := &responseStreamObserverBuffer{}
+	if _, err := c.createResponseStream(t.Context(), responseRequest{Model: "test-model", Input: "video"}, out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.events) != 1 || out.events[0] != "function_call" {
+		t.Fatalf("expected immediate function call notification, got %#v", out.events)
+	}
+}
+
 func TestCreateResponseStreamAddsRechargeHintForErrorEvent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

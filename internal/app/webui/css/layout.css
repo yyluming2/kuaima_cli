@@ -468,3 +468,60 @@ h2 {
 .field {
   margin-bottom: 10px;
 }
+
+.chat-stream-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chat-stream-status[hidden] { display: none; }
+
+.chat-edit-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-message.user:hover .chat-edit-button,
+.chat-message.user:focus-within .chat-edit-button,
+.chat-edit-button:hover,
+.chat-edit-button:focus-visible {
+  color: var(--primary);
+  background: rgba(37, 99, 235, .1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-edit-button svg { width: 15px; height: 15px; }
+
+.chat-inline-editor {
+  width: min(620px, 72vw);
+  min-height: 72px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(37, 99, 235, .45);
+  border-radius: 8px;
+  color: inherit;
+  background: rgba(255, 255, 255, .92);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.chat-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

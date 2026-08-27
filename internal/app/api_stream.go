@@ -52,6 +52,7 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 	var outputs []responseOutput
 	var rawStream bytes.Buffer
 	var firstToken time.Time
+	functionCallNotified := false
 	scanner := bufio.NewScanner(httpResp.Body)
 	//单张4k图base64比较大
 	scanner.Buffer(make([]byte, 0, 64*1024), 50*1024*1024)
@@ -76,6 +77,7 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 			Item            json.RawMessage `json:"item"`
 			PartialImageB64 string          `json:"partial_image_b64"`
 			B64JSON         string          `json:"b64_json"`
+			Arguments       string          `json:"arguments"`
 		}
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			//return nil, apiErrorf("unmarshal error: %s, %d", err, len(data))
@@ -98,12 +100,34 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 				var item responseOutput
 				if err := json.Unmarshal(event.Item, &item); err == nil {
 					setResponseOutput(&outputs, event.OutputIndex, item)
+					if item.Type == "function_call" && !functionCallNotified {
+						notifyResponseStreamEvent(w, "function_call")
+						functionCallNotified = true
+					}
 					if onImage != nil && item.Type == "image_generation_call" && strings.TrimSpace(item.Result) != "" {
 						if err := onImage(imageCandidate{Kind: "base64", Value: item.Result}); err != nil {
 							return nil, err
 						}
 					}
 				}
+			}
+		case "response.function_call_arguments.delta":
+			if !functionCallNotified {
+				notifyResponseStreamEvent(w, "function_call")
+				functionCallNotified = true
+			}
+			item := ensureResponseOutput(&outputs, event.OutputIndex)
+			if item.Type == "" {
+				item.Type = "function_call"
+			}
+			item.Arguments += event.Delta
+		case "response.function_call_arguments.done":
+			item := ensureResponseOutput(&outputs, event.OutputIndex)
+			if item.Type == "" {
+				item.Type = "function_call"
+			}
+			if event.Arguments != "" {
+				item.Arguments = event.Arguments
 			}
 		case "response.image_generation_call.partial_image":
 			image := event.PartialImageB64
@@ -150,8 +174,11 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 		if err != nil {
 			return nil, err
 		}
-		if len(resp.Output) == 0 && len(outputs) > 0 {
-			resp.Output = outputs
+		for index, streamed := range outputs {
+			for len(resp.Output) <= index {
+				resp.Output = append(resp.Output, responseOutput{})
+			}
+			mergeResponseOutput(&resp.Output[index], streamed)
 		}
 		if resp.OutputText == "" && text.Len() > 0 {
 			resp.OutputText = text.String()
@@ -159,6 +186,40 @@ func (c *client) createResponseStreamWithImages(ctx context.Context, req respons
 		return resp, nil
 	}
 	return &responsePayload{OutputText: text.String(), Output: outputs, Raw: rawStream.Bytes()}, nil
+}
+
+type responseStreamEventObserver interface {
+	ResponseStreamEvent(event string)
+}
+
+func notifyResponseStreamEvent(w io.Writer, event string) {
+	if observer, ok := w.(responseStreamEventObserver); ok {
+		observer.ResponseStreamEvent(event)
+	}
+}
+
+func mergeResponseOutput(target *responseOutput, fallback responseOutput) {
+	if target.ID == "" {
+		target.ID = fallback.ID
+	}
+	if target.Type == "" {
+		target.Type = fallback.Type
+	}
+	if target.Name == "" {
+		target.Name = fallback.Name
+	}
+	if target.CallID == "" {
+		target.CallID = fallback.CallID
+	}
+	if target.Arguments == "" {
+		target.Arguments = fallback.Arguments
+	}
+	if target.Result == "" {
+		target.Result = fallback.Result
+	}
+	if target.Status == "" {
+		target.Status = fallback.Status
+	}
 }
 
 func setResponseOutput(outputs *[]responseOutput, index int, item responseOutput) {
@@ -170,6 +231,15 @@ func setResponseOutput(outputs *[]responseOutput, index int, item responseOutput
 	}
 	if item.Result == "" && (*outputs)[index].Result != "" {
 		item.Result = (*outputs)[index].Result
+	}
+	if item.Arguments == "" && (*outputs)[index].Arguments != "" {
+		item.Arguments = (*outputs)[index].Arguments
+	}
+	if item.Name == "" && (*outputs)[index].Name != "" {
+		item.Name = (*outputs)[index].Name
+	}
+	if item.CallID == "" && (*outputs)[index].CallID != "" {
+		item.CallID = (*outputs)[index].CallID
 	}
 	(*outputs)[index] = item
 }
