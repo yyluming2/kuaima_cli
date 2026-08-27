@@ -693,7 +693,7 @@ func agentVideoTool() map[string]any {
 				"prompt":   map[string]any{"type": "string"},
 				"model":    map[string]any{"type": "string", "description": "Optional video model; default MiniMax-H3"},
 				"images":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Input image URLs copied exactly from the conversation"},
-				"duration": map[string]any{"type": "integer", "minimum": 4, "maximum": 30},
+				"duration": map[string]any{"type": "integer", "minimum": 4, "maximum": 15, "description": "default 10"},
 				"size":     map[string]any{"type": "string", "enum": []string{"480p", "720p", "1080p"}},
 				"ratio":    map[string]any{"type": "string"},
 			},
