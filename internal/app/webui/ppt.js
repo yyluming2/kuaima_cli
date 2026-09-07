@@ -7,7 +7,7 @@
     return r
   }, icon = n => h("i", { "data-lucide": n });
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected), update = fn => setDeck(d => {
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), imageTarget = useRef(null), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected), update = fn => setDeck(d => {
       const n = structuredClone(d), e = n.slides[slide].elements.find(e => e.id === selected);
       if (e) fn(e);
       return n
@@ -35,7 +35,8 @@
     };
     const add = type => {
       if (!deck) return;
-      const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "形状", table: "A | B\n1 | 2", chart: "数据图表", image: "" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent" } };
+      if (type === "image") { imageTarget.current = null; fileInput.current?.click(); return }
+      const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "形状", table: "A | B\n1 | 2", chart: "数据图表" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent" } };
       setDeck(d => {
         const n = structuredClone(d);
         n.slides[slide].elements.push(e);
@@ -63,8 +64,8 @@
       if (!c) return;
       const q = c.getBoundingClientRect(), dx = (ev.clientX - (d || r).x) * W / q.width, dy = (ev.clientY - (d || r).y) * H / q.height;
       if (d) update(e => {
-        e.x = Math.max(0, Math.min(W - e.width, d.ex + dx));
-        e.y = Math.max(0, Math.min(H - e.height, d.ey + dy))
+        e.x = d.ex + dx;
+        e.y = d.ey + dy
       });
       else update(e => {
         let x = r.ex, y = r.ey, w = r.ew, h = r.eh;
@@ -76,10 +77,10 @@
         } if (r.dir.includes("n")) {
           h = Math.max(30, r.eh - dy);
           y = r.ey + dy
-        } e.x = Math.max(0, Math.min(W - w, x));
-        e.y = Math.max(0, Math.min(H - h, y));
-        e.width = Math.min(w, W - e.x);
-        e.height = Math.min(h, H - e.y)
+        } e.x = x;
+        e.y = y;
+        e.width = w;
+        e.height = h
       })
     };
     useEffect(() => {
@@ -118,7 +119,7 @@
         setSlide(i);
         setSelected(null)
       }
-    }, `第${i + 1}页`))), h("div", { className: "canvas", onClick: () => setSelected(null) }, elements.map(e => {
+    }, h("div", { className: "thumb-preview" }, (s.elements || []).map(e => h("div", { key: e.id, className: "thumb-el", style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", background: e.type === "shape" ? (e.style?.background || "#dbeafe") : "transparent", color: e.style?.color || "#172033" } }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "" }) : e.type === "image" ? icon("image") : (e.content || "")))), h("span", { className: "thumb-label" }, `第${i + 1}页`)))), h("div", { className: "canvas", onClick: () => setSelected(null) }, elements.map(e => {
       const st = { ...defaults, ...e.style }, bold = st.bold || Number(st.fontWeight) >= 600;
       return h("div", {
         key: e.id, className: "el " + (e.id === selected ? "sel" : ""), onClick: ev => {
@@ -130,33 +131,33 @@
             drag.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement }
           }
         }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", fontSize: st.fontSize, fontFamily: st.fontFamily, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, background: st.background }
-      }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片" }) : e.content || "图片占位", e.id === selected && ["nw", "ne", "sw", "se"].map(dir => h("span", {
+      }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片" }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.content || "", e.id === selected && ["nw", "ne", "sw", "se"].map(dir => h("span", {
         key: dir, className: "handle " + dir, onMouseDown: ev => {
           ev.stopPropagation();
           resize.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement }
         }
       })))
-    }), h("input", {
+    })), h("input", {
       ref: fileInput, type: "file", accept: "image/*", style: { display: "none" }, onChange: ev => {
         const f = ev.target.files?.[0];
         if (f) {
           const r = new FileReader();
-          r.onload = () => insertImage(r.result);
+          r.onload = () => { if (imageTarget.current) { const id = imageTarget.current; update(e => { if (e.id === id) e.assetUrl = r.result }); setSelected(id); imageTarget.current = null } else insertImage(r.result) };
           r.readAsDataURL(f)
         } ev.target.value = ""
       }
-    }), h(Inspector, { element: current, onChange: update }))))
+    }), h(Inspector, { element: current, onChange: update, onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } })))
   }
-  function Inspector({ element, onChange }) {
+  function Inspector({ element, onChange, onReplaceImage }) {
     const st = { ...defaults, ...(element?.style || {}) };
     if (!element) return h("aside", { className: "side" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, "未选择元素"));
     const field = (label, key, type = "text") => h("label", null, label, h("input", {
-      type, value: element[key] ?? st[key] ?? "", onChange: e => onChange(x => {
+      type, step: type === "number" ? "0.1" : undefined, value: type === "number" && ["x", "y", "width", "height"].includes(key) ? Number(element[key] || 0).toFixed(1) : (element[key] ?? st[key] ?? ""), onChange: e => onChange(x => {
         if (key in x) x[key] = type === "number" ? Number(e.target.value) : e.target.value;
         else x.style = { ...x.style, [key]: type === "number" ? Number(e.target.value) : e.target.value }
       })
     })), toggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!st[key], onChange: e => onChange(x => x.style = { ...x.style, [key]: e.target.checked }) }), label);
-    return h("aside", { className: "side" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, names[element.type] || element.type), element.type !== "image" && h("label", null, "内容", h("textarea", { value: element.content || "", onChange: e => onChange(x => x.content = e.target.value) })), h("section", { className: "geometry" }, field("X 位置", "x", "number"), field("Y 位置", "y", "number"), field("宽度", "width", "number"), field("高度", "height", "number")), element.type === "text" && h("section", null, field("字号", "fontSize", "number"), field("字体", "fontFamily"), field("文字颜色", "color", "color"), h("div", { className: "checks" }, toggle("加粗", "bold"), toggle("斜体", "italic"), toggle("下划线", "underline"))), (element.type === "shape" || element.type === "text") && field("背景色", "background", "color"), field("旋转角度", "rotation", "number"))
+    return h("aside", { className: "side" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, names[element.type] || element.type), element.type === "image" && h("button", { className: "replace-image", type: "button", onClick: () => onReplaceImage?.(element.id) }, "替换图片"), element.type !== "image" && h("label", null, "内容", h("textarea", { value: element.content || "", onChange: e => onChange(x => x.content = e.target.value) })), h("section", { className: "geometry" }, field("X 位置", "x", "number"), field("Y 位置", "y", "number"), field("宽度", "width", "number"), field("高度", "height", "number")), element.type === "text" && h("section", null, field("字号", "fontSize", "number"), field("字体", "fontFamily"), field("文字颜色", "color", "color"), h("div", { className: "checks" }, toggle("加粗", "bold"), toggle("斜体", "italic"), toggle("下划线", "underline"))), (element.type === "shape" || element.type === "text") && field("背景色", "background", "color"), field("旋转角度", "rotation", "number"))
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
