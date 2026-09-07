@@ -1,14 +1,38 @@
 package app
 
 import (
-	"encoding/json"
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	genppt "github.com/CoolBanHub/genppt"
+	"image"
 	"kuaima_cli/internal/ppt"
 	"net/http"
 	"strings"
 )
+
+// fitImageBox keeps the source aspect ratio when placing an image in PPTX.
+// The editor uses object-fit: contain; apply the same contain behavior to the
+// exported slide instead of letting Office stretch the bitmap to the box.
+func fitImageBox(data []byte, x, y, width, height float64) (float64, float64, float64, float64) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || width <= 0 || height <= 0 {
+		return x, y, width, height
+	}
+	contentRatio := float64(cfg.Width) / float64(cfg.Height)
+	boxRatio := width / height
+	if contentRatio > boxRatio {
+		oldHeight := height
+		height = width / contentRatio
+		y += (oldHeight - height) / 2
+	} else {
+		oldWidth := width
+		width = height * contentRatio
+		x += (oldWidth - width) / 2
+	}
+	return x, y, width, height
+}
 
 // handlePPTDraft returns a deterministic editable starter document. AI services
 // can fill the same schema later without changing the editor contract.
@@ -147,9 +171,20 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if e.Type == "text" {
-				o:=genppt.TextOptions{X:e.X/128,Y:e.Y/128,Width:e.Width/128,Height:e.Height/128}
-				if v,ok:=e.Style["fontSize"].(float64);ok{o.FontSize=v}; if v,ok:=e.Style["color"].(string);ok{o.FontColor=v}; if v,ok:=e.Style["fontWeight"].(float64);ok{o.Bold=v>=600}; if v,ok:=e.Style["background"].(string);ok&&v!="transparent"{o.Fill=v}
-				sl.AddText(e.Content,o)
+				o := genppt.TextOptions{X: e.X / 128, Y: e.Y / 128, Width: e.Width / 128, Height: e.Height / 128}
+				if v, ok := e.Style["fontSize"].(float64); ok {
+					o.FontSize = v
+				}
+				if v, ok := e.Style["color"].(string); ok {
+					o.FontColor = v
+				}
+				if v, ok := e.Style["fontWeight"].(float64); ok {
+					o.Bold = v >= 600
+				}
+				if v, ok := e.Style["background"].(string); ok && v != "transparent" {
+					o.Fill = v
+				}
+				sl.AddText(e.Content, o)
 			} else if e.Type == "shape" {
 				sl.AddShape(genppt.ShapeRect, opts)
 			} else if e.Type == "table" {
@@ -163,7 +198,12 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				}
 				sl.AddTable(rows, genppt.TableOptions{X: opts.X, Y: opts.Y, Width: opts.Width})
 			} else if e.Type == "image" && e.AssetURL != "" {
-				if i:=strings.Index(e.AssetURL,","); i>=0 { if data,err:=base64.StdEncoding.DecodeString(e.AssetURL[i+1:]);err==nil { sl.AddImage(genppt.ImageOptions{X:e.X/128,Y:e.Y/128,Width:e.Width/128,Height:e.Height/128,Data:data}) } }
+				if i := strings.Index(e.AssetURL, ","); i >= 0 {
+					if data, err := base64.StdEncoding.DecodeString(e.AssetURL[i+1:]); err == nil {
+						x, y, w, h := fitImageBox(data, e.X/128, e.Y/128, e.Width/128, e.Height/128)
+						sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data})
+					}
+				}
 			}
 		}
 	}

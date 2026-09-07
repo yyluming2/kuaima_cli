@@ -7,11 +7,21 @@
     return r
   }, icon = n => h("i", { "data-lucide": n });
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), imageTarget = useRef(null), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected), update = fn => setDeck(d => {
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected), update = fn => setDeck(d => {
       const n = structuredClone(d), e = n.slides[slide].elements.find(e => e.id === selected);
       if (e) fn(e);
       return n
     });
+    useEffect(() => {
+      if (!editing || !editRef.current) return;
+      editRef.current.focus();
+      const range = document.createRange();
+      range.selectNodeContents(editRef.current);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }, [editing]);
     const generate = async () => {
       setBusy(true);
       try {
@@ -45,6 +55,28 @@
       setSelected(e.id);
       if (type === "image") fileInput.current?.click()
     };
+    const removeSelected = () => {
+      if (!selected || editing) return;
+      setDeck(d => {
+        const n = structuredClone(d);
+        n.slides[slide].elements = n.slides[slide].elements.filter(e => e.id !== selected);
+        return n
+      });
+      setSelected(null)
+    };
+    useEffect(() => {
+      const onKeyDown = ev => {
+        const target = ev.target;
+        const tag = target?.tagName?.toLowerCase();
+        if (editing || tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+        if ((ev.key === "Delete" || ev.key === "Backspace") && selected) {
+          ev.preventDefault();
+          removeSelected();
+        }
+      };
+      addEventListener("keydown", onKeyDown);
+      return () => removeEventListener("keydown", onKeyDown)
+    }, [selected, editing, slide, deck]);
     useEffect(() => {
       const paste = ev => {
         const i = [...(ev.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
@@ -106,32 +138,29 @@
     };
     const tools = [["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"]];
     return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "生成草稿")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("button", {
-      className: "danger", disabled: !current, onClick: () => {
-        setDeck(d => {
-          const n = structuredClone(d);
-          n.slides[slide].elements = n.slides[slide].elements.filter(e => e.id !== selected);
-          return n
-        });
-        setSelected(null)
-      }
+      className: "danger", disabled: !current, onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", null, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
       key: i, className: "thumb " + (i === slide ? "active" : ""), onClick: () => {
         setSlide(i);
         setSelected(null)
       }
     }, h("div", { className: "thumb-preview" }, (s.elements || []).map(e => h("div", { key: e.id, className: "thumb-el", style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", background: e.type === "shape" ? (e.style?.background || "#dbeafe") : "transparent", color: e.style?.color || "#172033" } }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "" }) : e.type === "image" ? icon("image") : (e.content || "")))), h("span", { className: "thumb-label" }, `第${i + 1}页`)))), h("div", { className: "canvas", onClick: () => setSelected(null) }, elements.map(e => {
-      const st = { ...defaults, ...e.style }, bold = st.bold || Number(st.fontWeight) >= 600;
+      const st = { ...defaults, ...e.style }, bold = st.bold || Number(st.fontWeight) >= 600, isEditing = editing === e.id;
       return h("div", {
-        key: e.id, className: "el " + (e.id === selected ? "sel" : ""), onClick: ev => {
+        key: e.id, className: "el " + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
           ev.stopPropagation();
           setSelected(e.id)
+        }, onDoubleClick: ev => {
+          ev.stopPropagation();
+          if (e.type === "image") { imageTarget.current = e.id; fileInput.current?.click() }
+          else if (e.type === "text") setEditing(e.id)
         }, onMouseDown: ev => {
-          if (ev.button === 0 && !e.locked) {
+          if (ev.button === 0 && !e.locked && !isEditing) {
             setSelected(e.id);
             drag.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement }
           }
         }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", fontSize: st.fontSize, fontFamily: st.fontFamily, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, background: st.background }
-      }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片" }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.content || "", e.id === selected && ["nw", "ne", "sw", "se"].map(dir => h("span", {
+      }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片" }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const content = node ? node.textContent || "" : e.content || ""; update(x => x.content = content); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") setEditing(null) } }, e.content || "") : e.content || "", e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
         key: dir, className: "handle " + dir, onMouseDown: ev => {
           ev.stopPropagation();
           resize.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement }
