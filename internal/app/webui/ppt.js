@@ -7,7 +7,7 @@
     return r
   }, icon = n => h("i", { "data-lucide": n });
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected), update = fn => setDeck(d => {
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected), update = fn => setDeck(d => {
       const n = structuredClone(d), e = n.slides[slide].elements.find(e => e.id === selected);
       if (e) fn(e);
       return n
@@ -57,12 +57,22 @@
     };
     const removeSelected = () => {
       if (!selected || editing) return;
+      if (!window.confirm("确定要删除当前选中的元素吗？删除后无法恢复。")) return;
       setDeck(d => {
         const n = structuredClone(d);
         n.slides[slide].elements = n.slides[slide].elements.filter(e => e.id !== selected);
         return n
       });
       setSelected(null)
+    };
+    const openDeck = () => openFileInput.current?.click();
+    const loadDeckFile = ev => {
+      const file = ev.target.files?.[0]; ev.target.value = "";
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".json")) { alert("当前仅支持打开 PPT 工作台 JSON 文件；二进制 .pptx 导入暂未支持。"); return; }
+      const reader = new FileReader();
+      reader.onload = () => { try { const value = JSON.parse(reader.result); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(value); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
+      reader.readAsText(file);
     };
     useEffect(() => {
       const onKeyDown = ev => {
@@ -137,14 +147,14 @@
       } catch (e) { alert("导出失败：" + e.message) }
     };
     const tools = [["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"]];
-    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "生成草稿")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("button", {
+    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "生成草稿")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("button", {
       className: "danger", disabled: !current, onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", null, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
       key: i, className: "thumb " + (i === slide ? "active" : ""), onClick: () => {
         setSlide(i);
         setSelected(null)
       }
-    }, h("div", { className: "thumb-preview" }, (s.elements || []).map(e => h("div", { key: e.id, className: "thumb-el", style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", background: e.type === "shape" ? (e.style?.background || "#dbeafe") : "transparent", color: e.style?.color || "#172033" } }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "" }) : e.type === "image" ? icon("image") : (e.content || "")))), h("span", { className: "thumb-label" }, `第${i + 1}页`)))), h("div", { className: "canvas", onClick: () => setSelected(null) }, elements.map(e => {
+      }, h("div", { className: "thumb-preview" }, (s.elements || []).map(e => { const ts = { ...defaults, ...(e.style || {}) }; return h("div", { key: e.id, className: "thumb-el", style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", background: e.type === "shape" ? (ts.background || "#dbeafe") : "transparent", color: ts.color || "#172033", fontSize: Math.max(8, (Number(ts.fontSize) || 24) * 0.18), fontWeight: ts.bold ? "bold" : "normal", fontStyle: ts.italic ? "italic" : "normal", textDecoration: ts.underline ? "underline" : "none" } }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "" }) : e.type === "image" ? icon("image") : (e.content || "")); })), h("span", { className: "thumb-label" }, `第${i + 1}页`)))), h("div", { className: "canvas", onClick: () => setSelected(null) }, elements.map(e => {
       const st = { ...defaults, ...e.style }, bold = st.bold || Number(st.fontWeight) >= 600, isEditing = editing === e.id;
       return h("div", {
         key: e.id, className: "el " + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
@@ -175,7 +185,7 @@
           r.readAsDataURL(f)
         } ev.target.value = ""
       }
-    }), h(Inspector, { element: current, onChange: update, onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } })))
+    }), h("input", { ref: openFileInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: loadDeckFile }), h(Inspector, { element: current, onChange: update, onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } })))
   }
   function Inspector({ element, onChange, onReplaceImage }) {
     const st = { ...defaults, ...(element?.style || {}) };

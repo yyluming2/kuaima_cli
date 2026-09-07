@@ -181,6 +181,21 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				if v, ok := e.Style["fontWeight"].(float64); ok {
 					o.Bold = v >= 600
 				}
+				if v, ok := e.Style["bold"].(bool); ok {
+					o.Bold = v
+				}
+				if v, ok := e.Style["italic"].(bool); ok {
+					o.Italic = v
+				}
+				if v, ok := e.Style["underline"].(bool); ok {
+					o.Underline = v
+				}
+				if v, ok := e.Style["fontFamily"].(string); ok {
+					o.FontFace = v
+				}
+				if v, ok := e.Style["rotation"].(float64); ok {
+					o.Rotate = v
+				}
 				if v, ok := e.Style["background"].(string); ok && v != "transparent" {
 					o.Fill = v
 				}
