@@ -139,7 +139,54 @@ func parseRels(b []byte) map[string]string {
 	}
 	return o
 }
-func clr(n *node) string {
+
+// parseThemeColors reads the effective DrawingML color scheme from a theme
+// part. Theme references in slides (schemeClr) must be resolved against this
+// table; the fallback palette is only for malformed/legacy files.
+func parseThemeColors(b []byte) map[string]string {
+	colors := map[string]string{}
+	root, err := parseTree(b)
+	if err != nil || root == nil {
+		return colors
+	}
+	var scheme *node
+	var find func(*node)
+	find = func(n *node) {
+		if n == nil || scheme != nil {
+			return
+		}
+		if n.Name == "clrScheme" {
+			scheme = n
+			return
+		}
+		for _, k := range n.Kids {
+			find(k)
+		}
+	}
+	find(root)
+	if scheme == nil {
+		return colors
+	}
+	for _, entry := range scheme.Kids {
+		var c string
+		if x := entry.child("srgbClr"); x != nil {
+			c = "#" + x.attr("val")
+		}
+		if c == "" {
+			if x := entry.child("sysClr"); x != nil {
+				if v := x.attr("lastClr"); v != "" {
+					c = "#" + v
+				}
+			}
+		}
+		if c != "" {
+			colors[strings.ToLower(entry.Name)] = c
+		}
+	}
+	return colors
+}
+
+func clr(n *node, theme map[string]string) string {
 	if n == nil {
 		return ""
 	}
@@ -150,7 +197,13 @@ func clr(n *node) string {
 	// (schemeClr) rather than explicit RGB values. Resolve the common theme
 	// slots to the model's stable palette so they render in the editor.
 	if s := n.child("schemeClr"); s != nil {
-		switch strings.ToLower(s.attr("val")) {
+		key := strings.ToLower(s.attr("val"))
+		if theme != nil {
+			if c := theme[key]; c != "" {
+				return c
+			}
+		}
+		switch key {
 		case "bg1", "lt1":
 			return "#FFFFFF"
 		case "tx1", "dk1":
@@ -175,14 +228,14 @@ func clr(n *node) string {
 	}
 	return ""
 }
-func colorValue(n *node) string {
-	c := clr(n)
+func colorValue(n *node, theme map[string]string) string {
+	c := clr(n, theme)
 	if c == "" && n != nil {
 		if n.Name == "srgbClr" {
 			c = "#" + n.attr("val")
 		}
 		if n.Name == "schemeClr" {
-			c = clr(&node{Kids: []*node{n}})
+			c = clr(&node{Kids: []*node{n}}, theme)
 		}
 	}
 	if c == "" {
@@ -242,12 +295,12 @@ func colorValue(n *node) string {
 	fmt.Sscanf(c, "#%02x%02x%02x", &r, &g, &b)
 	return fmt.Sprintf("rgba(%d,%d,%d,%.3f)", r, g, b, a)
 }
-func fillStyle(n *node) string {
+func fillStyle(n *node, theme map[string]string) string {
 	if n == nil {
 		return ""
 	}
 	if s := n.child("solidFill"); s != nil {
-		return colorValue(s)
+		return colorValue(s, theme)
 	}
 	if n.child("noFill") != nil {
 		return "transparent"
@@ -256,9 +309,9 @@ func fillStyle(n *node) string {
 		var stops []string
 		if gs := g.child("gsLst"); gs != nil {
 			for _, x := range gs.children("gs") {
-				c := colorValue(x.child("srgbClr"))
+				c := colorValue(x.child("srgbClr"), theme)
 				if c == "" {
-					c = colorValue(x.child("schemeClr"))
+					c = colorValue(x.child("schemeClr"), theme)
 				}
 				if c != "" {
 					if p := x.attr("pos"); p != "" {
@@ -334,12 +387,12 @@ func presetGeometry(sp *node) *ppt.Geometry {
 	return nil
 }
 
-func structuredFill(sp *node) *ppt.Fill {
+func structuredFill(sp *node, theme map[string]string) *ppt.Fill {
 	if sp == nil {
 		return nil
 	}
 	if sf := sp.child("solidFill"); sf != nil {
-		c := colorValue(sf)
+		c := colorValue(sf, theme)
 		if c == "transparent" {
 			return &ppt.Fill{Type: "none"}
 		}
@@ -354,10 +407,10 @@ func structuredFill(sp *node) *ppt.Fill {
 			for _, stop := range gs.children("gs") {
 				var c string
 				if x := stop.child("srgbClr"); x != nil {
-					c = colorValue(x)
+					c = colorValue(x, theme)
 				}
 				if c == "" {
-					c = colorValue(stop.child("schemeClr"))
+					c = colorValue(stop.child("schemeClr"), theme)
 				}
 				if c != "" {
 					out.Stops = append(out.Stops, ppt.GradientStop{Position: num(stop.attr("pos")) / 1000, Color: ppt.Color{Type: "css", RGB: c}})
@@ -368,7 +421,7 @@ func structuredFill(sp *node) *ppt.Fill {
 	}
 	return nil
 }
-func lineStyle(n *node) string {
+func lineStyle(n *node, theme map[string]string) string {
 	if n == nil {
 		return ""
 	}
@@ -383,7 +436,7 @@ func lineStyle(n *node) string {
 	if w <= 0 {
 		w = 1
 	}
-	c := fillStyle(ln)
+	c := fillStyle(ln, theme)
 	if c == "" {
 		c = "#64748B"
 	}
@@ -399,7 +452,7 @@ func lineStyle(n *node) string {
 	return fmt.Sprintf("%.2fpx %s %s", w, dash, c)
 }
 
-func structuredLine(sp *node) *ppt.Line {
+func structuredLine(sp *node, theme map[string]string) *ppt.Line {
 	if sp == nil || sp.child("ln") == nil {
 		return nil
 	}
@@ -411,7 +464,7 @@ func structuredLine(sp *node) *ppt.Line {
 	if w <= 0 {
 		w = 1
 	}
-	c := colorValue(ln)
+	c := colorValue(ln, theme)
 	if c == "" {
 		c = "#64748B"
 	}
@@ -454,7 +507,7 @@ func structuredText(st map[string]any) *ppt.TextStyle {
 	return t
 }
 
-func structuredEffects(sp *node) *ppt.Effects {
+func structuredEffects(sp *node, theme map[string]string) *ppt.Effects {
 	if sp == nil {
 		return nil
 	}
@@ -464,19 +517,19 @@ func structuredEffects(sp *node) *ppt.Effects {
 	}
 	out := &ppt.Effects{}
 	if s := e.child("outerShdw"); s != nil {
-		out.Shadow = shadowStyle(sp)
+		out.Shadow = shadowStyle(sp, theme)
 	}
 	if s := e.child("innerShdw"); s != nil {
 		blur, dist := emu(s.attr("blurRad")), emu(s.attr("dist"))
 		dir := num(s.attr("dir")) / 60000 * math.Pi / 180
-		c := colorValue(s)
+		c := colorValue(s, theme)
 		if c == "" {
 			c = "rgba(0,0,0,.25)"
 		}
 		out.InnerShadow = fmt.Sprintf("inset %.1fpx %.1fpx %.1fpx %s", dist*math.Cos(dir), dist*math.Sin(dir), blur, c)
 	}
 	if g := e.child("glow"); g != nil {
-		out.Glow = fmt.Sprintf("%.2fpx %s", emu(g.attr("rad")), colorValue(g))
+		out.Glow = fmt.Sprintf("%.2fpx %s", emu(g.attr("rad")), colorValue(g, theme))
 	}
 	if s := e.child("softEdge"); s != nil {
 		out.SoftEdge = emu(s.attr("rad"))
@@ -489,7 +542,7 @@ func structuredEffects(sp *node) *ppt.Effects {
 	}
 	return out
 }
-func shadowStyle(n *node) string {
+func shadowStyle(n *node, theme map[string]string) string {
 	if n == nil {
 		return ""
 	}
@@ -511,16 +564,16 @@ func shadowStyle(n *node) string {
 	if dist > 0 {
 		ox, oy = dist*math.Cos(dir), dist*math.Sin(dir)
 	}
-	c := colorValue(s.child("srgbClr"))
+	c := colorValue(s.child("srgbClr"), theme)
 	if c == "" {
-		c = colorValue(s.child("schemeClr"))
+		c = colorValue(s.child("schemeClr"), theme)
 	}
 	if c == "" {
 		c = "rgba(0,0,0,.25)"
 	}
 	return fmt.Sprintf("%.1fpx %.1fpx %.1fpx %s", ox, oy, blur, c)
 }
-func runStyle(r, p *node) map[string]any {
+func runStyle(r, p *node, theme map[string]string) map[string]any {
 	st := map[string]any{}
 	q := r.child("rPr")
 	if q == nil {
@@ -544,12 +597,12 @@ func runStyle(r, p *node) map[string]any {
 	if f := q.child("latin"); f != nil && f.attr("typeface") != "" {
 		st["fontFamily"] = f.attr("typeface")
 	}
-	if c := fillStyle(q); c != "" && !strings.Contains(c, "gradient") {
+	if c := fillStyle(q, theme); c != "" && !strings.Contains(c, "gradient") {
 		st["color"] = c
 	}
 	return st
 }
-func textBody(n *node) (string, map[string]any) {
+func textBody(n *node, theme map[string]string) (string, map[string]any) {
 	tb := n.child("txBody")
 	if tb == nil {
 		return "", nil
@@ -573,7 +626,7 @@ func textBody(n *node) (string, map[string]any) {
 				st["align"] = a
 			}
 			if dr := pp.child("defRPr"); dr != nil {
-				if c := fillStyle(dr); c != "" {
+				if c := fillStyle(dr, theme); c != "" {
 					st["color"] = c
 				}
 			}
@@ -591,7 +644,7 @@ func textBody(n *node) (string, map[string]any) {
 			if t := r.child("t"); t != nil {
 				b.WriteString(t.Text)
 			}
-			for k, v := range runStyle(r, p) {
+			for k, v := range runStyle(r, p, theme) {
 				if _, ok := st[k]; !ok {
 					st[k] = v
 				}
@@ -605,6 +658,7 @@ func textBody(n *node) (string, map[string]any) {
 type importer struct {
 	z      *zip.Reader
 	rel    map[string]string
+	theme  map[string]string
 	elems  *[]ppt.Element
 	zorder int
 }
@@ -673,10 +727,10 @@ func (im *importer) walk(n *node, c ctx) {
 				if src := im.imageData(im.rel[bl.child("blip").attr("embed")]); src != "" {
 					st := map[string]any{}
 					if sp := n.child("spPr"); sp != nil {
-						if v := lineStyle(sp); v != "" {
+						if v := lineStyle(sp, im.theme); v != "" {
 							st["border"] = v
 						}
-						if v := shadowStyle(sp); v != "" {
+						if v := shadowStyle(sp, im.theme); v != "" {
 							st["shadow"] = v
 						}
 					}
@@ -689,7 +743,7 @@ func (im *importer) walk(n *node, c ctx) {
 			}
 			return
 		}
-		content, style := textBody(n)
+		content, style := textBody(n, im.theme)
 		typ := "shape"
 		if n.Name == "cxnSp" {
 			typ = "line"
@@ -710,7 +764,7 @@ func (im *importer) walk(n *node, c ctx) {
 		var structuredLineValue *ppt.Line
 		var structuredEffectsValue *ppt.Effects
 		if sp := n.child("spPr"); sp != nil {
-			if c := fillStyle(sp); c != "" {
+			if c := fillStyle(sp, im.theme); c != "" {
 				style["background"] = c
 			}
 			// Some Office files keep the effective fill in the shape style
@@ -718,7 +772,7 @@ func (im *importer) walk(n *node, c ctx) {
 			if _, ok := style["background"]; !ok {
 				if ps := n.child("style"); ps != nil {
 					if fr := ps.child("fillRef"); fr != nil {
-						if c := colorValue(fr.child("schemeClr")); c != "" {
+						if c := colorValue(fr.child("schemeClr"), im.theme); c != "" {
 							style["background"] = c
 						}
 					}
@@ -730,17 +784,17 @@ func (im *importer) walk(n *node, c ctx) {
 			if _, ok := style["shape"]; !ok && style["shapeName"] != nil {
 				style["shape"] = "custom"
 			}
-			if v := lineStyle(sp); v != "" {
+			if v := lineStyle(sp, im.theme); v != "" {
 				style["border"] = v
 			}
 			geom = presetGeometry(sp)
-			structuredFillValue = structuredFill(sp)
-			structuredLineValue = structuredLine(sp)
-			structuredEffectsValue = structuredEffects(sp)
+			structuredFillValue = structuredFill(sp, im.theme)
+			structuredLineValue = structuredLine(sp, im.theme)
+			structuredEffectsValue = structuredEffects(sp, im.theme)
 			if n.Name == "cxnSp" && geom == nil {
 				geom = &ppt.Geometry{Type: "line"}
 			}
-			if v := shadowStyle(sp); v != "" {
+			if v := shadowStyle(sp, im.theme); v != "" {
 				style["shadow"] = v
 			}
 		}
@@ -757,6 +811,21 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 		return ppt.Presentation{}, e
 	}
 	p := ppt.New16x9("Imported presentation")
+	// The theme is shared by all slides. Locate the first theme part (the
+	// relationship target can vary, while ppt/theme/theme1.xml is conventional).
+	themeColors := map[string]string{}
+	for _, f := range z.File {
+		if strings.HasPrefix(f.Name, "ppt/theme/") && strings.HasSuffix(f.Name, ".xml") {
+			if b, er := f.Open(); er == nil {
+				raw, _ := io.ReadAll(b)
+				b.Close()
+				themeColors = parseThemeColors(raw)
+				if len(themeColors) > 0 {
+					break
+				}
+			}
+		}
+	}
 	// Preserve the order declared by p:sldIdLst (it may differ from slideN
 	// filenames, especially after slides are rearranged in PowerPoint).
 	slideOrder := map[string]int{}
@@ -850,7 +919,7 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 			}
 		}
 		s := ppt.Slide{ID: "slide-" + strings.TrimSuffix(filepath.Base(f.Name), filepath.Ext(f.Name))[5:], Layout: "imported"}
-		im := importer{z: z, rel: rel, elems: &s.Elements, zorder: 1}
+		im := importer{z: z, rel: rel, theme: themeColors, elems: &s.Elements, zorder: 1}
 		if cs := root.child("cSld"); cs != nil {
 			if bg := cs.child("bg"); bg != nil {
 				bl := bg.child("blipFill")
@@ -863,7 +932,7 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 					}
 				}
 				if bgpr := bg.child("bgPr"); bgpr != nil {
-					if c := clr(bgpr.child("solidFill")); c != "" && p.Theme.Background == "#FFFFFF" {
+					if c := clr(bgpr.child("solidFill"), themeColors); c != "" && p.Theme.Background == "#FFFFFF" {
 						p.Theme.Background = c
 					}
 				}
