@@ -7,12 +7,90 @@ import (
 	"fmt"
 	genppt "github.com/CoolBanHub/genppt"
 	"image"
+	"image/draw"
+	_ "image/gif"
+	_ "image/jpeg"
+	"image/png"
 	"io"
 	"kuaima_cli/internal/ppt"
 	"kuaima_cli/internal/ppt/pptximport"
 	"net/http"
 	"strings"
 )
+
+// cropImageData applies the editor's normalized crop values to the bitmap
+// before handing it to genppt. genppt writes an image into a shape but does
+// not expose DrawingML srcRect/crop support, so cropping the source pixels is
+// the portable equivalent for exported PPTX files.
+func cropImageData(data []byte, style map[string]any) []byte {
+	if len(data) == 0 || style == nil {
+		return data
+	}
+	var raw map[string]any
+	switch v := style["crop"].(type) {
+	case map[string]any:
+		raw = v
+	case map[string]float64:
+		raw = make(map[string]any, len(v))
+		for k, n := range v {
+			raw[k] = n
+		}
+	}
+	if raw == nil {
+		return data
+	}
+	value := func(key string) float64 {
+		switch v := raw[key].(type) {
+		case float64:
+			return v
+		case float32:
+			return float64(v)
+		case int:
+			return float64(v)
+		case json.Number:
+			n, _ := v.Float64()
+			return n
+		default:
+			return 0
+		}
+	}
+	left, top, right, bottom := value("left"), value("top"), value("right"), value("bottom")
+	clamp := func(v float64) float64 {
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
+		return v
+	}
+	left, top, right, bottom = clamp(left), clamp(top), clamp(right), clamp(bottom)
+	if left == 0 && top == 0 && right == 0 && bottom == 0 {
+		return data
+	}
+	if left+right >= 1 || top+bottom >= 1 {
+		return data
+	}
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return data
+	}
+	b := src.Bounds()
+	x0 := b.Min.X + int(float64(b.Dx())*left)
+	y0 := b.Min.Y + int(float64(b.Dy())*top)
+	x1 := b.Max.X - int(float64(b.Dx())*right)
+	y1 := b.Max.Y - int(float64(b.Dy())*bottom)
+	if x1 <= x0 || y1 <= y0 {
+		return data
+	}
+	out := image.NewNRGBA(image.Rect(0, 0, x1-x0, y1-y0))
+	draw.Draw(out, out.Bounds(), src, image.Point{X: x0, Y: y0}, draw.Src)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, out); err != nil {
+		return data
+	}
+	return buf.Bytes()
+}
 
 // fitImageBox keeps the source aspect ratio when placing an image in PPTX.
 // The editor uses object-fit: contain; apply the same contain behavior to the
@@ -292,7 +370,15 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			} else if e.Type == "image" && e.AssetURL != "" {
 				if i := strings.Index(e.AssetURL, ","); i >= 0 {
 					if data, err := base64.StdEncoding.DecodeString(e.AssetURL[i+1:]); err == nil {
-						x, y, w, h := fitImageBox(data, e.X/ppt.LogicalDPI, e.Y/ppt.LogicalDPI, e.Width/ppt.LogicalDPI, e.Height/ppt.LogicalDPI)
+						original := data
+						data = cropImageData(data, e.Style)
+						x, y, w, h := e.X/ppt.LogicalDPI, e.Y/ppt.LogicalDPI, e.Width/ppt.LogicalDPI, e.Height/ppt.LogicalDPI
+						// Cropped images are already normalized to the visible frame;
+						// preserve that frame exactly. For uncropped images retain the
+						// editor's contain behavior.
+						if bytes.Equal(original, data) {
+							x, y, w, h = fitImageBox(data, x, y, w, h)
+						}
 						sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data})
 					}
 				}
