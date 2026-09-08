@@ -401,7 +401,7 @@ func structuredFill(sp *node, theme map[string]string) *ppt.Fill {
 		if c == "transparent" {
 			return &ppt.Fill{Type: "none"}
 		}
-		return &ppt.Fill{Type: "solid", Color: &ppt.Color{Type: "rgb", RGB: c}}
+		return &ppt.Fill{Type: "solid", Color: parsedColor(c)}
 	}
 	if sp.child("noFill") != nil {
 		return &ppt.Fill{Type: "none"}
@@ -418,13 +418,36 @@ func structuredFill(sp *node, theme map[string]string) *ppt.Fill {
 					c = colorValue(stop.child("schemeClr"), theme)
 				}
 				if c != "" {
-					out.Stops = append(out.Stops, ppt.GradientStop{Position: num(stop.attr("pos")) / 1000, Color: ppt.Color{Type: "css", RGB: c}})
+					out.Stops = append(out.Stops, ppt.GradientStop{Position: num(stop.attr("pos")) / 1000, Color: *parsedColor(c)})
 				}
 			}
 		}
 		return &ppt.Fill{Type: "gradient", Gradient: out}
 	}
 	return nil
+}
+
+func parsedColor(c string) *ppt.Color {
+	out := &ppt.Color{Type: "css", RGB: c}
+	x := strings.TrimPrefix(strings.TrimSpace(c), "rgba(")
+	if x != c {
+		x = strings.TrimSuffix(x, ")")
+		p := strings.Split(x, ",")
+		if len(p) == 4 {
+			var r, g, b int
+			if _, e := fmt.Sscanf(strings.TrimSpace(p[0]), "%d", &r); e == nil {
+				_, e = fmt.Sscanf(strings.TrimSpace(p[1]), "%d", &g)
+				if e == nil {
+					_, e = fmt.Sscanf(strings.TrimSpace(p[2]), "%d", &b)
+				}
+				if a, ae := strconv.ParseFloat(strings.TrimSpace(p[3]), 64); e == nil && ae == nil {
+					out.Alpha = a
+					out.RGB = fmt.Sprintf("#%02X%02X%02X", r, g, b)
+				}
+			}
+		}
+	}
+	return out
 }
 func lineStyle(n *node, theme map[string]string) string {
 	if n == nil {
@@ -477,7 +500,7 @@ func structuredLine(sp *node, theme map[string]string) *ppt.Line {
 	if d := ln.child("prstDash"); d != nil {
 		dash = d.attr("val")
 	}
-	return &ppt.Line{Width: w, Color: &ppt.Color{Type: "css", RGB: c}, Dash: dash, BeginArrow: ln.child("headEnd").attr("type"), EndArrow: ln.child("tailEnd").attr("type")}
+	return &ppt.Line{Width: w, Color: parsedColor(c), Dash: dash, BeginArrow: ln.child("headEnd").attr("type"), EndArrow: ln.child("tailEnd").attr("type")}
 }
 
 func structuredText(st map[string]any) *ppt.TextStyle {

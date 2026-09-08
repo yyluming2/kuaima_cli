@@ -67,7 +67,18 @@ PPT 编辑器、PPTX 导入和 PPTX 导出共用这一份 JSON 数据模型。�
 
 支持的 `type`：`text`、`image`、`shape`、`table`、`chart`。
 
-图片使用 `assetUrl`；形状可在 `style.shape` 中使用 `rect`、`roundrect`、`ellipse`、`triangle`、`diamond` 等值。表格和图表的具体数据暂放在 `content`，后续可扩展为结构化字段而不改变元素外壳。
+图片使用 `assetUrl`；形状可在 `style.shape` 中使用 `rect`、`roundrect`、`ellipse`、`triangle`、`diamond`、`hexagon`、`pentagon`、`parallelogram`、`righttriangle`、`rightarrow`、`leftarrow`、`uparrow`、`downarrow`、`star5`、`heart`、`line`。未识别的形状按 `rect` 处理。表格和图表的具体数据暂放在 `content`，后续可扩展为结构化字段而不改变元素外壳。
+
+### 导出样式字段
+
+`style` 中以下字段由 PPTX 导出器直接读取：
+
+- 填充：`background` 或 `fill`。支持十六进制颜色、颜色名、`rgba(r,g,b,a)`、`transparent`/`none`。
+- 边框：推荐使用 CSS 字符串 `border: "1px solid #CBD5E1"`；也接受对象 `{ "width": 1, "color": "#CBD5E1", "style": "solid" }`。`style` 可取 `solid`、`dashed`/`dash`、`dotted`/`dot`、`none`。
+- 透明度：元素级 `opacity` 和颜色中的 alpha 通道都会被导出，取值范围为 `0`（完全透明）到 `1`（完全不透明）。
+- 形状变换：`rotation`（角度）。`flipH`、`flipV` 目前保留在模型中供编辑器使用。
+
+PPTX 仅支持 DrawingML 原生填充。CSS 渐变在导出时使用首个渐变色作为兼容回退；编辑器中的渐变信息仍保留在模型中。
 
 ## 富文本
 
@@ -97,5 +108,6 @@ PPT 编辑器、PPTX 导入和 PPTX 导出共用这一份 JSON 数据模型。�
 - 每页和每个元素必须有唯一 `id`；元素必须有 `type`。
 - `width`、`height` 不得为负数。
 - 颜色使用十六进制 CSS 格式（如 `#2563EB`）或完整 CSS 颜色。
+- 颜色透明度推荐使用 `rgba(...)` 或元素级 `opacity`；结构化 `fill.color.alpha` 取 `0` 到 `1`。
+- `style.border` 的宽度单位为逻辑像素；导出时会换算为 PPT 磅值。
 - 文本的 `content` 与 `textRuns` 拼接结果应保持一致。
-

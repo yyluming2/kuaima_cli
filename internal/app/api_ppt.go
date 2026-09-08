@@ -18,6 +18,126 @@ import (
 	"strings"
 )
 
+func styleString(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+func styleColor(m map[string]any, key string) string {
+	if v := styleString(m, key); v != "" {
+		return v
+	}
+	if m != nil {
+		if o, ok := m[key].(map[string]any); ok {
+			if c, ok := o["color"].(string); ok {
+				return c
+			}
+			if c, ok := o["rgb"].(string); ok {
+				return c
+			}
+		}
+	}
+	return ""
+}
+func styleFloat(m map[string]any, key string) (float64, bool) {
+	if m == nil {
+		return 0, false
+	}
+	switch v := m[key].(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case json.Number:
+		n, err := v.Float64()
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+func styleBool(m map[string]any, key string) bool { v, _ := m[key].(bool); return v }
+func colorFrom(c *ppt.Color) string {
+	if c == nil {
+		return ""
+	}
+	if c.RGB != "" {
+		return c.RGB
+	}
+	return ""
+}
+func cssColor(v string) (string, float64) {
+	v = strings.TrimSpace(v)
+	if strings.Contains(strings.ToLower(v), "gradient(") { // genppt solid-fill fallback: retain the first stop color
+		if i := strings.Index(v, "#"); i >= 0 {
+			end := i + 1
+			for end < len(v) && strings.ContainsRune("0123456789abcdefABCDEF", rune(v[end])) {
+				end++
+			}
+			return v[i:end], 0
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(v), "rgba(") {
+		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(v[5:], "("), ")"), ",")
+		if len(parts) == 4 {
+			var r, g, b int
+			var a float64
+			if _, err := fmt.Sscanf(strings.TrimSpace(parts[0]), "%d", &r); err == nil {
+				_, err = fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &g)
+				if err == nil {
+					_, err = fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &b)
+				}
+				if err == nil {
+					_, err = fmt.Sscanf(strings.TrimSpace(parts[3]), "%f", &a)
+				}
+				if err == nil {
+					return fmt.Sprintf("#%02X%02X%02X", r, g, b), (1 - a) * 100
+				}
+			}
+		}
+	}
+	return v, 0
+}
+func borderStyleValue(v string) genppt.BorderStyle {
+	switch strings.ToLower(v) {
+	case "dash", "dashed":
+		return genppt.BorderDash
+	case "dot", "dotted":
+		return genppt.BorderDot
+	case "none":
+		return genppt.BorderNone
+	default:
+		return genppt.BorderSolid
+	}
+}
+func alignValue(v string) genppt.Align {
+	switch strings.ToLower(v) {
+	case "center", "ctr":
+		return genppt.AlignCenter
+	case "right", "r":
+		return genppt.AlignRight
+	case "justify", "just":
+		return genppt.AlignJustify
+	default:
+		return genppt.AlignLeft
+	}
+}
+func valignValue(v string) genppt.VerticalAlign {
+	switch strings.ToLower(v) {
+	case "middle", "center", "ctr":
+		return genppt.VAlignMiddle
+	case "bottom", "b":
+		return genppt.VAlignBottom
+	default:
+		return genppt.VAlignTop
+	}
+}
+
 // cropImageData applies the editor's normalized crop values to the bitmap
 // before handing it to genppt. genppt writes an image into a shape but does
 // not expose DrawingML srcRect/crop support, so cropping the source pixels is
@@ -246,92 +366,190 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
-	p := genppt.New().SetTitle(model.Title).SetSlideSize16x9()
+	p := genppt.New().SetTitle(model.Title)
+	if model.Width > 0 && model.Height > 0 {
+		p.SetSlideSize(model.Width/ppt.LogicalDPI, model.Height/ppt.LogicalDPI)
+	} else {
+		p.SetSlideSize16x9()
+	}
 	for _, sld := range model.Slides {
 		sl := p.AddSlide()
+		if model.Theme.Background != "" {
+			sl.SetBackground(genppt.BackgroundOptions{Color: model.Theme.Background})
+		}
 		for _, e := range sld.Elements {
 			opts := genppt.ShapeOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
 			if e.Style != nil {
-				if v, ok := e.Style["fill"].(string); ok {
-					opts.Fill = v
-				}
+				opts.Fill = styleColor(e.Style, "fill")
 				if opts.Fill == "" {
-					if v, ok := e.Style["background"].(string); ok && v != "transparent" {
+					v := styleString(e.Style, "background")
+					if strings.EqualFold(v, "transparent") || strings.EqualFold(v, "none") {
+						opts.Fill = "transparent"
+					} else if v != "" {
 						opts.Fill = v
 					}
 				}
-				if v, ok := e.Style["lineColor"].(string); ok {
-					opts.LineColor = v
+				opts.LineColor = styleColor(e.Style, "lineColor")
+				if v, ok := styleFloat(e.Style, "lineWidth"); ok {
+					opts.LineWidth = v * 72 / ppt.LogicalDPI
 				}
-				if v, ok := e.Style["opacity"].(float64); ok {
+				if b := styleString(e.Style, "border"); b != "" {
+					parts := strings.Fields(b)
+					if len(parts) > 0 {
+						var n float64
+						if _, err := fmt.Sscanf(parts[0], "%fpx", &n); err == nil {
+							opts.LineWidth = n * 72 / ppt.LogicalDPI
+						}
+					}
+					for _, part := range parts[1:] {
+						if strings.HasPrefix(part, "#") {
+							opts.LineColor = part
+						} else {
+							opts.LineStyle = borderStyleValue(part)
+						}
+					}
+				}
+				if e.Style != nil {
+					if bo, ok := e.Style["border"].(map[string]any); ok {
+						if c, ok := bo["color"].(string); ok {
+							opts.LineColor = c
+						}
+						if w, ok := styleFloat(bo, "width"); ok {
+							opts.LineWidth = w * 72 / ppt.LogicalDPI
+						}
+						if d, ok := bo["style"].(string); ok {
+							opts.LineStyle = borderStyleValue(d)
+						}
+					}
+				}
+				if v, ok := styleFloat(e.Style, "rotation"); ok {
+					opts.Rotate = v
+				}
+				if v, ok := styleFloat(e.Style, "opacity"); ok {
 					opts.Transparency = (1 - v) * 100
 				}
 			}
+			if opts.Fill == "" && e.Fill != nil && e.Fill.Type == "solid" {
+				opts.Fill = colorFrom(e.Fill.Color)
+				if e.Fill.Color != nil && e.Fill.Color.Alpha > 0 && e.Fill.Color.Alpha < 1 {
+					opts.Transparency = (1 - e.Fill.Color.Alpha) * 100
+				}
+			}
+			if opts.Fill == "" && e.Fill != nil && e.Fill.Type == "none" {
+				opts.Fill = "transparent"
+			}
+			if c, alpha := cssColor(opts.LineColor); c != opts.LineColor {
+				opts.LineColor = c
+				if alpha > 0 && opts.Transparency == 0 {
+					opts.Transparency = alpha
+				}
+			}
+			if c, alpha := cssColor(opts.Fill); c != opts.Fill {
+				opts.Fill, opts.Transparency = c, alpha
+			}
+			if strings.EqualFold(opts.Fill, "transparent") || strings.EqualFold(opts.Fill, "none") {
+				opts.Fill = "transparent"
+			}
+			if opts.LineColor == "" && e.Line != nil {
+				opts.LineColor = colorFrom(e.Line.Color)
+				opts.LineWidth = e.Line.Width * 72 / ppt.LogicalDPI
+				opts.LineStyle = borderStyleValue(e.Line.Dash)
+			}
+			if opts.Rotate == 0 {
+				opts.Rotate = e.Rotation
+			}
+			if e.Opacity > 0 && e.Opacity < 1 && opts.Transparency == 0 {
+				opts.Transparency = (1 - e.Opacity) * 100
+			}
+			if e.Effects != nil && e.Effects.Shadow != "" {
+				opts.Shadow = true
+			}
 			if e.Type == "text" {
 				o := genppt.TextOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
-				if v, ok := e.Style["fontSize"].(float64); ok {
+				if v, ok := styleFloat(e.Style, "fontSize"); ok {
 					// genppt expects points; the editor model uses 128 logical px/in.
 					o.FontSize = v * 72 / ppt.LogicalDPI
 				}
-				if v, ok := e.Style["color"].(string); ok {
-					o.FontColor = v
+				o.FontColor = styleString(e.Style, "color")
+				if o.FontColor == "" {
+					o.FontColor = model.Theme.Foreground
 				}
-				if v, ok := e.Style["fontWeight"].(float64); ok {
+				if v, ok := styleFloat(e.Style, "fontWeight"); ok {
 					o.Bold = v >= 600
 				}
-				if v, ok := e.Style["bold"].(bool); ok {
-					o.Bold = v
+				o.Bold = o.Bold || styleBool(e.Style, "bold")
+				o.Italic = styleBool(e.Style, "italic")
+				o.Underline = styleBool(e.Style, "underline")
+				o.FontFace = styleString(e.Style, "fontFamily")
+				o.Rotate = opts.Rotate
+				if v, ok := styleFloat(e.Style, "lineHeight"); ok {
+					o.LineSpacing = v
 				}
-				if v, ok := e.Style["italic"].(bool); ok {
-					o.Italic = v
+				if v, ok := styleFloat(e.Style, "letterSpacing"); ok {
+					o.CharSpacing = v * 72 / ppt.LogicalDPI
 				}
-				if v, ok := e.Style["underline"].(bool); ok {
-					o.Underline = v
+				o.Align = alignValue(styleString(e.Style, "align"))
+				o.VAlign = valignValue(styleString(e.Style, "verticalAlign"))
+				if e.Text != nil {
+					if o.FontFace == "" {
+						o.FontFace = e.Text.FontFamily
+					}
+					if o.FontSize == 0 {
+						o.FontSize = e.Text.FontSize * 72 / ppt.LogicalDPI
+					}
+					o.Bold = o.Bold || e.Text.Bold
+					o.Italic = o.Italic || e.Text.Italic
+					o.Underline = o.Underline || e.Text.Underline
+					if styleString(e.Style, "align") == "" {
+						o.Align = alignValue(e.Text.Align)
+					}
+					if styleString(e.Style, "verticalAlign") == "" {
+						o.VAlign = valignValue(e.Text.VerticalAlign)
+					}
+					if o.LineSpacing == 0 {
+						o.LineSpacing = e.Text.LineHeight
+					}
 				}
-				if v, ok := e.Style["fontFamily"].(string); ok {
-					o.FontFace = v
+				if v := styleString(e.Style, "background"); v != "" && v != "transparent" {
+					o.Fill, _ = cssColor(v)
 				}
-				if v, ok := e.Style["rotation"].(float64); ok {
-					o.Rotate = v
-				}
-				if v, ok := e.Style["background"].(string); ok && v != "transparent" {
-					o.Fill = v
+				if o.Fill == "" && opts.Fill != "" && !strings.EqualFold(opts.Fill, "transparent") && !strings.EqualFold(opts.Fill, "none") {
+					o.Fill = opts.Fill
 				}
 				if len(e.TextRuns) > 0 {
 					runs := make([]genppt.RichTextRun, 0, len(e.TextRuns))
 					paraAlign := map[int]string{}
+					paraLine := map[int]float64{}
 					for i, pinfo := range e.TextParagraphs {
 						paraAlign[i] = pinfo.Align
+						paraLine[i] = pinfo.LineHeight
 					}
 					if a := paraAlign[e.TextRuns[0].Paragraph]; a != "" {
-						o.Align = genppt.Align(a)
+						o.Align = alignValue(a)
 					}
 					for _, run := range e.TextRuns {
 						r := genppt.RichTextRun{Text: run.Content, Options: o, Paragraph: run.Paragraph}
 						if a := paraAlign[run.Paragraph]; a != "" {
-							r.Options.Align = genppt.Align(a)
+							r.Options.Align = alignValue(a)
 						}
-						if v, ok := run.Style["fontSize"].(float64); ok {
+						if paraLine[run.Paragraph] > 0 {
+							r.Options.LineSpacing = paraLine[run.Paragraph]
+						}
+						if v, ok := styleFloat(run.Style, "fontSize"); ok {
 							r.Options.FontSize = v * 72 / ppt.LogicalDPI
 						}
-						if v, ok := run.Style["fontColor"].(string); ok {
+						if v := styleString(run.Style, "fontColor"); v != "" {
 							r.Options.FontColor = v
 						}
-						if v, ok := run.Style["color"].(string); ok {
+						if v := styleString(run.Style, "color"); v != "" {
 							r.Options.FontColor = v
 						}
-						if v, ok := run.Style["fontFamily"].(string); ok {
+						if v := styleString(run.Style, "fontFamily"); v != "" {
 							r.Options.FontFace = v
 						}
-						if v, ok := run.Style["bold"].(bool); ok {
-							r.Options.Bold = v
-						}
-						if v, ok := run.Style["italic"].(bool); ok {
-							r.Options.Italic = v
-						}
-						if v, ok := run.Style["underline"].(bool); ok {
-							r.Options.Underline = v
-						}
+						r.Options.Bold = r.Options.Bold || styleBool(run.Style, "bold")
+						r.Options.Italic = r.Options.Italic || styleBool(run.Style, "italic")
+						r.Options.Underline = r.Options.Underline || styleBool(run.Style, "underline")
 						runs = append(runs, r)
 					}
 					sl.AddRichText(runs, o)
@@ -340,8 +558,12 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				}
 			} else if e.Type == "shape" {
 				shape := genppt.ShapeRect
-				if v, ok := e.Style["shape"].(string); ok {
-					switch strings.ToLower(v) {
+				shapeName := styleString(e.Style, "shape")
+				if shapeName == "" && e.Geometry != nil {
+					shapeName = e.Geometry.Preset
+				}
+				if shapeName != "" {
+					switch strings.ToLower(shapeName) {
 					case "ellipse", "oval":
 						shape = genppt.ShapeEllipse
 					case "roundrect":
@@ -354,6 +576,24 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 						shape = genppt.ShapeArrowRight
 					case "leftarrow":
 						shape = genppt.ShapeArrowLeft
+					case "uparrow":
+						shape = genppt.ShapeArrowUp
+					case "downarrow":
+						shape = genppt.ShapeArrowDown
+					case "star5":
+						shape = genppt.ShapeStar5
+					case "heart":
+						shape = genppt.ShapeHeart
+					case "hexagon":
+						shape = genppt.ShapeHexagon
+					case "pentagon":
+						shape = genppt.ShapePentagon
+					case "parallelogram":
+						shape = genppt.ShapeParallelogram
+					case "righttriangle", "rttriangle":
+						shape = genppt.ShapeRightTriangle
+					case "line":
+						shape = genppt.ShapeLine
 					}
 				}
 				sl.AddShape(shape, opts)
@@ -366,7 +606,17 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					}
 					rows = append(rows, row)
 				}
-				sl.AddTable(rows, genppt.TableOptions{X: opts.X, Y: opts.Y, Width: opts.Width})
+				if strings.EqualFold(opts.Fill, "transparent") || strings.EqualFold(opts.Fill, "none") {
+					opts.Fill = ""
+				}
+				to := genppt.TableOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Fill: opts.Fill, FontColor: styleString(e.Style, "color"), Border: genppt.Border{Color: opts.LineColor, Width: opts.LineWidth}}
+				if v, ok := styleFloat(e.Style, "fontSize"); ok {
+					to.FontSize = v * 72 / ppt.LogicalDPI
+				}
+				to.FontFace = styleString(e.Style, "fontFamily")
+				to.FirstRowBold = styleBool(e.Style, "firstRowBold")
+				to.FirstRowFill = styleString(e.Style, "firstRowFill")
+				sl.AddTable(rows, to)
 			} else if e.Type == "image" && e.AssetURL != "" {
 				if i := strings.Index(e.AssetURL, ","); i >= 0 {
 					if data, err := base64.StdEncoding.DecodeString(e.AssetURL[i+1:]); err == nil {
@@ -379,7 +629,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 						if bytes.Equal(original, data) {
 							x, y, w, h = fitImageBox(data, x, y, w, h)
 						}
-						sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data})
+						sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data, Rotate: e.Rotation})
 					}
 				}
 			}
