@@ -57,8 +57,19 @@ type Element struct {
 	Line     *Line      `json:"line,omitempty"`
 	Effects  *Effects   `json:"effects,omitempty"`
 	Text     *TextStyle `json:"textStyle,omitempty"`
-	FlipH    bool       `json:"flipH,omitempty"`
-	FlipV    bool       `json:"flipV,omitempty"`
+	// TextRuns preserves character-level formatting from DrawingML text
+	// bodies.  Content/Style remain the element-level compatibility fields;
+	// runs contain only the formatting that applies to each text fragment.
+	TextRuns []TextRun `json:"textRuns,omitempty"`
+	FlipH    bool      `json:"flipH,omitempty"`
+	FlipV    bool      `json:"flipV,omitempty"`
+}
+
+// TextRun is a contiguous piece of text with its own formatting.  A PPTX
+// paragraph may contain several a:r elements, each with different rPr.
+type TextRun struct {
+	Content string         `json:"content"`
+	Style   map[string]any `json:"style,omitempty"`
 }
 
 type Geometry struct {

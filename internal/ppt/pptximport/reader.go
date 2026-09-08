@@ -578,11 +578,14 @@ func shadowStyle(n *node, theme map[string]string) string {
 	return fmt.Sprintf("%.1fpx %.1fpx %.1fpx %s", ox, oy, blur, c)
 }
 func runStyle(r, p *node, theme map[string]string) map[string]any {
-	st := map[string]any{}
 	q := r.child("rPr")
 	if q == nil {
 		q = p.child("endParaRPr")
 	}
+	return rPrStyle(q, theme)
+}
+func rPrStyle(q *node, theme map[string]string) map[string]any {
+	st := map[string]any{}
 	if q == nil {
 		return st
 	}
@@ -608,12 +611,13 @@ func runStyle(r, p *node, theme map[string]string) map[string]any {
 	}
 	return st
 }
-func textBody(n *node, theme map[string]string) (string, map[string]any) {
+func textBody(n *node, theme map[string]string) (string, map[string]any, []ppt.TextRun) {
 	tb := n.child("txBody")
 	if tb == nil {
-		return "", nil
+		return "", nil, nil
 	}
 	var ls []string
+	var runs []ppt.TextRun
 	st := map[string]any{}
 	if bp := tb.child("bodyPr"); bp != nil {
 		if v := bp.attr("anchor"); v != "" {
@@ -625,9 +629,13 @@ func textBody(n *node, theme map[string]string) (string, map[string]any) {
 			}
 		}
 	}
-	for _, p := range tb.children("p") {
+	for pi, p := range tb.children("p") {
+		if pi > 0 {
+			runs = append(runs, ppt.TextRun{Content: "\n"})
+		}
 		var b strings.Builder
-		if pp := p.child("pPr"); pp != nil {
+		pp := p.child("pPr")
+		if pp != nil {
 			if a := pp.attr("algn"); a != "" {
 				st["align"] = a
 			}
@@ -647,18 +655,34 @@ func textBody(n *node, theme map[string]string) (string, map[string]any) {
 			}
 		}
 		for _, r := range p.children("r") {
+			var text string
 			if t := r.child("t"); t != nil {
-				b.WriteString(t.Text)
+				text = t.Text
+				b.WriteString(text)
 			}
-			for k, v := range runStyle(r, p, theme) {
-				if _, ok := st[k]; !ok {
-					st[k] = v
+			rstyle := runStyle(r, p, theme)
+			// A run inherits paragraph defaults unless it overrides them in
+			// its own rPr.  Store the effective style on the run so consumers
+			// do not need to reconstruct DrawingML inheritance.
+			if pp != nil {
+				if dr := pp.child("defRPr"); dr != nil {
+					defaults := rPrStyle(dr, theme)
+					for k, v := range rstyle {
+						defaults[k] = v
+					}
+					rstyle = defaults
 				}
+			}
+			if text != "" {
+				// Keep each a:r's formatting instead of folding it into the
+				// first run's element style.  The latter is retained below as
+				// the default/inherited style for compatibility.
+				runs = append(runs, ppt.TextRun{Content: text, Style: rstyle})
 			}
 		}
 		ls = append(ls, b.String())
 	}
-	return strings.Join(ls, "\n"), st
+	return strings.Join(ls, "\n"), st, runs
 }
 
 type importer struct {
@@ -749,7 +773,7 @@ func (im *importer) walk(n *node, c ctx) {
 			}
 			return
 		}
-		content, style := textBody(n, im.theme)
+		content, style, textRuns := textBody(n, im.theme)
 		typ := "shape"
 		if n.Name == "cxnSp" {
 			typ = "line"
@@ -807,7 +831,7 @@ func (im *importer) walk(n *node, c ctx) {
 		if n.Name == "cxnSp" && geom == nil {
 			geom = &ppt.Geometry{Type: "line"}
 		}
-		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH, FlipV: t.flipV})
+		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, TextRuns: textRuns, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH, FlipV: t.flipV})
 		im.zorder++
 	}
 }
