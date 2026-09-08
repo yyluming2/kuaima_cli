@@ -93,7 +93,11 @@ func (n *node) children(k string) []*node {
 	}
 	return o
 }
-func emu(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v / 914400 * 96 }
+
+// The editor canvas uses a 128 logical-pixel-per-inch coordinate system
+// (1280x720 for the default 10x5.625 inch 16:9 slide). Keep all EMU
+// conversions on that scale so imported geometry matches the canvas.
+func emu(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v / 914400 * ppt.LogicalDPI }
 func num(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
 
 type xf struct {
@@ -583,7 +587,9 @@ func runStyle(r, p *node, theme map[string]string) map[string]any {
 		return st
 	}
 	if z := q.attr("sz"); z != "" {
-		st["fontSize"] = num(z) / 100
+		// OOXML stores font size in hundredths of a point. The editor model
+		// stores CSS-like logical pixels, so convert points using the model DPI.
+		st["fontSize"] = (num(z) / 100) * ppt.LogicalDPI / 72
 	}
 	if q.attr("b") == "1" {
 		st["bold"] = true
@@ -842,8 +848,8 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 				} `xml:"sldSz"`
 			}
 			if xml.Unmarshal(d, &v) == nil && v.S.Cx > 0 {
-				p.Width = float64(v.S.Cx) / 914400 * 96
-				p.Height = float64(v.S.Cy) / 914400 * 96
+				p.Width = float64(v.S.Cx) / 914400 * ppt.LogicalDPI
+				p.Height = float64(v.S.Cy) / 914400 * ppt.LogicalDPI
 			}
 			if root, er := parseTree(d); er == nil {
 				if ids := root.child("sldIdLst"); ids != nil {

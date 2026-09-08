@@ -172,7 +172,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 	for _, sld := range model.Slides {
 		sl := p.AddSlide()
 		for _, e := range sld.Elements {
-			opts := genppt.ShapeOptions{X: e.X / 128, Y: e.Y / 128, Width: e.Width / 128, Height: e.Height / 128}
+			opts := genppt.ShapeOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
 			if e.Style != nil {
 				if v, ok := e.Style["fill"].(string); ok {
 					opts.Fill = v
@@ -190,9 +190,10 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if e.Type == "text" {
-				o := genppt.TextOptions{X: e.X / 128, Y: e.Y / 128, Width: e.Width / 128, Height: e.Height / 128}
+				o := genppt.TextOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
 				if v, ok := e.Style["fontSize"].(float64); ok {
-					o.FontSize = v
+					// genppt expects points; the editor model uses 128 logical px/in.
+					o.FontSize = v * 72 / ppt.LogicalDPI
 				}
 				if v, ok := e.Style["color"].(string); ok {
 					o.FontColor = v
@@ -251,7 +252,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			} else if e.Type == "image" && e.AssetURL != "" {
 				if i := strings.Index(e.AssetURL, ","); i >= 0 {
 					if data, err := base64.StdEncoding.DecodeString(e.AssetURL[i+1:]); err == nil {
-						x, y, w, h := fitImageBox(data, e.X/128, e.Y/128, e.Width/128, e.Height/128)
+						x, y, w, h := fitImageBox(data, e.X/ppt.LogicalDPI, e.Y/ppt.LogicalDPI, e.Width/ppt.LogicalDPI, e.Height/ppt.LogicalDPI)
 						sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data})
 					}
 				}

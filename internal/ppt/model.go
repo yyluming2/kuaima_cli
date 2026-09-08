@@ -7,10 +7,14 @@ import (
 	"strings"
 )
 
+// LogicalDPI is the presentation editor's coordinate scale. A default 10 x
+// 5.625 inch slide is represented as 1280 x 720 logical pixels.
+const LogicalDPI = 128.0
+
 type Presentation struct {
 	ID     string  `json:"id,omitempty"`
 	Title  string  `json:"title"`
-	Width  float64 `json:"width"` // logical pixels; 16:9 defaults to 1280x720
+	Width  float64 `json:"width"` // logical pixels at LogicalDPI; defaults to 1280x720
 	Height float64 `json:"height"`
 	Theme  Theme   `json:"theme"`
 	Slides []Slide `json:"slides"`
