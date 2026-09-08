@@ -1,6 +1,13 @@
 (() => {
   "use strict";
-  const { useState, useEffect, useRef } = React, h = React.createElement, W = 1280, H = 720, names = { text: "文本", shape: "形状", table: "表格", chart: "图表", image: "图片" }, defaults = { fontSize: 24, fontFamily: "Microsoft YaHei", bold: false, italic: false, underline: false, color: "#111827", background: "transparent" };
+  const { useState, useEffect, useRef } = React, h = React.createElement, names = { text: "文本", shape: "形状", table: "表格", chart: "图表", image: "图片" }, defaults = { fontSize: 24, fontFamily: "Microsoft YaHei", bold: false, italic: false, underline: false, color: "#111827", background: "transparent", lineHeight: 1.2, letterSpacing: 0 }, shapeClip = s => ({ ellipse: "ellipse(50% 50% at 50% 50%)", oval: "ellipse(50% 50% at 50% 50%)", triangle: "polygon(50% 0%,100% 100%,0% 100%)", diamond: "polygon(50% 0%,100% 50%,50% 100%,0% 50%)", hexagon: "polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)", pentagon: "polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%)", parallelogram: "polygon(20% 0%,100% 0%,80% 100%,0% 100%)", righttriangle: "polygon(0 0,100% 100%,0 100%)", rttriangle: "polygon(0 0,100% 100%,0 100%)" }[String(s || "").toLowerCase()]);
+  const boxStyle = (st = {}) => ({ border: st.border ? (typeof st.border === "string" ? st.border : `${st.border.width || 1}px solid ${st.border.color || "#64748b"}`) : undefined, boxShadow: st.shadow || undefined });
+  const fillStyle = v => !v ? {} : (String(v).includes("gradient") ? { backgroundImage: v, backgroundColor: "transparent" } : { backgroundColor: v });
+  const shapeStyle = (s, st = {}) => { const k = String(s || "").toLowerCase(); if (k === "donut") return { maskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)", WebkitMaskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)" }; if (k === "roundrect") return { borderRadius: `${Math.max(0, Math.min(50, Number(st.radius) || 12))}%` }; return { clipPath: shapeClip(s) }; };
+  // OOXML srcRect values are thousandths of a percent.  Expand the image
+  // inside its clipped frame so the requested crop is visible in the editor.
+  const imageCropStyle = (style = {}) => { const c = style.crop || {}, l = Math.max(0, Math.min(0.99, Number(c.left) || 0)), t = Math.max(0, Math.min(0.99, Number(c.top) || 0)), r = Math.max(0, Math.min(0.99 - l, Number(c.right) || 0)), b = Math.max(0, Math.min(0.99 - t, Number(c.bottom) || 0)), iw = 100 / (1 - l - r), ih = 100 / (1 - t - b); return { position: "absolute", maxWidth: "none", width: iw + "%", height: ih + "%", left: (-l * iw) + "%", top: (-t * ih) + "%", objectFit: "fill" }; };
+  const elementTransform = e => e.rotation ? `rotate(${Number(e.rotation) || 0}deg)` : undefined;
   const api = async (url, o) => {
     const r = await fetch(url, o);
     if (!r.ok) throw Error("请求失败（" + r.status + "）");
@@ -12,6 +19,7 @@
       if (e) fn(e);
       return n
     });
+    const W = Number(deck?.width) || 1280, H = Number(deck?.height) || 720;
     useEffect(() => {
       if (!editing || !editRef.current) return;
       editRef.current.focus();
@@ -65,14 +73,13 @@
       });
       setSelected(null)
     };
-    const openDeck = () => openFileInput.current?.click();
+    const openDeck = () => { if (openFileInput.current) { openFileInput.current.accept = ".json,.pptx"; openFileInput.current.click(); } };
     const loadDeckFile = ev => {
       const file = ev.target.files?.[0]; ev.target.value = "";
       if (!file) return;
-      if (!file.name.toLowerCase().endsWith(".json")) { alert("当前仅支持打开 PPT 工作台 JSON 文件；二进制 .pptx 导入暂未支持。"); return; }
       const reader = new FileReader();
-      reader.onload = () => { try { const value = JSON.parse(reader.result); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(value); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
-      reader.readAsText(file);
+      reader.onload = async () => { try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(value); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
+      reader.readAsArrayBuffer(file);
     };
     useEffect(() => {
       const onKeyDown = ev => {
@@ -154,10 +161,10 @@
         setSlide(i);
         setSelected(null)
       }
-      }, h("div", { className: "thumb-preview" }, (s.elements || []).map(e => { const ts = { ...defaults, ...(e.style || {}) }; return h("div", { key: e.id, className: "thumb-el", style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", background: e.type === "shape" ? (ts.background || "#dbeafe") : "transparent", color: ts.color || "#172033", fontSize: Math.max(8, (Number(ts.fontSize) || 24) * 0.18), fontWeight: ts.bold ? "bold" : "normal", fontStyle: ts.italic ? "italic" : "normal", textDecoration: ts.underline ? "underline" : "none" } }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "" }) : e.type === "image" ? icon("image") : (e.content || "")); })), h("span", { className: "thumb-label" }, `第${i + 1}页`)))), h("div", { className: "canvas", onClick: () => setSelected(null) }, elements.map(e => {
+      }, h("div", { className: "thumb-preview" }, [...(s.elements || [])].sort((a,b) => (Number(a.zIndex)||0) - (Number(b.zIndex)||0)).map(e => { const ts = { ...defaults, ...(e.style || {}) }; return h("div", { key: e.id, className: "thumb-el", style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: ts.opacity ?? e.opacity ?? 1, ...fillStyle(ts.background || (e.type === "shape" ? "#dbeafe" : "transparent")), ...shapeStyle(ts.shape, ts), color: ts.color || "#172033", fontSize: Math.max(8, (Number(ts.fontSize) || 24) * 0.18), lineHeight: ts.lineHeight || 1.2, letterSpacing: ts.letterSpacing ? (Number(ts.letterSpacing) * .18) + "px" : undefined, fontWeight: ts.bold ? "bold" : "normal", fontStyle: ts.italic ? "italic" : "normal", textDecoration: ts.underline ? "underline" : "none", transform: elementTransform(e), transformOrigin: "center", ...boxStyle(ts) } }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "", style: { ...imageCropStyle(ts), ...boxStyle(ts) } }) : e.type === "image" ? icon("image") : (e.content || "")); })), h("span", { className: "thumb-label" }, `第${i + 1}页`)))), h("div", { className: "canvas", style: { width: W + "px", height: H + "px" }, onClick: () => setSelected(null) }, [...elements].sort((a,b) => (Number(a.zIndex)||0) - (Number(b.zIndex)||0)).map(e => {
       const st = { ...defaults, ...e.style }, bold = st.bold || Number(st.fontWeight) >= 600, isEditing = editing === e.id;
       return h("div", {
-        key: e.id, className: "el " + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
+        key: e.id, className: "el " + (e.type === "image" ? "image-el " : "") + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
           ev.stopPropagation();
           setSelected(e.id)
         }, onDoubleClick: ev => {
@@ -169,8 +176,8 @@
             setSelected(e.id);
             drag.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement }
           }
-        }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", fontSize: st.fontSize, fontFamily: st.fontFamily, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, background: st.background }
-      }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片" }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const content = node ? node.textContent || "" : e.content || ""; update(x => x.content = content); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") setEditing(null) } }, e.content || "") : e.content || "", e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
+        }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, lineHeight: st.lineHeight || 1.2, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, ...fillStyle(st.background), ...shapeStyle(st.shape, st), zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center", ...boxStyle(st) }
+      }, e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片", style: imageCropStyle(st) }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const content = node ? node.textContent || "" : e.content || ""; update(x => x.content = content); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") setEditing(null) } }, e.content || "") : e.content || "", e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
         key: dir, className: "handle " + dir, onMouseDown: ev => {
           ev.stopPropagation();
           resize.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement }
@@ -195,8 +202,12 @@
         if (key in x) x[key] = type === "number" ? Number(e.target.value) : e.target.value;
         else x.style = { ...x.style, [key]: type === "number" ? Number(e.target.value) : e.target.value }
       })
-    })), toggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!st[key], onChange: e => onChange(x => x.style = { ...x.style, [key]: e.target.checked }) }), label);
-    return h("aside", { className: "side" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, names[element.type] || element.type), element.type === "image" && h("button", { className: "replace-image", type: "button", onClick: () => onReplaceImage?.(element.id) }, "替换图片"), element.type !== "image" && h("label", null, "内容", h("textarea", { value: element.content || "", onChange: e => onChange(x => x.content = e.target.value) })), h("section", { className: "geometry" }, field("X 位置", "x", "number"), field("Y 位置", "y", "number"), field("宽度", "width", "number"), field("高度", "height", "number")), element.type === "text" && h("section", null, field("字号", "fontSize", "number"), field("字体", "fontFamily"), field("文字颜色", "color", "color"), h("div", { className: "checks" }, toggle("加粗", "bold"), toggle("斜体", "italic"), toggle("下划线", "underline"))), (element.type === "shape" || element.type === "text") && field("背景色", "background", "color"), field("旋转角度", "rotation", "number"))
+    })), cropField = (label, key) => h("label", null, label, h("input", { type: "number", min: 0, max: 0.99, step: 0.01, value: Number(st.crop?.[key] || 0), onChange: e => onChange(x => x.style = { ...x.style, crop: { ...(x.style?.crop || {}), [key]: Number(e.target.value) } }) })), toggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!st[key], onChange: e => onChange(x => x.style = { ...x.style, [key]: e.target.checked }) }), label);
+    const hasShape = element.type === "shape" || !!st.shape, fillLabel = hasShape && element.type !== "text" ? "形状填充" : "文字填充";
+    return h("aside", { className: "side" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, names[element.type] || element.type, st.shapeName ? ` · ${st.shapeName}` : ""), hasShape && field("形状类型", "shape"), hasShape && field("形状名称", "shapeName"), String(st.shape || "").toLowerCase() === "roundrect" && field("圆角大小(%)", "radius", "number"), element.type === "image" && h("button", { className: "replace-image", type: "button", onClick: () => onReplaceImage?.(element.id) }, "替换图片"), element.type === "image" && h("section", { className: "geometry" }, cropField("裁剪左", "left"), cropField("裁剪上", "top"), cropField("裁剪右", "right"), cropField("裁剪下", "bottom")), element.type !== "image" && h("label", null, "内容", h("textarea", { value: element.content || "", onChange: e => onChange(x => x.content = e.target.value) })), h("section", { className: "geometry" }, field("X 位置", "x", "number"), field("Y 位置", "y", "number"), field("宽度", "width", "number"), field("高度", "height", "number")), field("对象透明度", "opacity", "number"), element.type === "text" && h("section", null, field("字号", "fontSize", "number"), field("字体", "fontFamily"), field("文字颜色", "color", "color"), field("行间距", "lineHeight", "number"), field("字间距", "letterSpacing", "number"), h("div", { className: "checks" }, toggle("加粗", "bold"), toggle("斜体", "italic"), toggle("下划线", "underline"))), (element.type === "shape" || element.type === "text") && field(fillLabel, "background"), h("section", { className: "geometry" }, field("边框", "border"), field("阴影", "shadow")), field("旋转角度", "rotation", "number"))
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
+
+
+

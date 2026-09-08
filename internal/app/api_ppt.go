@@ -7,7 +7,9 @@ import (
 	"fmt"
 	genppt "github.com/CoolBanHub/genppt"
 	"image"
+	"io"
 	"kuaima_cli/internal/ppt"
+	"kuaima_cli/internal/ppt/pptximport"
 	"net/http"
 	"strings"
 )
@@ -128,8 +130,20 @@ func (s *webUIServer) handlePPTXImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	// Accept a binary OOXML .pptx upload. Keep JSON support for callers that
+	// already have the editable presentation model.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 100<<20))
+	if err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
 	var p ppt.Presentation
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	if len(body) >= 2 && body[0] == 'P' && body[1] == 'K' {
+		p, err = pptximport.Read(bytes.NewReader(body), int64(len(body)))
+	} else {
+		err = json.Unmarshal(body, &p)
+	}
+	if err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
@@ -162,6 +176,11 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			if e.Style != nil {
 				if v, ok := e.Style["fill"].(string); ok {
 					opts.Fill = v
+				}
+				if opts.Fill == "" {
+					if v, ok := e.Style["background"].(string); ok && v != "transparent" {
+						opts.Fill = v
+					}
 				}
 				if v, ok := e.Style["lineColor"].(string); ok {
 					opts.LineColor = v
@@ -201,7 +220,24 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				}
 				sl.AddText(e.Content, o)
 			} else if e.Type == "shape" {
-				sl.AddShape(genppt.ShapeRect, opts)
+				shape := genppt.ShapeRect
+				if v, ok := e.Style["shape"].(string); ok {
+					switch strings.ToLower(v) {
+					case "ellipse", "oval":
+						shape = genppt.ShapeEllipse
+					case "roundrect":
+						shape = genppt.ShapeRoundRect
+					case "triangle":
+						shape = genppt.ShapeTriangle
+					case "diamond":
+						shape = genppt.ShapeDiamond
+					case "rightarrow":
+						shape = genppt.ShapeArrowRight
+					case "leftarrow":
+						shape = genppt.ShapeArrowLeft
+					}
+				}
+				sl.AddShape(shape, opts)
 			} else if e.Type == "table" {
 				var rows [][]genppt.TableCell
 				for _, line := range strings.Split(e.Content, "\n") {
