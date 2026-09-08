@@ -55,6 +55,9 @@ func parseTree(b []byte) (*node, error) {
 	return root, nil
 }
 func (n *node) attr(k string) string {
+	if n == nil {
+		return ""
+	}
 	for _, a := range n.Attr {
 		if a.Name.Local == k {
 			return a.Value
@@ -71,6 +74,9 @@ func (n *node) relID() string {
 	return ""
 }
 func (n *node) child(k string) *node {
+	if n == nil {
+		return nil
+	}
 	for _, c := range n.Kids {
 		if c.Name == k {
 			return c
@@ -90,7 +96,10 @@ func (n *node) children(k string) []*node {
 func emu(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v / 914400 * 96 }
 func num(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
 
-type xf struct{ x, y, w, h, rot float64 }
+type xf struct {
+	x, y, w, h, rot float64
+	flipH, flipV    bool
+}
 type ctx struct{ x, y, sx, sy, rot float64 }
 
 func readXF(n *node) xf {
@@ -101,7 +110,7 @@ func readXF(n *node) xf {
 	if o == nil || e == nil {
 		return xf{}
 	}
-	return xf{emu(o.attr("x")), emu(o.attr("y")), emu(e.attr("cx")), emu(e.attr("cy")), num(n.attr("rot")) / 60000}
+	return xf{emu(o.attr("x")), emu(o.attr("y")), emu(e.attr("cx")), emu(e.attr("cy")), num(n.attr("rot")) / 60000, n.attr("flipH") == "1", n.attr("flipV") == "1"}
 }
 func directXF(n *node) *node {
 	for _, c := range n.Kids {
@@ -240,6 +249,9 @@ func fillStyle(n *node) string {
 	if s := n.child("solidFill"); s != nil {
 		return colorValue(s)
 	}
+	if n.child("noFill") != nil {
+		return "transparent"
+	}
 	if g := n.child("gradFill"); g != nil {
 		var stops []string
 		if gs := g.child("gsLst"); gs != nil {
@@ -262,12 +274,109 @@ func fillStyle(n *node) string {
 	}
 	return ""
 }
+
+func presetGeometry(sp *node) *ppt.Geometry {
+	if sp == nil {
+		return nil
+	}
+	if g := sp.child("prstGeom"); g != nil {
+		p := g.attr("prst")
+		if p != "" {
+			typ := "preset"
+			switch strings.ToLower(p) {
+			case "rect":
+				typ = "rect"
+			case "roundrect":
+				typ = "roundRect"
+			case "ellipse", "oval":
+				typ = "ellipse"
+			}
+			return &ppt.Geometry{Type: typ, Preset: p}
+		}
+	}
+	if g := sp.child("custGeom"); g != nil {
+		if pg := g.child("pathLst"); pg != nil {
+			var d strings.Builder
+			for _, path := range pg.children("path") {
+				pw, ph := num(path.attr("w")), num(path.attr("h"))
+				if pw <= 0 {
+					pw = 1
+				}
+				if ph <= 0 {
+					ph = 1
+				}
+				scale := func(v string, max float64) string { return strconv.FormatFloat(num(v)/max*1000, 'f', 3, 64) }
+				for _, cmd := range path.Kids {
+					switch cmd.Name {
+					case "moveTo":
+						if pt := cmd.child("pt"); pt != nil {
+							d.WriteString("M " + scale(pt.attr("x"), pw) + " " + scale(pt.attr("y"), ph) + " ")
+						}
+					case "lnTo":
+						if pt := cmd.child("pt"); pt != nil {
+							d.WriteString("L " + scale(pt.attr("x"), pw) + " " + scale(pt.attr("y"), ph) + " ")
+						}
+					case "cubicBezTo":
+						pts := cmd.children("pt")
+						if len(pts) == 3 {
+							d.WriteString("C " + scale(pts[0].attr("x"), pw) + " " + scale(pts[0].attr("y"), ph) + " " + scale(pts[1].attr("x"), pw) + " " + scale(pts[1].attr("y"), ph) + " " + scale(pts[2].attr("x"), pw) + " " + scale(pts[2].attr("y"), ph) + " ")
+						}
+					case "close":
+						d.WriteString("Z ")
+					}
+				}
+			}
+			if d.Len() > 0 {
+				return &ppt.Geometry{Type: "custom", Path: strings.TrimSpace(d.String()), ViewBox: "0 0 1000 1000"}
+			}
+		}
+	}
+	return nil
+}
+
+func structuredFill(sp *node) *ppt.Fill {
+	if sp == nil {
+		return nil
+	}
+	if sf := sp.child("solidFill"); sf != nil {
+		c := colorValue(sf)
+		if c == "transparent" {
+			return &ppt.Fill{Type: "none"}
+		}
+		return &ppt.Fill{Type: "solid", Color: &ppt.Color{Type: "rgb", RGB: c}}
+	}
+	if sp.child("noFill") != nil {
+		return &ppt.Fill{Type: "none"}
+	}
+	if gf := sp.child("gradFill"); gf != nil {
+		out := &ppt.Gradient{Type: "linear", Angle: 135}
+		if gs := gf.child("gsLst"); gs != nil {
+			for _, stop := range gs.children("gs") {
+				var c string
+				if x := stop.child("srgbClr"); x != nil {
+					c = colorValue(x)
+				}
+				if c == "" {
+					c = colorValue(stop.child("schemeClr"))
+				}
+				if c != "" {
+					out.Stops = append(out.Stops, ppt.GradientStop{Position: num(stop.attr("pos")) / 1000, Color: ppt.Color{Type: "css", RGB: c}})
+				}
+			}
+		}
+		return &ppt.Fill{Type: "gradient", Gradient: out}
+	}
+	return nil
+}
 func lineStyle(n *node) string {
 	if n == nil {
 		return ""
 	}
 	ln := n.child("ln")
 	if ln == nil {
+		return ""
+	}
+	if ln.child("noFill") != nil {
 		return ""
 	}
 	w := emu(ln.attr("w"))
@@ -278,7 +387,107 @@ func lineStyle(n *node) string {
 	if c == "" {
 		c = "#64748B"
 	}
-	return fmt.Sprintf("%.2fpx solid %s", w, c)
+	dash := "solid"
+	if pr := ln.child("prstDash"); pr != nil {
+		switch strings.ToLower(pr.attr("val")) {
+		case "dash", "dashdot", "sysdash":
+			dash = "dashed"
+		case "dot", "sysdot":
+			dash = "dotted"
+		}
+	}
+	return fmt.Sprintf("%.2fpx %s %s", w, dash, c)
+}
+
+func structuredLine(sp *node) *ppt.Line {
+	if sp == nil || sp.child("ln") == nil {
+		return nil
+	}
+	ln := sp.child("ln")
+	if ln.child("noFill") != nil {
+		return &ppt.Line{Width: emu(ln.attr("w")), Color: &ppt.Color{Type: "none"}}
+	}
+	w := emu(ln.attr("w"))
+	if w <= 0 {
+		w = 1
+	}
+	c := colorValue(ln)
+	if c == "" {
+		c = "#64748B"
+	}
+	dash := "solid"
+	if d := ln.child("prstDash"); d != nil {
+		dash = d.attr("val")
+	}
+	return &ppt.Line{Width: w, Color: &ppt.Color{Type: "css", RGB: c}, Dash: dash, BeginArrow: ln.child("headEnd").attr("type"), EndArrow: ln.child("tailEnd").attr("type")}
+}
+
+func structuredText(st map[string]any) *ppt.TextStyle {
+	if len(st) == 0 {
+		return nil
+	}
+	t := &ppt.TextStyle{}
+	if v, ok := st["fontFamily"].(string); ok {
+		t.FontFamily = v
+	}
+	if v, ok := st["fontSize"].(float64); ok {
+		t.FontSize = v
+	}
+	if v, ok := st["bold"].(bool); ok {
+		t.Bold = v
+	}
+	if v, ok := st["italic"].(bool); ok {
+		t.Italic = v
+	}
+	if v, ok := st["underline"].(bool); ok {
+		t.Underline = v
+	}
+	if v, ok := st["align"].(string); ok {
+		t.Align = v
+	}
+	if v, ok := st["verticalAlign"].(string); ok {
+		t.VerticalAlign = v
+	}
+	if v, ok := st["lineHeight"].(float64); ok {
+		t.LineHeight = v
+	}
+	return t
+}
+
+func structuredEffects(sp *node) *ppt.Effects {
+	if sp == nil {
+		return nil
+	}
+	e := sp.child("effectLst")
+	if e == nil {
+		return nil
+	}
+	out := &ppt.Effects{}
+	if s := e.child("outerShdw"); s != nil {
+		out.Shadow = shadowStyle(sp)
+	}
+	if s := e.child("innerShdw"); s != nil {
+		blur, dist := emu(s.attr("blurRad")), emu(s.attr("dist"))
+		dir := num(s.attr("dir")) / 60000 * math.Pi / 180
+		c := colorValue(s)
+		if c == "" {
+			c = "rgba(0,0,0,.25)"
+		}
+		out.InnerShadow = fmt.Sprintf("inset %.1fpx %.1fpx %.1fpx %s", dist*math.Cos(dir), dist*math.Sin(dir), blur, c)
+	}
+	if g := e.child("glow"); g != nil {
+		out.Glow = fmt.Sprintf("%.2fpx %s", emu(g.attr("rad")), colorValue(g))
+	}
+	if s := e.child("softEdge"); s != nil {
+		out.SoftEdge = emu(s.attr("rad"))
+	}
+	if e.child("reflection") != nil {
+		out.Reflection = true
+	}
+	if out.Shadow == "" && out.InnerShadow == "" && out.Glow == "" && out.SoftEdge == 0 && !out.Reflection {
+		return nil
+	}
+	return out
 }
 func shadowStyle(n *node) string {
 	if n == nil {
@@ -347,9 +556,22 @@ func textBody(n *node) (string, map[string]any) {
 	}
 	var ls []string
 	st := map[string]any{}
+	if bp := tb.child("bodyPr"); bp != nil {
+		if v := bp.attr("anchor"); v != "" {
+			st["verticalAlign"] = v
+		}
+		for _, k := range []string{"lIns", "rIns", "tIns", "bIns"} {
+			if v := bp.attr(k); v != "" {
+				st[map[string]string{"lIns": "marginLeft", "rIns": "marginRight", "tIns": "marginTop", "bIns": "marginBottom"}[k]] = emu(v)
+			}
+		}
+	}
 	for _, p := range tb.children("p") {
 		var b strings.Builder
 		if pp := p.child("pPr"); pp != nil {
+			if a := pp.attr("algn"); a != "" {
+				st["align"] = a
+			}
 			if dr := pp.child("defRPr"); dr != nil {
 				if c := fillStyle(dr); c != "" {
 					st["color"] = c
@@ -429,7 +651,7 @@ func (im *importer) walk(n *node, c ctx) {
 		}
 		return
 	}
-	if n.Name == "sp" || n.Name == "pic" {
+	if n.Name == "sp" || n.Name == "pic" || n.Name == "cxnSp" {
 		t := readXF(directXF(n))
 		x, y, w, h, r := apply(t, c)
 		if w <= 0 || h <= 0 {
@@ -469,6 +691,9 @@ func (im *importer) walk(n *node, c ctx) {
 		}
 		content, style := textBody(n)
 		typ := "shape"
+		if n.Name == "cxnSp" {
+			typ = "line"
+		}
 		if content != "" {
 			typ = "text"
 		}
@@ -480,6 +705,10 @@ func (im *importer) walk(n *node, c ctx) {
 				style["shapeName"] = name
 			}
 		}
+		var geom *ppt.Geometry
+		var structuredFillValue *ppt.Fill
+		var structuredLineValue *ppt.Line
+		var structuredEffectsValue *ppt.Effects
 		if sp := n.child("spPr"); sp != nil {
 			if c := fillStyle(sp); c != "" {
 				style["background"] = c
@@ -504,11 +733,21 @@ func (im *importer) walk(n *node, c ctx) {
 			if v := lineStyle(sp); v != "" {
 				style["border"] = v
 			}
+			geom = presetGeometry(sp)
+			structuredFillValue = structuredFill(sp)
+			structuredLineValue = structuredLine(sp)
+			structuredEffectsValue = structuredEffects(sp)
+			if n.Name == "cxnSp" && geom == nil {
+				geom = &ppt.Geometry{Type: "line"}
+			}
 			if v := shadowStyle(sp); v != "" {
 				style["shadow"] = v
 			}
 		}
-		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, Rotation: r, ZIndex: im.zorder})
+		if n.Name == "cxnSp" && geom == nil {
+			geom = &ppt.Geometry{Type: "line"}
+		}
+		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH, FlipV: t.flipV})
 		im.zorder++
 	}
 }
