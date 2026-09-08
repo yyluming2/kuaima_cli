@@ -70,7 +70,16 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     return r
   }, icon = n => h("i", { "data-lucide": n });
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected), update = (fn, targetId = selected) => setDeck(d => {
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: [], future: [] }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
+    const trackedSetDeck = fn => setDeck(d => {
+      const n = typeof fn === "function" ? fn(d) : fn;
+      if (!d || !n || n === d) return n;
+      history.current.past.push(structuredClone(d));
+      if (history.current.past.length > 100) history.current.past.shift();
+      history.current.future = [];
+      return n;
+    });
+    const update = (fn, targetId = selected, track = true) => (track ? trackedSetDeck : setDeck)(d => {
       // Canvas editing can blur after another object has been selected.  Do
       // not resolve the target from the mutable `selected` state at commit
       // time; callers editing a specific object pass its id explicitly.
@@ -82,7 +91,9 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     const jsonSnapshot = current ? structuredClone(current) : null;
     const pageJsonSnapshot = deck ? { ...deck, slides: (deck.slides || []).slice(slide, slide + 1) } : null;
     useEffect(() => { if (showJson) setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)); }, [showJson, selected, slide, deck]);
-    useEffect(() => { const el = document.querySelector('.canvas-wrap'); if (!el) return; const onWheel = ev => { ev.preventDefault(); setZoom(z => Math.max(.25, Math.min(2, +(z + (ev.deltaY < 0 ? .1 : -.1)).toFixed(2)))); }; el.addEventListener('wheel', onWheel, { passive: false }); return () => el.removeEventListener('wheel', onWheel); }, [deck, slide, zoom]);
+    useEffect(() => { const el = document.querySelector('.canvas-wrap'); if (!el) return; const onWheel = ev => { ev.preventDefault(); if (ev.ctrlKey || ev.metaKey) { setZoom(z => Math.max(.25, Math.min(2, +(z + (ev.deltaY < 0 ? .1 : -.1)).toFixed(2)))); return; } if (wheelLock.current) return; wheelLock.current = true; setSlide(i => Math.max(0, Math.min((deck?.slides?.length || 1) - 1, i + (ev.deltaY > 0 ? 1 : -1)))); setSelected(null); setTimeout(() => { wheelLock.current = false; }, 180); }; el.addEventListener('wheel', onWheel, { passive: false }); return () => el.removeEventListener('wheel', onWheel); }, [deck]);
+    const undo = () => { const h = history.current; if (!h.past.length) return; setDeck(d => { const prev = h.past.pop(); h.future.push(structuredClone(d)); return prev; }); setSelected(null); setEditing(null); };
+    const redo = () => { const h = history.current; if (!h.future.length) return; setDeck(d => { const next = h.future.pop(); h.past.push(structuredClone(d)); return next; }); setSelected(null); setEditing(null); };
     useEffect(() => {
       if (!editing || !editRef.current) return;
       editRef.current.focus();
@@ -98,6 +109,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       try {
         const r = await api("/api/ppt/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: topic, theme }) });
         setDeck(await r.json());
+        history.current = { past: [], future: [] };
         setSlide(0);
         setSelected(null)
       } catch (e) { alert("生成草稿失败：" + e.message) } finally { setBusy(false) }
@@ -107,7 +119,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     const insertImage = data => {
       if (!deck || !data) return;
       const e = { id: "image-" + Date.now(), type: "image", x: 120, y: 120, width: 420, height: 260, content: "", assetUrl: data, style: { ...defaults } };
-      setDeck(d => {
+      trackedSetDeck(d => {
         const n = structuredClone(d);
         n.slides[slide].elements.push(e);
         return n
@@ -116,9 +128,11 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     };
     const add = type => {
       if (!deck) return;
+      if (type === "undo") { undo(); return; }
+      if (type === "redo") { redo(); return; }
       if (type === "image") { imageTarget.current = null; fileInput.current?.click(); return }
       const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "形状", table: "A | B\n1 | 2", chart: "数据图表" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent" }, ...(type === "text" ? { textRuns: [{ content: "双击编辑", style: { ...defaults } }] } : {}) };
-      setDeck(d => {
+      trackedSetDeck(d => {
         const n = structuredClone(d);
         n.slides[slide].elements.push(e);
         return n
@@ -129,7 +143,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     const removeSelected = () => {
       if (!selected || editing) return;
       if (!window.confirm("确定要删除当前选中的元素吗？删除后无法恢复。")) return;
-      setDeck(d => {
+      trackedSetDeck(d => {
         const n = structuredClone(d);
         n.slides[slide].elements = n.slides[slide].elements.filter(e => e.id !== selected);
         return n
@@ -141,7 +155,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       const file = ev.target.files?.[0]; ev.target.value = "";
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = async () => { try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(normalizeDeck(value)); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
+      reader.onload = async () => { try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(normalizeDeck(value)); history.current = { past: [], future: [] }; setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
       reader.readAsArrayBuffer(file);
     };
     useEffect(() => {
@@ -149,6 +163,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
         const target = ev.target;
         const tag = target?.tagName?.toLowerCase();
         if (editing || tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
+        if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === "y" || (ev.key.toLowerCase() === "z" && ev.shiftKey))) { ev.preventDefault(); redo(); return; }
         if ((ev.key === "Delete" || ev.key === "Backspace") && selected) {
           ev.preventDefault();
           removeSelected();
@@ -216,7 +232,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
         a.click()
       } catch (e) { alert("导出失败：" + e.message) }
     };
-    const tools = [["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"]];
+    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"]];
     return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "生成草稿")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), h("button", { onClick: () => setInspectorOpen(v => !v) }, icon(inspectorOpen ? "panel-right-close" : "panel-right-open"), h("span", null, inspectorOpen ? "收起属性" : "展开属性")), h("button", {
       className: "danger", disabled: !current, onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
