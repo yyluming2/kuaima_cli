@@ -9,6 +9,7 @@ import (
 	"kuaima_cli/internal/ppt"
 	"math"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -612,12 +613,18 @@ func rPrStyle(q *node, theme map[string]string) map[string]any {
 	return st
 }
 func textBody(n *node, theme map[string]string) (string, map[string]any, []ppt.TextRun) {
+	a, b, c, _ := textBodyDetailed(n, theme)
+	return a, b, c
+}
+
+func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any, []ppt.TextRun, []ppt.TextParagraph) {
 	tb := n.child("txBody")
 	if tb == nil {
-		return "", nil, nil
+		return "", nil, nil, nil
 	}
 	var ls []string
 	var runs []ppt.TextRun
+	var paragraphs []ppt.TextParagraph
 	st := map[string]any{}
 	if bp := tb.child("bodyPr"); bp != nil {
 		if v := bp.attr("anchor"); v != "" {
@@ -630,14 +637,13 @@ func textBody(n *node, theme map[string]string) (string, map[string]any, []ppt.T
 		}
 	}
 	for pi, p := range tb.children("p") {
-		if pi > 0 {
-			runs = append(runs, ppt.TextRun{Content: "\n"})
-		}
+		para := ppt.TextParagraph{}
 		var b strings.Builder
 		pp := p.child("pPr")
 		if pp != nil {
 			if a := pp.attr("algn"); a != "" {
 				st["align"] = a
+				para.Align = a
 			}
 			if dr := pp.child("defRPr"); dr != nil {
 				if c := fillStyle(dr, theme); c != "" {
@@ -647,10 +653,12 @@ func textBody(n *node, theme map[string]string) (string, map[string]any, []ppt.T
 			if ls := pp.child("lnSpc"); ls != nil {
 				if pct := ls.child("spcPct"); pct != nil {
 					st["lineHeight"] = num(pct.attr("val")) / 100000
+					para.LineHeight = st["lineHeight"].(float64)
 				}
 				if pts := ls.child("spcPts"); pts != nil {
 					// spacing in hundredths of a point; normalize to a CSS multiplier
 					st["lineHeight"] = num(pts.attr("val")) / 1200
+					para.LineHeight = st["lineHeight"].(float64)
 				}
 			}
 		}
@@ -677,12 +685,42 @@ func textBody(n *node, theme map[string]string) (string, map[string]any, []ppt.T
 				// Keep each a:r's formatting instead of folding it into the
 				// first run's element style.  The latter is retained below as
 				// the default/inherited style for compatibility.
-				runs = append(runs, ppt.TextRun{Content: text, Style: rstyle})
+				runs = append(runs, ppt.TextRun{Content: text, Style: rstyle, Paragraph: pi})
+				para.Runs = append(para.Runs, len(runs)-1)
 			}
 		}
+		paragraphs = append(paragraphs, para)
 		ls = append(ls, b.String())
 	}
-	return strings.Join(ls, "\n"), st, runs
+	runs = mergeTextRuns(runs)
+	for i := range paragraphs {
+		paragraphs[i].Runs = paragraphs[i].Runs[:0]
+	}
+	for i, r := range runs {
+		if r.Paragraph >= 0 && r.Paragraph < len(paragraphs) {
+			paragraphs[r.Paragraph].Runs = append(paragraphs[r.Paragraph].Runs, i)
+		}
+	}
+	return strings.Join(ls, "\n"), st, runs, paragraphs
+}
+
+// mergeTextRuns reduces adjacent runs that have the same effective style.
+// Paragraph boundaries are preserved: identical formatting across two
+// paragraphs must remain two runs so the editor can retain line structure.
+func mergeTextRuns(runs []ppt.TextRun) []ppt.TextRun {
+	if len(runs) < 2 {
+		return runs
+	}
+	out := make([]ppt.TextRun, 0, len(runs))
+	for _, run := range runs {
+		last := len(out) - 1
+		if last >= 0 && out[last].Paragraph == run.Paragraph && reflect.DeepEqual(out[last].Style, run.Style) {
+			out[last].Content += run.Content
+			continue
+		}
+		out = append(out, run)
+	}
+	return out
 }
 
 type importer struct {
@@ -773,7 +811,7 @@ func (im *importer) walk(n *node, c ctx) {
 			}
 			return
 		}
-		content, style, textRuns := textBody(n, im.theme)
+		content, style, textRuns, textParagraphs := textBodyDetailed(n, im.theme)
 		typ := "shape"
 		if n.Name == "cxnSp" {
 			typ = "line"
@@ -831,7 +869,7 @@ func (im *importer) walk(n *node, c ctx) {
 		if n.Name == "cxnSp" && geom == nil {
 			geom = &ppt.Geometry{Type: "line"}
 		}
-		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, TextRuns: textRuns, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH, FlipV: t.flipV})
+		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, TextRuns: textRuns, TextParagraphs: textParagraphs, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH, FlipV: t.flipV})
 		im.zorder++
 	}
 }

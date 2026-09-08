@@ -26,6 +26,14 @@ func TestTextBodyPreservesRunStyles(t *testing.T) {
 	}
 }
 
+func TestTextBodyPreservesParagraphs(t *testing.T) {
+	n, _ := parseTree([]byte(`<sp><txBody><bodyPr/><p><pPr algn="l"/><r><t>A</t></r></p><p><pPr algn="ctr"/><r><t>B</t></r></p></txBody></sp>`))
+	_, _, runs, paragraphs := textBodyDetailed(n, nil)
+	if len(paragraphs) != 2 || paragraphs[0].Align != "l" || paragraphs[1].Align != "ctr" || runs[1].Paragraph != 1 {
+		t.Fatalf("paragraph hierarchy lost: %#v %#v", paragraphs, runs)
+	}
+}
+
 func TestReadGenerated(t *testing.T) {
 	p := genppt.New().SetTitle("x")
 	s := p.AddSlide()
@@ -40,5 +48,27 @@ func TestReadGenerated(t *testing.T) {
 	}
 	if len(got.Slides) == 0 || len(got.Slides[0].Elements) == 0 {
 		t.Fatalf("empty: %#v", got)
+	}
+}
+
+func TestReadGeneratedRichText(t *testing.T) {
+	p := genppt.New().SetTitle("rich")
+	s := p.AddSlide()
+	s.AddRichText([]genppt.RichTextRun{
+		{Text: "Big", Options: genppt.TextOptions{FontSize: 24, FontColor: "FF0000", Bold: true}, Paragraph: 0},
+		{Text: "small", Options: genppt.TextOptions{FontSize: 10, FontColor: "0000FF"}, Paragraph: 0},
+		{Text: "next", Options: genppt.TextOptions{FontSize: 12}, Paragraph: 1, Align: genppt.AlignCenter},
+	}, genppt.TextOptions{X: 1, Y: 1, Width: 5, Height: 1})
+	b, err := p.ToBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := got.Slides[0].Elements[0]
+	if len(e.TextRuns) != 3 || e.TextRuns[0].Style["bold"] != true {
+		t.Fatalf("rich runs lost: %#v", e.TextRuns)
 	}
 }

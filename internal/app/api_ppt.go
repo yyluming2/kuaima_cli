@@ -219,7 +219,47 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				if v, ok := e.Style["background"].(string); ok && v != "transparent" {
 					o.Fill = v
 				}
-				sl.AddText(e.Content, o)
+				if len(e.TextRuns) > 0 {
+					runs := make([]genppt.RichTextRun, 0, len(e.TextRuns))
+					paraAlign := map[int]string{}
+					for i, pinfo := range e.TextParagraphs {
+						paraAlign[i] = pinfo.Align
+					}
+					if a := paraAlign[e.TextRuns[0].Paragraph]; a != "" {
+						o.Align = genppt.Align(a)
+					}
+					for _, run := range e.TextRuns {
+						r := genppt.RichTextRun{Text: run.Content, Options: o, Paragraph: run.Paragraph}
+						if a := paraAlign[run.Paragraph]; a != "" {
+							r.Options.Align = genppt.Align(a)
+						}
+						if v, ok := run.Style["fontSize"].(float64); ok {
+							r.Options.FontSize = v * 72 / ppt.LogicalDPI
+						}
+						if v, ok := run.Style["fontColor"].(string); ok {
+							r.Options.FontColor = v
+						}
+						if v, ok := run.Style["color"].(string); ok {
+							r.Options.FontColor = v
+						}
+						if v, ok := run.Style["fontFamily"].(string); ok {
+							r.Options.FontFace = v
+						}
+						if v, ok := run.Style["bold"].(bool); ok {
+							r.Options.Bold = v
+						}
+						if v, ok := run.Style["italic"].(bool); ok {
+							r.Options.Italic = v
+						}
+						if v, ok := run.Style["underline"].(bool); ok {
+							r.Options.Underline = v
+						}
+						runs = append(runs, r)
+					}
+					sl.AddRichText(runs, o)
+				} else {
+					sl.AddText(e.Content, o)
+				}
 			} else if e.Type == "shape" {
 				shape := genppt.ShapeRect
 				if v, ok := e.Style["shape"].(string); ok {

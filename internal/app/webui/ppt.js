@@ -6,16 +6,22 @@
   const shapeStyle = (s, st = {}) => { const k = String(s || "").toLowerCase(); if (k === "donut") return { maskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)", WebkitMaskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)" }; if (k === "roundrect") return { borderRadius: `${Math.max(0, Math.min(50, Number(st.radius) || 12))}%` }; return { clipPath: shapeClip(s) }; };
   // Normalize the structured DrawingML model into the legacy CSS surface used
   // by the editor.  Imported decks may contain either representation.
-  const visualStyle = (e, st = {}) => { const out = {}; const f = e && e.fill, l = e && e.line, t = e && e.textStyle, g = e && e.geometry; if (f) { if (f.type === "solid" && f.color) out.background = f.color.rgb || f.color.css || "transparent"; else if (f.type === "gradient" && f.gradient && f.gradient.stops) out.background = `linear-gradient(${Number(f.gradient.angle) || 0}deg,${f.gradient.stops.map(x => `${x.color.rgb || x.color.css || "#000"} ${Number(x.position) || 0}%`).join(",")})`; else if (f.type === "none") out.background = "transparent"; } if (l && l.color && l.color.type !== "none") out.border = `${Number(l.width) || 1}px ${l.dash && /dot/i.test(l.dash) ? "dotted" : l.dash && l.dash !== "solid" ? "dashed" : "solid"} ${l.color.rgb || l.color.css || "#64748b"}`; if (t) Object.assign(out, { fontFamily: t.fontFamily || st.fontFamily, fontSize: t.fontSize || st.fontSize, bold: t.bold, italic: t.italic, underline: t.underline, lineHeight: t.lineHeight || st.lineHeight, color: st.color }); if (g && g.type) out.shape = g.preset || g.type; if (e && (e.flipH || e.flipV)) out.transform = `${e.flipH ? "scaleX(-1) " : ""}${e.flipV ? "scaleY(-1)" : ""}`.trim(); if (e && e.effects) { out.shadow = e.effects.shadow || undefined; if (e.effects.innerShadow) out.boxShadow = e.effects.innerShadow; } return out; };
+  // `style` is the single editable source of truth. Structured fields from
+  // PPTX import are fallbacks only, so re-rendering cannot undo an edit.
+  const visualStyle = (e, st = {}) => { const out = {}; const f = e && e.fill, l = e && e.line, t = e && e.textStyle, g = e && e.geometry; if (f && st.background == null) { if (f.type === "solid" && f.color) out.background = f.color.rgb || f.color.css || "transparent"; else if (f.type === "gradient" && f.gradient && f.gradient.stops) out.background = `linear-gradient(${Number(f.gradient.angle) || 0}deg,${f.gradient.stops.map(x => `${x.color.rgb || x.color.css || "#000"} ${Number(x.position) || 0}%`).join(",")})`; else if (f.type === "none") out.background = "transparent"; } if (l && st.border == null && l.color && l.color.type !== "none") out.border = `${Number(l.width) || 1}px ${l.dash && /dot/i.test(l.dash) ? "dotted" : l.dash && l.dash !== "solid" ? "dashed" : "solid"} ${l.color.rgb || l.color.css || "#64748b"}`; if (t) { if (st.fontFamily == null && t.fontFamily) out.fontFamily = t.fontFamily; if (st.fontSize == null && t.fontSize) out.fontSize = t.fontSize; if (st.bold == null && t.bold != null) out.bold = t.bold; if (st.italic == null && t.italic != null) out.italic = t.italic; if (st.underline == null && t.underline != null) out.underline = t.underline; if (st.lineHeight == null && t.lineHeight) out.lineHeight = t.lineHeight; if (st.align == null && t.align) out.align = t.align; } if (g && g.type && st.shape == null) out.shape = g.preset || g.type; if (e && (e.flipH || e.flipV)) out.transform = `${e.flipH ? "scaleX(-1) " : ""}${e.flipV ? "scaleY(-1)" : ""}`.trim(); if (e && e.effects) { if (st.shadow == null) out.shadow = e.effects.shadow || undefined; if (st.boxShadow == null && e.effects.innerShadow) out.boxShadow = e.effects.innerShadow; } return out; };
+  const canonicalStyle = e => ({ ...defaults, ...(e && e.style || {}), ...visualStyle(e, e && e.style || {}) });
+  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach(s => (s.elements || []).forEach(e => { e.style = canonicalStyle(e); })); return n; };
   const textAlign = value => ({ l: "left", ctr: "center", r: "right", just: "justify", dist: "justify", thaiDist: "justify" }[String(value || "").toLowerCase()] || value || undefined);
   const textRuns = (e, base, scale = 1) => {
     const runs = Array.isArray(e && e.textRuns) ? e.textRuns : [];
     if (!runs.length) return e && e.content || "";
-    return runs.map((run, i) => {
+    return runs.flatMap((run, i) => {
       const rs = { ...base, ...(run && run.style || {}) };
-      return h("span", { key: i, style: { fontFamily: rs.fontFamily, fontSize: Number(rs.fontSize) ? Number(rs.fontSize) * scale : undefined, color: rs.color, fontWeight: rs.bold ? "bold" : "normal", fontStyle: rs.italic ? "italic" : "normal", textDecoration: rs.underline ? "underline" : "none" } }, run && run.content || "");
+      const lead = i > 0 && Number(run?.paragraph) !== Number(runs[i-1]?.paragraph) ? h("br", { key: "br"+i }) : null;
+      return [lead, h("span", { key: i, style: { fontFamily: rs.fontFamily, fontSize: Number(rs.fontSize) ? Number(rs.fontSize) * scale : undefined, color: rs.color, fontWeight: rs.bold ? "bold" : "normal", fontStyle: rs.italic ? "italic" : "normal", textDecoration: rs.underline ? "underline" : "none" } }, run && run.content || "")];
     });
   };
+const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEach(r => String(r.content || "").split(/\n/).forEach((part, i, a) => { if (part) out.push({ ...r, content: part, paragraph: p }); if (i < a.length - 1) p++; })); return out; };
   const rewriteRunContent = (element, content) => {
     const runs = Array.isArray(element.textRuns) ? element.textRuns : [];
     if (!runs.length) { element.content = content; return; }
@@ -30,6 +36,24 @@
     });
     // Keep the flat field in sync for export, validation and integrations.
     element.content = content;
+  };
+  // TextBlock owns rich-text display and the contentEditable lifecycle. The
+  // canvas only decides when editing starts and commits the normalized runs.
+  const TextBlock = ({ element, style, editing, editRef, scale = 1, onCommit }) => {
+    if (!editing) return textRuns(element, style, scale);
+    return h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true,
+      onBlur: ev => {
+        const next = [];
+        [...(ev.currentTarget.childNodes || [])].forEach(n => {
+          const content = n.textContent || "";
+          if (!content) return;
+          if (n.nodeType === 3) next.push({ content, style: {} });
+          else { const cs = getComputedStyle(n); next.push({ content, style: { fontFamily: cs.fontFamily, fontSize: parseFloat(cs.fontSize) || undefined, color: cs.color, bold: cs.fontWeight >= 600, italic: cs.fontStyle === "italic", underline: (cs.textDecorationLine || "").includes("underline") } }); }
+        });
+        onCommit(next.filter(r => r.content), ev.currentTarget.textContent || "");
+      },
+      onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); onCommit(null); } }
+    }, textRuns(element, style));
   };
   const customPath = e => e && e.geometry && e.geometry.type === "custom" && e.geometry.path ? h("svg", { className: "shape-svg", viewBox: e.geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("path", { d: e.geometry.path, fill: e.fill && e.fill.color ? (e.fill.color.rgb || e.fill.color.css || "currentColor") : "currentColor", stroke: e.line && e.line.color && e.line.color.type !== "none" ? (e.line.color.rgb || e.line.color.css || "none") : "none", strokeWidth: e.line && e.line.width ? Number(e.line.width) : 0 })) : null;
   // OOXML srcRect values are thousandths of a percent.  Expand the image
@@ -83,7 +107,7 @@
     const add = type => {
       if (!deck) return;
       if (type === "image") { imageTarget.current = null; fileInput.current?.click(); return }
-      const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "形状", table: "A | B\n1 | 2", chart: "数据图表" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent" } };
+      const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "形状", table: "A | B\n1 | 2", chart: "数据图表" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent" }, ...(type === "text" ? { textRuns: [{ content: "双击编辑", style: { ...defaults } }] } : {}) };
       setDeck(d => {
         const n = structuredClone(d);
         n.slides[slide].elements.push(e);
@@ -107,7 +131,7 @@
       const file = ev.target.files?.[0]; ev.target.value = "";
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = async () => { try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(value); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
+      reader.onload = async () => { try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(normalizeDeck(value)); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
       reader.readAsArrayBuffer(file);
     };
     useEffect(() => {
@@ -206,7 +230,7 @@
             drag.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement }
           }
         }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, textAlign: textAlign(st.align), lineHeight: st.lineHeight || 1.2, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, ...fillStyle(st.background), ...shapeStyle(st.shape, st), zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center", ...boxStyle(st) }
-      }, customPath(e), e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片", style: imageCropStyle(st) }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const content = node ? node.textContent || "" : e.content || ""; update(x => { x.content = content; delete x.textRuns }); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") setEditing(null) } }, e.content || "") : textRuns(e, st), e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
+      }, customPath(e), e.type === "image" && e.assetUrl ? h("img", { src: e.assetUrl, alt: "图片", style: imageCropStyle(st) }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const next = []; [...(node?.childNodes || [])].forEach((n, i) => { if (n.nodeType === 3) next.push({ content: n.nodeValue || "", style: {} }); else { const txt = n.textContent || ""; if (txt) { const cs = getComputedStyle(n); next.push({ content: txt, style: { fontFamily: cs.fontFamily, fontSize: parseFloat(cs.fontSize) || undefined, color: cs.color, bold: cs.fontWeight >= 600, italic: cs.fontStyle === "italic", underline: (cs.textDecorationLine || "").includes("underline") } }); } } }); const runs = next.filter(r => r.content); update(x => { x.textRuns = runs.length ? runs : [{ content: node?.textContent || "", style: { ...x.style } }]; x.content = runs.map(r => r.content).join(""); }); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); setEditing(null) } } }, textRuns(e, st)) : textRuns(e, st), e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
         key: dir, className: "handle " + dir, onMouseDown: ev => {
           ev.stopPropagation();
           resize.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement }

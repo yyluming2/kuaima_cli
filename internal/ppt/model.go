@@ -61,15 +61,25 @@ type Element struct {
 	// bodies.  Content/Style remain the element-level compatibility fields;
 	// runs contain only the formatting that applies to each text fragment.
 	TextRuns []TextRun `json:"textRuns,omitempty"`
-	FlipH    bool      `json:"flipH,omitempty"`
-	FlipV    bool      `json:"flipV,omitempty"`
+	// TextParagraphs preserves the original a:p hierarchy. TextRuns remains
+	// the canonical editable source; paragraphs provide grouping/layout metadata.
+	TextParagraphs []TextParagraph `json:"textParagraphs,omitempty"`
+	FlipH          bool            `json:"flipH,omitempty"`
+	FlipV          bool            `json:"flipV,omitempty"`
 }
 
 // TextRun is a contiguous piece of text with its own formatting.  A PPTX
 // paragraph may contain several a:r elements, each with different rPr.
 type TextRun struct {
-	Content string         `json:"content"`
-	Style   map[string]any `json:"style,omitempty"`
+	Content   string         `json:"content"`
+	Style     map[string]any `json:"style,omitempty"`
+	Paragraph int            `json:"paragraph,omitempty"`
+}
+
+type TextParagraph struct {
+	Runs       []int   `json:"runs,omitempty"`
+	Align      string  `json:"align,omitempty"`
+	LineHeight float64 `json:"lineHeight,omitempty"`
 }
 
 type Geometry struct {
@@ -188,7 +198,15 @@ func (p *Presentation) Diagnostics() []string {
 				if fs, ok := e.Style["fontSize"].(float64); ok && fs < 10 {
 					out = append(out, s.ID+"/"+e.ID+": font size is too small")
 				}
-				if strings.TrimSpace(e.Content) == "" {
+				textContent := e.Content
+				if len(e.TextRuns) > 0 {
+					var b strings.Builder
+					for _, r := range e.TextRuns {
+						b.WriteString(r.Content)
+					}
+					textContent = b.String()
+				}
+				if strings.TrimSpace(textContent) == "" {
 					out = append(out, s.ID+"/"+e.ID+": empty text")
 				}
 			}
