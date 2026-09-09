@@ -27,14 +27,18 @@ type pptPlanPage struct {
 	ImagePrompt string   `json:"imagePrompt,omitempty"`
 }
 type pptPlan struct {
-	Title      string        `json:"title"`
-	Style      string        `json:"style"`
-	TextModel  string        `json:"textModel,omitempty"`
-	ImageModel string        `json:"imageModel,omitempty"`
-	Audience   string        `json:"audience,omitempty"`
-	References []string      `json:"references,omitempty"`
-	Images     []string      `json:"images,omitempty"`
-	Pages      []pptPlanPage `json:"pages"`
+	Title             string        `json:"title"`
+	Style             string        `json:"style"`
+	TextModel         string        `json:"textModel,omitempty"`
+	ImageModel        string        `json:"imageModel,omitempty"`
+	Audience          string        `json:"audience,omitempty"`
+	References        []string      `json:"references,omitempty"`
+	Images            []string      `json:"images,omitempty"`
+	Pages             []pptPlanPage `json:"pages"`
+	AccentColor       string        `json:"accentColor,omitempty"`
+	BackgroundColor   string        `json:"backgroundColor,omitempty"`
+	UnifiedBackground bool          `json:"unifiedBackground,omitempty"`
+	StyleReference    string        `json:"styleReference,omitempty"`
 }
 
 // handlePPTPlan creates a confirmation-ready brief with the selected text model.
@@ -44,11 +48,13 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Title, Style, Audience string
-		TextModel              string `json:"textModel"`
-		ImageModel             string `json:"imageModel"`
-		References, Images     []string
-		PageCount              int `json:"pageCount"`
+		Title, Style, Audience                       string
+		TextModel                                    string `json:"textModel"`
+		ImageModel                                   string `json:"imageModel"`
+		References, Images                           []string
+		PageCount                                    int `json:"pageCount"`
+		AccentColor, BackgroundColor, StyleReference string
+		UnifiedBackground                            bool `json:"unifiedBackground"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
@@ -63,8 +69,8 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		style = "现代商务"
 	}
 	n := in.PageCount
-	if n < 0 {
-		n = 1
+	if n < 3 {
+		n = 3
 	}
 	if n > 50 {
 		n = 50
@@ -85,12 +91,29 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 	prompt := fmt.Sprintf(`请为“%s”设计一份 PPT 大纲。内容要求：%s。目标受众：%s。页数：%d 页。视觉风格：%s。
 只返回严格 JSON，不要 Markdown 代码块或额外文字。格式：{"pages":[{"title":"页面标题","bullets":["要点1","要点2"],"layout":"title|content","imagePrompt":"配图描述"}]}。必须恰好返回 %d 页，第一页为 title 布局。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.Audience), n, style, n)
-	resp, err := c.createResponse(r.Context(), responseRequest{Model: model, Input: prompt})
+	streamMode := r.URL.Query().Get("stream") == "1" || strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
+	var resp *responsePayload
+	var stream *webUIEventStream
+	if streamMode {
+		stream = newWebUIEventStream(w)
+		stream.send("status", map[string]string{"message": "正在连接大模型，逐字生成大纲…"})
+		resp, err = c.createResponseStream(r.Context(), responseRequest{Model: model, Input: prompt}, stream.textWriter())
+	} else {
+		resp, err = c.createResponse(r.Context(), responseRequest{Model: model, Input: prompt})
+	}
 	if err != nil {
+		if streamMode {
+			stream.send("error", map[string]string{"error": err.Error()})
+			return
+		}
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	if resp == nil {
+		if streamMode {
+			stream.send("error", map[string]string{"error": "text model returned empty response"})
+			return
+		}
 		writeError(w, http.StatusBadGateway, "text model returned empty response")
 		return
 	}
@@ -103,11 +126,27 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		text = text[start : end+1]
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &generated); err != nil || len(generated.Pages) == 0 {
+		if streamMode {
+			stream.send("error", map[string]string{"error": "text model returned invalid PPT outline"})
+			return
+		}
 		writeError(w, http.StatusBadGateway, "text model returned invalid PPT outline")
 		return
 	}
 	if len(generated.Pages) > n {
 		generated.Pages = generated.Pages[:n]
+	}
+	// Models occasionally stop early after emitting a valid first page. Keep
+	// the user's requested page count stable and make the missing pages
+	// editable placeholders instead of silently returning a one-page deck.
+	for len(generated.Pages) < n {
+		i := len(generated.Pages) + 1
+		generated.Pages = append(generated.Pages, pptPlanPage{
+			Title:       fmt.Sprintf("第 %d 页", i),
+			Bullets:     []string{"待补充内容"},
+			Layout:      "content",
+			ImagePrompt: fmt.Sprintf("第 %d 页，%s风格的简洁插画", i, style),
+		})
 	}
 	for i := range generated.Pages {
 		if strings.TrimSpace(generated.Pages[i].Title) == "" {
@@ -121,7 +160,12 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pages := generated.Pages
-	writeJSON(w, 200, pptPlan{Title: title, Style: style, TextModel: model, ImageModel: strings.TrimSpace(in.ImageModel), Audience: strings.TrimSpace(in.Audience), References: in.References, Images: in.Images, Pages: pages})
+	result := pptPlan{Title: title, Style: style, TextModel: model, ImageModel: strings.TrimSpace(in.ImageModel), Audience: strings.TrimSpace(in.Audience), References: in.References, Images: in.Images, Pages: pages, AccentColor: strings.TrimSpace(in.AccentColor), BackgroundColor: strings.TrimSpace(in.BackgroundColor), UnifiedBackground: in.UnifiedBackground, StyleReference: strings.TrimSpace(in.StyleReference)}
+	if streamMode {
+		stream.send("done", result)
+		return
+	}
+	writeJSON(w, 200, result)
 }
 
 func illustrationDataURL(label string) string {
@@ -146,11 +190,21 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	p := ppt.New16x9(plan.Title)
+	p.AIModel = plan.TextModel
+	p.AIImageModel = plan.ImageModel
 	p.Theme.Name = plan.Style
 	if strings.Contains(strings.ToLower(plan.Style), "深") {
 		p.Theme.Background = "#0F172A"
 		p.Theme.Foreground = "#F8FAFC"
 		p.Theme.Accent = "#38BDF8"
+	}
+	// User-selected colors are applied after presets so the style sample is
+	// faithfully carried into the generated deck.
+	if plan.BackgroundColor != "" {
+		p.Theme.Background = plan.BackgroundColor
+	}
+	if plan.AccentColor != "" {
+		p.Theme.Accent = plan.AccentColor
 	}
 	for i, page := range plan.Pages {
 		elems := []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", i+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: page.Title, Style: map[string]any{"fontSize": 36, "fontWeight": 700, "color": p.Theme.Foreground}}}
@@ -169,6 +223,90 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 		p.Slides = append(p.Slides, ppt.Slide{ID: fmt.Sprintf("slide-%d", i+1), Layout: page.Layout, Elements: elems})
 	}
 	writeJSON(w, 200, p)
+}
+
+// handlePPTSlideGenerate regenerates one slide using the selected text model.
+// The editor sends the current deck so the operation is independently repeatable.
+func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		Presentation ppt.Presentation `json:"presentation"`
+		SlideIndex   int              `json:"slideIndex"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	if in.SlideIndex < 0 || in.SlideIndex >= len(in.Presentation.Slides) {
+		writeError(w, 400, "slideIndex out of range")
+		return
+	}
+	model := strings.TrimSpace(in.Presentation.AIModel)
+	if model == "" && s.clientOpts.model != nil {
+		model = strings.TrimSpace(*s.clientOpts.model)
+	}
+	page := in.Presentation.Slides[in.SlideIndex]
+	title, body := "", ""
+	for _, e := range page.Elements {
+		if e.Type == "text" && title == "" {
+			title = e.Content
+		} else if e.Type == "text" {
+			body = e.Content
+		}
+	}
+	if model != "" {
+		if c, err := s.clientOpts.newClient(); err == nil {
+			defer c.Close()
+			prompt := fmt.Sprintf(`为 PPT 第 %d 页重新设计具体视觉布局。当前标题：%s。当前内容：%s。主题：%s；背景色：%s；强调色：%s。必须保留当前主题和内容含义，只重新安排版式并补充配图描述。只返回 JSON：{"layout":"content|split|hero|timeline","title":"标题","bullets":["要点"],"imagePrompt":"配图描述"}。`, in.SlideIndex+1, title, body, in.Presentation.Theme.Name, in.Presentation.Theme.Background, in.Presentation.Theme.Accent)
+			if resp, err := c.createResponse(r.Context(), responseRequest{Model: model, Input: prompt}); err == nil && resp != nil {
+				var out pptPlanPage
+				text := strings.TrimSpace(resp.text())
+				if a, b := strings.Index(text, "{"), strings.LastIndex(text, "}"); a >= 0 && b > a {
+					_ = json.Unmarshal([]byte(text[a:b+1]), &out)
+				}
+				if out.Title != "" {
+					title = out.Title
+				}
+				body = strings.Join(out.Bullets, "\n")
+				if body == "" {
+					body = out.ImagePrompt
+				}
+				page.Layout = out.Layout
+				page.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", in.SlideIndex+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: title, Style: map[string]any{"fontSize": 36, "fontWeight": 700, "color": in.Presentation.Theme.Foreground}}, {ID: fmt.Sprintf("slide-%d-body", in.SlideIndex+1), Type: "text", X: 92, Y: 164, Width: 650, Height: 360, Content: body, Style: map[string]any{"fontSize": 26, "lineHeight": 1.5, "color": in.Presentation.Theme.Foreground}}}
+				if out.ImagePrompt != "" {
+					page.Elements = append(page.Elements, ppt.Element{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 790, Y: 170, Width: 400, Height: 300, AssetURL: illustrationDataURL(out.ImagePrompt)})
+				}
+				imageModel := strings.TrimSpace(in.Presentation.AIImageModel)
+				if imageModel == "" && s.clientOpts.imageModel != nil {
+					imageModel = strings.TrimSpace(*s.clientOpts.imageModel)
+				}
+				if imageModel != "" && out.ImagePrompt != "" && len(page.Elements) > 0 {
+					if imgResp, imgErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: out.ImagePrompt, N: 1, Size: "1024x1024"}); imgErr == nil && imgResp != nil {
+						for _, item := range imgResp.Output {
+							if item.Result != "" {
+								page.Elements[len(page.Elements)-1].AssetURL = strings.TrimSpace(item.Result)
+								if !strings.HasPrefix(item.Result, "data:") && !strings.HasPrefix(item.Result, "http") {
+									page.Elements[len(page.Elements)-1].AssetURL = "data:image/png;base64," + item.Result
+								}
+								break
+							}
+							for _, content := range item.Content {
+								if content.ImageURL != "" {
+									page.Elements[len(page.Elements)-1].AssetURL = content.ImageURL
+									break
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	in.Presentation.Slides[in.SlideIndex] = page
+	writeJSON(w, 200, map[string]any{"slide": page, "slideIndex": in.SlideIndex})
 }
 
 func styleString(m map[string]any, key string) string {

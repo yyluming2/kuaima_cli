@@ -34,11 +34,25 @@
             id="pptAiCancel">取消</button></div>
       </div>
       <div id="pptAiOutline" hidden>
-        <h3>请确认生成方案</h3>
+        <h3>第一步：编辑并确认大纲</h3>
+        <p class="ppt-ai-help">标题和要点都可以直接修改，修改内容会原样用于生成。</p>
         <div id="pptAiOutlineList"></div>
-        <div class="ppt-ai-actions"><button id="pptAiBack">返回修改</button><button id="pptAiGenerate"
-            class="ppt-ai-primary">确认并生成 PPT</button></div>
+        <div class="ppt-ai-actions"><button id="pptAiStyleNext"
+            class="ppt-ai-primary">下一步：制作风格试样</button></div>
       </div>
+      <div id="pptAiStyleStep" hidden>
+        <h3>第二步：先确认一张风格试样</h3>
+        <p class="ppt-ai-help">先选颜色、背景和参考图，满意后再生成全部页面。</p>
+        <div class="ppt-ai-grid">
+          <label>主色<input id="pptAiAccent" type="color" value="#2563eb"></label>
+          <label>背景色<input id="pptAiBackground" type="color" value="#ffffff"></label>
+        </div>
+        <label class="check"><input id="pptAiUnified" type="checkbox" checked>所有页面统一背景模板</label>
+        <label class="ppt-file">上传风格参考图（可选）<input id="pptAiStyleImage" type="file" accept="image/*"><small id="pptAiStyleHint">未选择</small></label>
+        <div id="pptAiSample" class="ppt-ai-sample"><div class="sample-kicker">STYLE SAMPLE</div><div class="sample-title">你的标题和内容会呈现在这里</div><div class="sample-line"></div><div class="sample-body">这是生成前的单页视觉试样</div></div>
+        <div class="ppt-ai-actions"><button id="pptAiStyleBack">返回大纲</button><button id="pptAiGenerate" class="ppt-ai-primary">确认风格并生成全部 PPT</button></div>
+      </div>
+      <div id="pptAiProgress" class="ppt-ai-progress" hidden><div class="ppt-ai-progress-title">AI 正在工作…</div><div class="ppt-ai-progress-track"><i></i></div><div id="pptAiProgressText">正在连接模型</div><pre id="pptAiStreamText"></pre></div>
     </div>
   </div>
   <div id="app"></div>

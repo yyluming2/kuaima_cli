@@ -12,12 +12,14 @@ import (
 const LogicalDPI = 128.0
 
 type Presentation struct {
-	ID     string  `json:"id,omitempty"`
-	Title  string  `json:"title"`
-	Width  float64 `json:"width"` // logical pixels at LogicalDPI; defaults to 1280x720
-	Height float64 `json:"height"`
-	Theme  Theme   `json:"theme"`
-	Slides []Slide `json:"slides"`
+	ID           string  `json:"id,omitempty"`
+	Title        string  `json:"title"`
+	Width        float64 `json:"width"` // logical pixels at LogicalDPI; defaults to 1280x720
+	Height       float64 `json:"height"`
+	Theme        Theme   `json:"theme"`
+	Slides       []Slide `json:"slides"`
+	AIModel      string  `json:"aiModel,omitempty"`
+	AIImageModel string  `json:"aiImageModel,omitempty"`
 }
 
 type Theme struct {

@@ -193,6 +193,7 @@ func (s *webUIServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ppt/draft", s.handlePPTDraft)
 	mux.HandleFunc("/api/ppt/plan", s.handlePPTPlan)
 	mux.HandleFunc("/api/ppt/generate", s.handlePPTGenerate)
+	mux.HandleFunc("/api/ppt/slide", s.handlePPTSlideGenerate)
 	mux.HandleFunc("/api/ppt/validate", s.handlePPTValidate)
 	mux.HandleFunc("/api/ppt/optimize", s.handlePPTOptimize)
 	mux.HandleFunc("/api/pptx/import", s.handlePPTXImport)
