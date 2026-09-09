@@ -2,6 +2,15 @@
   const $ = (id) => document.getElementById(id);
   const modal = $("pptAiModal"), form = $("pptAiForm"), outline = $("pptAiOutline");
   let currentPlan = null;
+  const loadTextModels = async () => {
+    try {
+      const payload = await fetch("/api/ipricing").then(r => r.json());
+      const models = payload?.data?.text || [];
+      const select = $("pptAiTextModel");
+      if (!models.length) { select.innerHTML = '<option value="">使用默认模型</option>'; return; }
+      select.innerHTML = models.filter(m => m && m.model_name).map(m => `<option value="${String(m.model_name).replace(/[&<>\"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}">${m.model_name}</option>`).join("");
+    } catch (_) { $("pptAiTextModel").innerHTML = '<option value="">使用默认模型</option>'; }
+  };
   const readImages = async () => Promise.all([...($("pptAiImages").files || [])].slice(0, 8).map(file => new Promise(resolve => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => resolve(""); r.readAsDataURL(file); })));
   const show = (v) => { modal.hidden = !v; if (v) { form.hidden = false; outline.hidden = true; } };
   setTimeout(() => {
@@ -21,6 +30,7 @@
   $("pptAiOpen").onclick = () => show(true); $("pptAiClose").onclick = () => show(false); $("pptAiCancel").onclick = () => show(false);
   // 打开 PPT 页面时直接进入 AI 制作流程。
   setTimeout(() => show(true), 0);
+  loadTextModels();
   $("pptAiBack").onclick = () => { form.hidden = false; outline.hidden = true; };
   $("pptAiImages").onchange = () => { $("pptAiImageHint").textContent = `${$("pptAiImages").files.length} 张图片`; };
   $("pptAiDeck").onchange = () => { $("pptAiDeckHint").textContent = $("pptAiDeck").files[0]?.name || "可选"; };
@@ -30,7 +40,8 @@
     try {
       const refs = [brief].filter(Boolean); const deck = $("pptAiDeck").files[0]; if (deck) refs.push(`参考 PPT：${deck.name}`);
       const images = await readImages();
-      const res = await fetch("/api/ppt/plan", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ title, style:$("pptAiStyle").value, pageCount:Number($("pptAiPages").value), references:refs, images }) });
+      const pageCount = Math.min(20, Math.max(3, Number($("pptAiPages").value) || 5)); $("pptAiPages").value = pageCount;
+      const res = await fetch("/api/ppt/plan", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ title, style:$("pptAiStyle").value.trim(), textModel:$("pptAiTextModel").value, pageCount, references:refs, images }) });
       if (!res.ok) throw new Error(await res.text()); currentPlan = await res.json();
       $("pptAiOutlineList").innerHTML = (currentPlan.pages || []).map((p, i) => `<div class="ppt-ai-outline-item"><strong>${i + 1}. ${p.title}</strong><span>${(p.bullets || []).join(" · ")}</span></div>`).join(""); form.hidden = true; outline.hidden = false;
     } catch (e) { alert("大纲生成失败：" + e.message); } finally { button.disabled = false; button.textContent = "生成大纲"; }

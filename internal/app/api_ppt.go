@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	genppt "github.com/CoolBanHub/genppt"
 	"image"
 	"image/draw"
 	_ "image/gif"
@@ -17,6 +16,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	genppt "github.com/CoolBanHub/genppt"
 )
 
 type pptPlanPage struct {
@@ -36,8 +37,7 @@ type pptPlan struct {
 	Pages      []pptPlanPage `json:"pages"`
 }
 
-// handlePPTPlan creates a confirmation-ready brief. It deliberately has no
-// provider dependency: the same contract can later be filled by an LLM.
+// handlePPTPlan creates a confirmation-ready brief with the selected text model.
 func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -63,34 +63,65 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		style = "现代商务"
 	}
 	n := in.PageCount
-	if n < 3 {
-		n = 5
+	if n < 0 {
+		n = 1
 	}
-	if n > 20 {
-		n = 20
+	if n > 50 {
+		n = 50
 	}
-	pages := make([]pptPlanPage, 0, n)
-	for i := 0; i < n; i++ {
-		p := pptPlanPage{Layout: "content"}
-		switch i {
-		case 0:
-			p.Title = title
-			p.Layout = "title"
-			p.Bullets = []string{"背景与目标", "核心价值主张"}
-		case 1:
-			p.Title = "现状与机会"
-			p.Bullets = []string{"关键问题与用户痛点", "市场机会与趋势"}
-		case n - 1:
-			p.Title = "行动计划"
-			p.Bullets = []string{"近期里程碑", "下一步与衡量指标"}
-		default:
-			p.Title = fmt.Sprintf("核心方案 %d", i-1)
-			p.Bullets = []string{"解决方案要点", "预期收益与差异化"}
+	model := strings.TrimSpace(in.TextModel)
+	if model == "" && s.clientOpts.model != nil {
+		model = strings.TrimSpace(*s.clientOpts.model)
+	}
+	if model == "" {
+		writeError(w, http.StatusBadRequest, "textModel is required")
+		return
+	}
+	c, err := s.clientOpts.newClient()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer c.Close()
+	prompt := fmt.Sprintf(`请为“%s”设计一份 PPT 大纲。内容要求：%s。目标受众：%s。页数：%d 页。视觉风格：%s。
+只返回严格 JSON，不要 Markdown 代码块或额外文字。格式：{"pages":[{"title":"页面标题","bullets":["要点1","要点2"],"layout":"title|content","imagePrompt":"配图描述"}]}。必须恰好返回 %d 页，第一页为 title 布局。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.Audience), n, style, n)
+	resp, err := c.createResponse(r.Context(), responseRequest{Model: model, Input: prompt})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if resp == nil {
+		writeError(w, http.StatusBadGateway, "text model returned empty response")
+		return
+	}
+	var generated struct {
+		Pages []pptPlanPage `json:"pages"`
+	}
+	text := strings.TrimSpace(resp.text())
+	text = strings.TrimPrefix(strings.TrimSuffix(text, "```"), "```json")
+	if start, end := strings.Index(text, "{"), strings.LastIndex(text, "}"); start >= 0 && end > start {
+		text = text[start : end+1]
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &generated); err != nil || len(generated.Pages) == 0 {
+		writeError(w, http.StatusBadGateway, "text model returned invalid PPT outline")
+		return
+	}
+	if len(generated.Pages) > n {
+		generated.Pages = generated.Pages[:n]
+	}
+	for i := range generated.Pages {
+		if strings.TrimSpace(generated.Pages[i].Title) == "" {
+			generated.Pages[i].Title = fmt.Sprintf("第 %d 页", i+1)
 		}
-		p.ImagePrompt = p.Title + "，" + style + "风格的简洁插画"
-		pages = append(pages, p)
+		if generated.Pages[i].ImagePrompt == "" {
+			generated.Pages[i].ImagePrompt = generated.Pages[i].Title + "，" + style + "风格的简洁插画"
+		}
+		if i == 0 {
+			generated.Pages[i].Layout = "title"
+		}
 	}
-	writeJSON(w, 200, pptPlan{Title: title, Style: style, TextModel: strings.TrimSpace(in.TextModel), ImageModel: strings.TrimSpace(in.ImageModel), Audience: strings.TrimSpace(in.Audience), References: in.References, Images: in.Images, Pages: pages})
+	pages := generated.Pages
+	writeJSON(w, 200, pptPlan{Title: title, Style: style, TextModel: model, ImageModel: strings.TrimSpace(in.ImageModel), Audience: strings.TrimSpace(in.Audience), References: in.References, Images: in.Images, Pages: pages})
 }
 
 func illustrationDataURL(label string) string {
