@@ -69,8 +69,14 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     if (!r.ok) throw Error("请求失败（" + r.status + "）");
     return r
   }, icon = n => h("i", { "data-lucide": n });
+  const pptReferences = () => ({ text: document.querySelector("#pptReferenceText")?.value || "", images: [...(document.querySelector("#pptReferenceImages")?.files || [])], deck: document.querySelector("#pptReferenceDeck")?.files?.[0] || null });
+  const referenceStatus = () => { const r = pptReferences(), el = document.querySelector("#pptReferenceStatus"); if (el) el.textContent = [r.images.length ? `${r.images.length} 张图片` : "", r.deck ? r.deck.name : ""].filter(Boolean).join(" · "); };
+  document.querySelector("#pptReferenceImages")?.addEventListener("change", referenceStatus);
+  document.querySelector("#pptReferenceDeck")?.addEventListener("change", referenceStatus);
+  setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: [], future: [] }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: [], future: [] }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
+    useEffect(() => { const onGenerated = ev => { if (!ev.detail) return; setDeck(normalizeDeck(ev.detail)); history.current = { past: [], future: [] }; setSlide(0); setSelected(null); }; const onPage = ev => setDeck(d => { if (!d) return d; const n = structuredClone(d), at = Math.max(0, Math.min(slide, n.slides.length - 1)); if (ev.detail === "add") n.slides.splice(at + 1, 0, { id: "slide-" + Date.now(), layout: "content", elements: [] }); if (ev.detail === "duplicate") n.slides.splice(at + 1, 0, structuredClone({ ...n.slides[at], id: "slide-" + Date.now() })); if (ev.detail === "delete" && n.slides.length > 1) n.slides.splice(at, 1); return n; }); addEventListener("ppt:generated", onGenerated); addEventListener("ppt:page", onPage); return () => { removeEventListener("ppt:generated", onGenerated); removeEventListener("ppt:page", onPage); }; }, [slide]);
     const trackedSetDeck = fn => setDeck(d => {
       const n = typeof fn === "function" ? fn(d) : fn;
       if (!d || !n || n === d) return n;
@@ -107,14 +113,27 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     const generate = async () => {
       setBusy(true);
       try {
-        const r = await api("/api/ppt/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: topic, theme }) });
+        const refs = pptReferences();
+        const r = await api("/api/ppt/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: topic, theme, references: refs.text ? [refs.text] : [] }) });
         setDeck(await r.json());
         history.current = { past: [], future: [] };
         setSlide(0);
         setSelected(null)
       } catch (e) { alert("生成草稿失败：" + e.message) } finally { setBusy(false) }
     };
-    useEffect(() => { generate() }, []);
+    const generateApproved = async () => {
+      if (!plan) return;
+      setBusy(true);
+      try {
+        const r = await api("/api/ppt/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(plan) });
+        setDeck(await r.json());
+        history.current = { past: [], future: [] };
+        setSlide(0);
+        setSelected(null)
+        setPlan(null);
+      } catch (e) { alert("生成 PPT 失败：" + e.message) } finally { setBusy(false) }
+    };
+    // Start with an empty canvas; the AI 制作入口 is the explicit creation flow.
     useEffect(() => { window.lucide && window.lucide.createIcons() });
     const insertImage = data => {
       if (!deck || !data) return;

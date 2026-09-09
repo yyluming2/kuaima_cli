@@ -1,5 +1,15 @@
 # PPT JSON DSL
 
+## AI 生成流程 API
+
+工作台提供两阶段接口，客户端可以先让用户确认方案，再生成可编辑 PPT：
+
+- `GET /api/ipricing`：获取可用模型列表，其中 `data.text` 用于文案/大纲模型，`data.img` 用于图片模型；前端可将选中的模型名传入下方接口。
+- `POST /api/ppt/plan`：请求体支持 `title`、`style`、`audience`、`textModel`、`imageModel`、`references[]`、`images[]`、`pageCount`，返回包含 `pages[]`（标题、要点、布局和插画提示词）的方案。
+- `POST /api/ppt/generate`：提交确认后的方案，返回本 DSL 的完整 `Presentation`。每页会优先使用对应的 `images[]`，缺少图片时生成内置 SVG 插画占位，后续可替换为图片模型产物。
+
+这样 UI 或第三方客户端都可以在“确认风格/大纲”和“一键生成”之间插入人工编辑，而不需要改变 PPT 编辑器数据模型。
+
 PPT 编辑器、PPTX 导入和 PPTX 导出共用这一份 JSON 数据模型。坐标单位是逻辑像素，默认画布为 `1280 x 720`（16:9）。
 
 ## 设计约定

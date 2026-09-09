@@ -15,8 +15,130 @@ import (
 	"kuaima_cli/internal/ppt"
 	"kuaima_cli/internal/ppt/pptximport"
 	"net/http"
+	"net/url"
 	"strings"
 )
+
+type pptPlanPage struct {
+	Title       string   `json:"title"`
+	Bullets     []string `json:"bullets,omitempty"`
+	Layout      string   `json:"layout,omitempty"`
+	ImagePrompt string   `json:"imagePrompt,omitempty"`
+}
+type pptPlan struct {
+	Title      string        `json:"title"`
+	Style      string        `json:"style"`
+	TextModel  string        `json:"textModel,omitempty"`
+	ImageModel string        `json:"imageModel,omitempty"`
+	Audience   string        `json:"audience,omitempty"`
+	References []string      `json:"references,omitempty"`
+	Images     []string      `json:"images,omitempty"`
+	Pages      []pptPlanPage `json:"pages"`
+}
+
+// handlePPTPlan creates a confirmation-ready brief. It deliberately has no
+// provider dependency: the same contract can later be filled by an LLM.
+func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		Title, Style, Audience string
+		TextModel              string `json:"textModel"`
+		ImageModel             string `json:"imageModel"`
+		References, Images     []string
+		PageCount              int `json:"pageCount"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		title = "产品介绍"
+	}
+	style := strings.TrimSpace(in.Style)
+	if style == "" {
+		style = "现代商务"
+	}
+	n := in.PageCount
+	if n < 3 {
+		n = 5
+	}
+	if n > 20 {
+		n = 20
+	}
+	pages := make([]pptPlanPage, 0, n)
+	for i := 0; i < n; i++ {
+		p := pptPlanPage{Layout: "content"}
+		switch i {
+		case 0:
+			p.Title = title
+			p.Layout = "title"
+			p.Bullets = []string{"背景与目标", "核心价值主张"}
+		case 1:
+			p.Title = "现状与机会"
+			p.Bullets = []string{"关键问题与用户痛点", "市场机会与趋势"}
+		case n - 1:
+			p.Title = "行动计划"
+			p.Bullets = []string{"近期里程碑", "下一步与衡量指标"}
+		default:
+			p.Title = fmt.Sprintf("核心方案 %d", i-1)
+			p.Bullets = []string{"解决方案要点", "预期收益与差异化"}
+		}
+		p.ImagePrompt = p.Title + "，" + style + "风格的简洁插画"
+		pages = append(pages, p)
+	}
+	writeJSON(w, 200, pptPlan{Title: title, Style: style, TextModel: strings.TrimSpace(in.TextModel), ImageModel: strings.TrimSpace(in.ImageModel), Audience: strings.TrimSpace(in.Audience), References: in.References, Images: in.Images, Pages: pages})
+}
+
+func illustrationDataURL(label string) string {
+	label = strings.ReplaceAll(strings.ReplaceAll(label, "&", "&amp;"), "<", "&lt;")
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="800" height="450" rx="28" fill="url(#g)"/><circle cx="650" cy="110" r="90" fill="#fff" opacity=".18"/><circle cx="710" cy="300" r="140" fill="#fff" opacity=".12"/><text x="48" y="370" fill="white" font-family="Arial,sans-serif" font-size="34">%s</text></svg>`, label)
+	return "data:image/svg+xml," + url.PathEscape(svg)
+}
+
+// handlePPTGenerate turns an approved plan into the editor's canonical model.
+func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var plan pptPlan
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&plan); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	if strings.TrimSpace(plan.Title) == "" || len(plan.Pages) == 0 {
+		writeError(w, 400, "title and pages are required")
+		return
+	}
+	p := ppt.New16x9(plan.Title)
+	p.Theme.Name = plan.Style
+	if strings.Contains(strings.ToLower(plan.Style), "深") {
+		p.Theme.Background = "#0F172A"
+		p.Theme.Foreground = "#F8FAFC"
+		p.Theme.Accent = "#38BDF8"
+	}
+	for i, page := range plan.Pages {
+		elems := []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", i+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: page.Title, Style: map[string]any{"fontSize": 36, "fontWeight": 700, "color": p.Theme.Foreground}}}
+		body := strings.Join(page.Bullets, "\n")
+		elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-body", i+1), Type: "text", X: 92, Y: 164, Width: 650, Height: 360, Content: body, Style: map[string]any{"fontSize": 26, "lineHeight": 1.5, "color": p.Theme.Foreground}})
+		asset := ""
+		if i < len(plan.Images) {
+			asset = plan.Images[i]
+		}
+		if asset == "" && page.ImagePrompt != "" {
+			asset = illustrationDataURL(page.ImagePrompt)
+		}
+		if asset != "" {
+			elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-image", i+1), Type: "image", X: 790, Y: 170, Width: 400, Height: 300, AssetURL: asset, Style: map[string]any{"background": "transparent"}})
+		}
+		p.Slides = append(p.Slides, ppt.Slide{ID: fmt.Sprintf("slide-%d", i+1), Layout: page.Layout, Elements: elems})
+	}
+	writeJSON(w, 200, p)
+}
 
 func styleString(m map[string]any, key string) string {
 	if m == nil {
@@ -242,8 +364,9 @@ func (s *webUIServer) handlePPTDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Title string `json:"title"`
-		Theme string `json:"theme"`
+		Title      string   `json:"title"`
+		Theme      string   `json:"theme"`
+		References []string `json:"references"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	p := ppt.New16x9(in.Title)

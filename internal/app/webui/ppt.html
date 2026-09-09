@@ -7,6 +7,21 @@
 <script src="/react.production.min.js"></script>
 <script src="/react-dom.production.min.js"></script>
 
-<body><div id="app"></div><script src="/app-icons.js"></script><script src="/ppt.js"></script></body>
+<body>
+<div class="ppt-ai-entry"><button id="pptAiOpen" class="ppt-ai-button">✦ AI 制作 PPT</button></div>
+<div id="pptAiModal" class="ppt-ai-modal" hidden>
+  <div class="ppt-ai-dialog">
+    <div class="ppt-ai-head"><div><h2>AI 制作 PPT</h2><p>先确认内容大纲和视觉风格，再开始生成</p></div><button id="pptAiClose" class="ppt-ai-close">×</button></div>
+    <div id="pptAiForm">
+      <label>主题<input id="pptAiTitle" placeholder="例如：2026 年产品发布会"></label>
+      <label>内容要求<textarea id="pptAiBrief" rows="4" placeholder="告诉 AI 你想讲什么、面向谁、有哪些重点"></textarea></label>
+      <div class="ppt-ai-grid"><label>页数范围<select id="pptAiPages"><option value="5">5 页</option><option value="8">8 页</option><option value="10">10 页</option><option value="15">15 页</option></select></label><label>风格<select id="pptAiStyle"><option>现代商务</option><option>极简留白</option><option>科技深色</option><option>活泼创意</option><option>品牌发布</option></select></label></div>
+      <div class="ppt-ai-grid"><label class="ppt-file">上传参考图片<input id="pptAiImages" type="file" accept="image/*" multiple><small id="pptAiImageHint">可多选</small></label><label class="ppt-file">使用参考 PPT<input id="pptAiDeck" type="file" accept=".pptx,.json"><small id="pptAiDeckHint">可选</small></label></div>
+      <div class="ppt-ai-actions"><button id="pptAiPlan" class="ppt-ai-primary">生成大纲</button><button id="pptAiCancel">取消</button></div>
+    </div>
+    <div id="pptAiOutline" hidden><h3>请确认生成方案</h3><div id="pptAiOutlineList"></div><div class="ppt-ai-actions"><button id="pptAiBack">返回修改</button><button id="pptAiGenerate" class="ppt-ai-primary">确认并生成 PPT</button></div></div>
+  </div>
+</div>
+<div id="app"></div><script src="/app-icons.js"></script><script src="/ppt.js"></script><script src="/ppt-ai.js"></script></body>
 
 </html>
