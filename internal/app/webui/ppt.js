@@ -12,7 +12,7 @@
   // PPTX import are fallbacks only, so re-rendering cannot undo an edit.
   const visualStyle = (e, st = {}) => { const out = {}; const f = e && e.fill, l = e && e.line, t = e && e.textStyle, g = e && e.geometry; if (f && st.background == null) { if (f.type === "solid" && f.color) out.background = f.color.rgb || f.color.css || "transparent"; else if (f.type === "gradient" && f.gradient && f.gradient.stops) out.background = `linear-gradient(${Number(f.gradient.angle) || 0}deg,${f.gradient.stops.map(x => `${x.color.rgb || x.color.css || "#000"} ${Number(x.position) || 0}%`).join(",")})`; else if (f.type === "none") out.background = "transparent"; } if (l && st.border == null && l.color && l.color.type !== "none") out.border = `${Number(l.width) || 1}px ${l.dash && /dot/i.test(l.dash) ? "dotted" : l.dash && l.dash !== "solid" ? "dashed" : "solid"} ${l.color.rgb || l.color.css || "#64748b"}`; if (t) { if (st.fontFamily == null && t.fontFamily) out.fontFamily = t.fontFamily; if (st.fontSize == null && t.fontSize) out.fontSize = t.fontSize; if (st.bold == null && t.bold != null) out.bold = t.bold; if (st.italic == null && t.italic != null) out.italic = t.italic; if (st.underline == null && t.underline != null) out.underline = t.underline; if (st.lineHeight == null && t.lineHeight) out.lineHeight = t.lineHeight; if (st.align == null && t.align) out.align = t.align; } if (g && g.type && st.shape == null) out.shape = g.preset || g.type; if (e && (e.flipH || e.flipV)) out.transform = `${e.flipH ? "scaleX(-1) " : ""}${e.flipV ? "scaleY(-1)" : ""}`.trim(); if (e && e.effects) { if (st.shadow == null) out.shadow = e.effects.shadow || undefined; if (st.boxShadow == null && e.effects.innerShadow) out.boxShadow = e.effects.innerShadow; } return out; };
   const canonicalStyle = e => ({ ...defaults, ...(e && e.style || {}), ...visualStyle(e, e && e.style || {}) });
-  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach(s => (s.elements || []).forEach(e => { e.style = canonicalStyle(e); })); return n; };
+  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach((s, i) => { if (!s.id) s.id = "slide-" + (i + 1); (s.elements || []).forEach(e => { e.style = canonicalStyle(e); }); }); return n; };
   const textAlign = value => ({ l: "left", ctr: "center", r: "right", just: "justify", dist: "justify", thaiDist: "justify" }[String(value || "").toLowerCase()] || value || undefined);
   const textRuns = (e, base, scale = 1) => {
     const runs = Array.isArray(e && e.textRuns) ? e.textRuns : [];
@@ -77,14 +77,19 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
   document.querySelector("#pptReferenceDeck")?.addEventListener("change", referenceStatus);
   setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: [], future: [] }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
-    useEffect(() => { const onGenerated = ev => { if (!ev.detail) return; setDeck(normalizeDeck(ev.detail)); history.current = { past: [], future: [] }; setSlide(0); setSelected(null); }; const onPage = ev => setDeck(d => { if (!d) return d; const n = structuredClone(d), at = Math.max(0, Math.min(slide, n.slides.length - 1)); if (ev.detail === "add") n.slides.splice(at + 1, 0, { id: "slide-" + Date.now(), layout: "content", elements: [] }); if (ev.detail === "duplicate") n.slides.splice(at + 1, 0, structuredClone({ ...n.slides[at], id: "slide-" + Date.now() })); if (ev.detail === "delete" && n.slides.length > 1) n.slides.splice(at, 1); return n; }); const onImagePage = async ev => { const index = Number(ev.detail); if (!deck || !Number.isInteger(index) || index < 0 || index >= deck.slides.length) return; setBusy(true); try { const r = await api("/api/ppt/images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ presentation: deck, slideIndex: index }) }); const out = await r.json(); if (out.presentation) { history.current.past.push(structuredClone(deck)); setDeck(normalizeDeck(out.presentation)); setSlide(index); } if (out.errors?.length) alert("配图生成失败：" + out.errors.join("\n")); } catch (e) { alert("配图生成失败，文字内容已保留：" + e.message); } finally { setBusy(false); } }; const onAIPage = async ev => { const index = Number(ev.detail); if (!deck || !Number.isInteger(index) || index < 0 || index >= deck.slides.length) return; setBusy(true); const status = document.createElement("div"); status.className = "ppt-stream-status"; status.textContent = "AI 正在流式生成本页…"; document.body.appendChild(status); try { const r = await api("/api/ppt/slide?stream=1", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "text/event-stream" }, body: JSON.stringify({ presentation: deck, slideIndex: index }) }); const out = await readSSE(r); if (!out || !out.slide) throw new Error("未返回生成页面数据"); setDeck(d => { const n = structuredClone(d); history.current.past.push(structuredClone(d)); history.current.future = []; n.slides[index] = out.slide; return n; }); setSlide(index); setSelected(null); } catch (e) { alert("AI 生成页面失败：" + e.message); } finally { status.remove(); setBusy(false); } }; addEventListener("ppt:generated", onGenerated); addEventListener("ppt:page", onPage); addEventListener("ppt:image-page", onImagePage); addEventListener("ppt:ai-page", onAIPage); return () => { removeEventListener("ppt:generated", onGenerated); removeEventListener("ppt:page", onPage); removeEventListener("ppt:image-page", onImagePage); removeEventListener("ppt:ai-page", onAIPage); }; }, [slide, deck]);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
+    const slideKey = (value, index = slide) => value?.slides?.[index]?.id || "slide-" + index;
+    const historyBucket = (value, index = slide) => { const key = slideKey(value, index), h = history.current; if (!h.past.has(key)) h.past.set(key, []); if (!h.future.has(key)) h.future.set(key, []); return { key, past: h.past.get(key), future: h.future.get(key) }; };
+    const resetHistory = () => { history.current = { past: new Map(), future: new Map() }; };
+    useEffect(() => { const onGenerated = ev => { if (!ev.detail) return; setDeck(normalizeDeck(ev.detail)); resetHistory(); setSlide(0); setSelected(null); }; const onPage = ev => setDeck(d => { if (!d) return d; const n = structuredClone(d), at = Math.max(0, Math.min(slide, n.slides.length - 1)); if (ev.detail === "add") n.slides.splice(at + 1, 0, { id: "slide-" + Date.now(), layout: "content", elements: [] }); if (ev.detail === "duplicate") n.slides.splice(at + 1, 0, structuredClone({ ...n.slides[at], id: "slide-" + Date.now() })); if (ev.detail === "delete" && n.slides.length > 1) n.slides.splice(at, 1); return n; }); const onImagePage = async ev => { const index = Number(ev.detail); if (!deck || !Number.isInteger(index) || index < 0 || index >= deck.slides.length) return; setBusy(true); try { const r = await api("/api/ppt/images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ presentation: deck, slideIndex: index }) }); const out = await r.json(); if (out.presentation) { const bucket = historyBucket(deck, index); bucket.past.push(structuredClone(deck.slides[index])); bucket.future.length = 0; setDeck(normalizeDeck(out.presentation)); setSlide(index); } if (out.errors?.length) alert("配图生成失败：" + out.errors.join("\n")); } catch (e) { alert("配图生成失败，文字内容已保留：" + e.message); } finally { setBusy(false); } }; const onAIPage = async ev => { const index = Number(ev.detail); if (!deck || !Number.isInteger(index) || index < 0 || index >= deck.slides.length) return; setBusy(true); const status = document.createElement("div"); status.className = "ppt-stream-status"; status.textContent = "AI 正在流式生成本页…"; document.body.appendChild(status); try { const r = await api("/api/ppt/slide?stream=1", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "text/event-stream" }, body: JSON.stringify({ presentation: deck, slideIndex: index }) }); const out = await readSSE(r); if (!out || !out.slide) throw new Error("未返回生成页面数据"); setDeck(d => { const n = structuredClone(d), bucket = historyBucket(d, index); bucket.past.push(structuredClone(d.slides[index])); bucket.future.length = 0; n.slides[index] = { ...out.slide, id: d.slides[index].id || out.slide.id || "slide-" + index }; return n; }); setSlide(index); setSelected(null); } catch (e) { alert("AI 生成页面失败：" + e.message); } finally { status.remove(); setBusy(false); } }; addEventListener("ppt:generated", onGenerated); addEventListener("ppt:page", onPage); addEventListener("ppt:image-page", onImagePage); addEventListener("ppt:ai-page", onAIPage); return () => { removeEventListener("ppt:generated", onGenerated); removeEventListener("ppt:page", onPage); removeEventListener("ppt:image-page", onImagePage); removeEventListener("ppt:ai-page", onAIPage); }; }, [slide, deck]);
     const trackedSetDeck = fn => setDeck(d => {
       const n = typeof fn === "function" ? fn(d) : fn;
       if (!d || !n || n === d) return n;
-      history.current.past.push(structuredClone(d));
-      if (history.current.past.length > 100) history.current.past.shift();
-      history.current.future = [];
+      if (d?.slides?.[slide] && n?.slides?.[slide] && JSON.stringify(d.slides[slide]) !== JSON.stringify(n.slides[slide])) {
+        const bucket = historyBucket(d); bucket.past.push(structuredClone(d.slides[slide]));
+        if (bucket.past.length > 100) bucket.past.shift();
+        bucket.future.length = 0;
+      }
       return n;
     });
     const update = (fn, targetId = selected, track = true) => (track ? trackedSetDeck : setDeck)(d => {
@@ -100,8 +105,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     const pageJsonSnapshot = deck ? { ...deck, slides: (deck.slides || []).slice(slide, slide + 1) } : null;
     useEffect(() => { if (showJson) setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)); }, [showJson, selected, slide, deck]);
     useEffect(() => { const onWheel = ev => { const target = ev.target; if (!target || !target.closest || !target.closest('.canvas-wrap')) return; if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); ev.stopPropagation(); setZoom(z => Math.max(.25, Math.min(2, +(z + (ev.deltaY < 0 ? .1 : -.1)).toFixed(2)))); return; } ev.preventDefault(); if (wheelLock.current) return; wheelLock.current = true; setSlide(i => Math.max(0, Math.min((deck?.slides?.length || 1) - 1, i + (ev.deltaY > 0 ? 1 : -1)))); setSelected(null); setTimeout(() => { wheelLock.current = false; }, 180); }; document.addEventListener('wheel', onWheel, { passive: false, capture: true }); return () => document.removeEventListener('wheel', onWheel, { capture: true }); }, [deck]);
-    const undo = () => { const h = history.current; if (!h.past.length) return; setDeck(d => { const prev = h.past.pop(); h.future.push(structuredClone(d)); return prev; }); setSelected(null); setEditing(null); };
-    const redo = () => { const h = history.current; if (!h.future.length) return; setDeck(d => { const next = h.future.pop(); h.past.push(structuredClone(d)); return next; }); setSelected(null); setEditing(null); };
+    const undo = () => setDeck(d => { if (!d?.slides?.[slide]) return d; const bucket = historyBucket(d); if (!bucket.past.length) return d; bucket.future.push(structuredClone(d.slides[slide])); const n = structuredClone(d); n.slides[slide] = bucket.past.pop(); setSelected(null); setEditing(null); return n; });
+    const redo = () => setDeck(d => { if (!d?.slides?.[slide]) return d; const bucket = historyBucket(d); if (!bucket.future.length) return d; bucket.past.push(structuredClone(d.slides[slide])); const n = structuredClone(d); n.slides[slide] = bucket.future.pop(); setSelected(null); setEditing(null); return n; });
     useEffect(() => {
       if (!editing || !editRef.current) return;
       editRef.current.focus();
@@ -119,8 +124,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       try {
         const refs = pptReferences();
         const r = await api("/api/ppt/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: topic, theme, references: refs.text ? [refs.text] : [] }) });
-        setDeck(await r.json());
-        history.current = { past: [], future: [] };
+        setDeck(normalizeDeck(await r.json()));
+        resetHistory();
         setSlide(0);
         setSelected(null)
       } catch (e) { alert("生成草稿失败：" + e.message) } finally { setBusy(false) }
@@ -130,8 +135,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       setBusy(true);
       try {
         const r = await api("/api/ppt/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(plan) });
-        setDeck(await r.json());
-        history.current = { past: [], future: [] };
+        setDeck(normalizeDeck(await r.json()));
+        resetHistory();
         setSlide(0);
         setSelected(null)
         setPlan(null);
@@ -178,7 +183,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       const file = ev.target.files?.[0]; ev.target.value = "";
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = async () => { try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(normalizeDeck(value)); history.current = { past: [], future: [] }; setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
+      reader.onload = async () => { try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(normalizeDeck(value)); resetHistory(); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } };
       reader.readAsArrayBuffer(file);
     };
     useEffect(() => {
@@ -239,9 +244,10 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
         const operation = drag.current || resize.current;
         if (operation?.before) setDeck(d => {
           if (JSON.stringify(operation.before) !== JSON.stringify(d)) {
-            history.current.past.push(operation.before);
-            if (history.current.past.length > 100) history.current.past.shift();
-            history.current.future = [];
+            const bucket = historyBucket(operation.before);
+            bucket.past.push(structuredClone(operation.before.slides[slide]));
+            if (bucket.past.length > 100) bucket.past.shift();
+            bucket.future.length = 0;
           }
           return d;
         });
