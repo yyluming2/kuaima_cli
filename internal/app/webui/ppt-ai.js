@@ -59,6 +59,6 @@
     if (!currentPlan) return; readOutline(); const button = $("pptAiGenerate"); button.disabled = true; button.textContent = "正在生成…";
     currentPlan.accentColor = $("pptAiAccent").value; currentPlan.backgroundColor = $("pptAiBackground").value; currentPlan.unifiedBackground = $("pptAiUnified").checked; currentPlan.styleReference = await readOne($("pptAiStyleImage").files[0]);
     progressState("已确认风格，正在生成全部页面");
-    try { const res = await fetch("/api/ppt/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(currentPlan) }); if (!res.ok) throw new Error(await res.text()); $("pptAiProgressText").textContent = "页面生成完成，正在载入编辑器"; window.dispatchEvent(new CustomEvent("ppt:generated", { detail: await res.json() })); show(false); } catch (e) { alert("PPT 生成失败：" + e.message); styleStep.hidden = false; progress.hidden = true; } finally { button.disabled = false; button.textContent = "确认风格并生成全部 PPT"; }
+    try { const res = await fetch("/api/ppt/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(currentPlan) }); if (!res.ok) throw new Error(await res.text()); $("pptAiProgressText").textContent = "页面生成完成，正在载入编辑器"; window.dispatchEvent(new CustomEvent("ppt:generated", { detail: await res.json() })); show(false); } catch (e) { alert("PPT 生成失败：" + e.message); styleStep.hidden = false; progress.hidden = true; } finally { button.disabled = false; button.textContent = "下一步"; }
   };
 })();

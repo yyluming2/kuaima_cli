@@ -15,6 +15,8 @@ import (
 	"kuaima_cli/internal/ppt/pptximport"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	genppt "github.com/CoolBanHub/genppt"
@@ -207,7 +209,7 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 		p.Theme.Accent = plan.AccentColor
 	}
 	for i, page := range plan.Pages {
-		elems := []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", i+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: page.Title, Style: map[string]any{"fontSize": 36, "fontWeight": 700, "color": p.Theme.Foreground}}}
+		elems := []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", i+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: page.Title, Style: map[string]any{"fontSize": 36, "fontWeight": 700, "color": p.Theme.Accent}}}
 		body := strings.Join(page.Bullets, "\n")
 		elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-body", i+1), Type: "text", X: 92, Y: 164, Width: 650, Height: 360, Content: body, Style: map[string]any{"fontSize": 26, "lineHeight": 1.5, "color": p.Theme.Foreground}})
 		asset := ""
@@ -257,15 +259,53 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 			body = e.Content
 		}
 	}
+	streamMode := r.URL.Query().Get("stream") == "1" || strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
+	var stream *webUIEventStream
+	if streamMode {
+		stream = newWebUIEventStream(w)
+		stream.send("status", map[string]string{"message": "正在生成本页内容…"})
+	}
 	if model != "" {
 		if c, err := s.clientOpts.newClient(); err == nil {
 			defer c.Close()
 			prompt := fmt.Sprintf(`为 PPT 第 %d 页重新设计具体视觉布局。当前标题：%s。当前内容：%s。主题：%s；背景色：%s；强调色：%s。必须保留当前主题和内容含义，只重新安排版式并补充配图描述。只返回 JSON：{"layout":"content|split|hero|timeline","title":"标题","bullets":["要点"],"imagePrompt":"配图描述"}。`, in.SlideIndex+1, title, body, in.Presentation.Theme.Name, in.Presentation.Theme.Background, in.Presentation.Theme.Accent)
-			if resp, err := c.createResponse(r.Context(), responseRequest{Model: model, Input: prompt}); err == nil && resp != nil {
+			var resp *responsePayload
+			var genErr error
+			if streamMode {
+				resp, genErr = c.createResponseStream(r.Context(), responseRequest{Model: model, Input: prompt}, stream.textWriter())
+			} else {
+				resp, genErr = c.createResponse(r.Context(), responseRequest{Model: model, Input: prompt})
+			}
+			if genErr != nil {
+				if streamMode {
+					stream.send("error", map[string]string{"error": genErr.Error()})
+					return
+				}
+				writeError(w, http.StatusBadGateway, genErr.Error())
+				return
+			}
+			if resp == nil {
+				if streamMode {
+					stream.send("error", map[string]string{"error": "text model returned empty response"})
+					return
+				}
+				writeError(w, http.StatusBadGateway, "text model returned empty response")
+				return
+			}
+			{
 				var out pptPlanPage
 				text := strings.TrimSpace(resp.text())
+				validOut := false
 				if a, b := strings.Index(text, "{"), strings.LastIndex(text, "}"); a >= 0 && b > a {
-					_ = json.Unmarshal([]byte(text[a:b+1]), &out)
+					validOut = json.Unmarshal([]byte(text[a:b+1]), &out) == nil
+				}
+				if !validOut {
+					if streamMode {
+						stream.send("error", map[string]string{"error": "text model returned invalid slide data"})
+						return
+					}
+					writeError(w, http.StatusBadGateway, "text model returned invalid slide data")
+					return
 				}
 				if out.Title != "" {
 					title = out.Title
@@ -284,28 +324,41 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 					imageModel = strings.TrimSpace(*s.clientOpts.imageModel)
 				}
 				if imageModel != "" && out.ImagePrompt != "" && len(page.Elements) > 0 {
-					if imgResp, imgErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: out.ImagePrompt, N: 1, Size: "1024x1024"}); imgErr == nil && imgResp != nil {
-						for _, item := range imgResp.Output {
-							if item.Result != "" {
-								page.Elements[len(page.Elements)-1].AssetURL = strings.TrimSpace(item.Result)
-								if !strings.HasPrefix(item.Result, "data:") && !strings.HasPrefix(item.Result, "http") {
-									page.Elements[len(page.Elements)-1].AssetURL = "data:image/png;base64," + item.Result
-								}
-								break
+					if imgResp, imgErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: out.ImagePrompt, N: 1, Size: "1024x1024"}); imgErr != nil {
+						if streamMode {
+							stream.send("error", map[string]string{"error": imgErr.Error()})
+							return
+						}
+					} else if imgResp != nil {
+						if saved, saveErr := saveImagesFromResponse(r.Context(), c.httpClient, imgResp, s.saveDirectory(), false, ""); saveErr != nil {
+							if streamMode {
+								stream.send("error", map[string]string{"error": "保存生成图片失败: " + saveErr.Error()})
+								return
 							}
-							for _, content := range item.Content {
-								if content.ImageURL != "" {
-									page.Elements[len(page.Elements)-1].AssetURL = content.ImageURL
-									break
-								}
-							}
+							writeError(w, http.StatusInternalServerError, "保存生成图片失败: "+saveErr.Error())
+							return
+						} else if urls := s.publicImageURLs(saved, s.saveDirectory()); len(urls) > 0 {
+							page.Elements[len(page.Elements)-1].AssetURL = urls[0]
 						}
 					}
 				}
 			}
+		} else if streamMode {
+			stream.send("error", map[string]string{"error": err.Error()})
+			return
+		} else {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
 		}
+	} else if streamMode {
+		stream.send("error", map[string]string{"error": "text model is not configured"})
+		return
 	}
 	in.Presentation.Slides[in.SlideIndex] = page
+	if streamMode {
+		stream.send("done", map[string]any{"slide": page, "slideIndex": in.SlideIndex})
+		return
+	}
 	writeJSON(w, 200, map[string]any{"slide": page, "slideIndex": in.SlideIndex})
 }
 
@@ -910,19 +963,27 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				to.FirstRowFill = styleString(e.Style, "firstRowFill")
 				sl.AddTable(rows, to)
 			} else if e.Type == "image" && e.AssetURL != "" {
+				var data []byte
+				var readErr error
 				if i := strings.Index(e.AssetURL, ","); i >= 0 {
-					if data, err := base64.StdEncoding.DecodeString(e.AssetURL[i+1:]); err == nil {
-						original := data
-						data = cropImageData(data, e.Style)
-						x, y, w, h := e.X/ppt.LogicalDPI, e.Y/ppt.LogicalDPI, e.Width/ppt.LogicalDPI, e.Height/ppt.LogicalDPI
-						// Cropped images are already normalized to the visible frame;
-						// preserve that frame exactly. For uncropped images retain the
-						// editor's contain behavior.
-						if bytes.Equal(original, data) {
-							x, y, w, h = fitImageBox(data, x, y, w, h)
-						}
-						sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data, Rotate: e.Rotation})
+					data, readErr = base64.StdEncoding.DecodeString(e.AssetURL[i+1:])
+				} else if strings.HasPrefix(e.AssetURL, "/outputs/") {
+					rel := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(e.AssetURL, "/outputs/")))
+					if rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+						data, readErr = os.ReadFile(filepath.Join(s.saveDirectory(), rel))
 					}
+				}
+				if readErr == nil && len(data) > 0 {
+					original := data
+					data = cropImageData(data, e.Style)
+					x, y, w, h := e.X/ppt.LogicalDPI, e.Y/ppt.LogicalDPI, e.Width/ppt.LogicalDPI, e.Height/ppt.LogicalDPI
+					// Cropped images are already normalized to the visible frame;
+					// preserve that frame exactly. For uncropped images retain the
+					// editor's contain behavior.
+					if bytes.Equal(original, data) {
+						x, y, w, h = fitImageBox(data, x, y, w, h)
+					}
+					sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data, Rotate: e.Rotation})
 				}
 			}
 		}
