@@ -23,10 +23,21 @@ import (
 )
 
 type pptPlanPage struct {
-	Title       string   `json:"title"`
-	Bullets     []string `json:"bullets,omitempty"`
-	Layout      string   `json:"layout,omitempty"`
-	ImagePrompt string   `json:"imagePrompt,omitempty"`
+	Title       string         `json:"title"`
+	Bullets     []string       `json:"bullets,omitempty"`
+	Layout      string         `json:"layout,omitempty"`
+	ImagePrompt string         `json:"imagePrompt,omitempty"`
+	Blocks      []pptPlanBlock `json:"blocks,omitempty"`
+}
+type pptPlanBlock struct {
+	Type        string  `json:"type"` // text or image
+	Role        string  `json:"role,omitempty"`
+	X           float64 `json:"x"`
+	Y           float64 `json:"y"`
+	Width       float64 `json:"width"`
+	Height      float64 `json:"height"`
+	Content     string  `json:"content,omitempty"`
+	ImagePrompt string  `json:"imagePrompt,omitempty"`
 }
 type pptPlan struct {
 	Title             string        `json:"title"`
@@ -42,6 +53,13 @@ type pptPlan struct {
 	UnifiedBackground bool          `json:"unifiedBackground,omitempty"`
 	StyleReference    string        `json:"styleReference,omitempty"`
 }
+
+// pptPlanDSL is intentionally small: the text model only needs to describe
+// editable copy, layout and an optional image brief. Rendering details belong
+// to the server-side Presentation DSL.
+const pptPlanDSL = `PPT DSL（仅输出 JSON，不要代码块）：
+{"pages":[{"title":"页面标题","layout":"split","blocks":[{"type":"text","role":"title","x":0.06,"y":0.08,"width":0.88,"height":0.12,"content":"页面标题"},{"type":"text","role":"body","x":0.08,"y":0.28,"width":0.42,"height":0.48,"content":"要点1\n要点2"},{"type":"image","role":"hero","x":0.56,"y":0.20,"width":0.36,"height":0.60,"imagePrompt":"主体、构图和风格"}]}]}
+约束：坐标和尺寸使用 0~1 的页面比例；blocks 描述完整图文排版，type 只能是 text 或 image；text 必须有 content，image 必须有 imagePrompt；role 可用 title、body、caption、hero、icon；layout 可用 title、content、split、hero、timeline。imagePrompt 只描述画面，不包含需要渲染的文字。`
 
 // handlePPTPlan creates a confirmation-ready brief with the selected text model.
 func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
@@ -63,13 +81,7 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	title := strings.TrimSpace(in.Title)
-	if title == "" {
-		title = "产品介绍"
-	}
 	style := strings.TrimSpace(in.Style)
-	if style == "" {
-		style = "现代商务"
-	}
 	n := in.PageCount
 	if n < 3 {
 		n = 3
@@ -91,8 +103,9 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	prompt := fmt.Sprintf(`请为“%s”设计一份 PPT 大纲。内容要求：%s。目标受众：%s。页数：%d 页。视觉风格：%s。
-只返回严格 JSON，不要 Markdown 代码块或额外文字。格式：{"pages":[{"title":"页面标题","bullets":["要点1","要点2"],"layout":"title|content","imagePrompt":"配图描述"}]}。必须恰好返回 %d 页，第一页为 title 布局。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.Audience), n, style, n)
+	prompt := fmt.Sprintf(`请为“%s”生成一份单页/多页演示文稿的 PPT DSL 草案。内容要求：%s。目标受众：%s。页数：%d 页。视觉风格：%s。
+%s
+文字与图片提示词分离，先保证文字内容完整。必须恰好返回 %d 页，第一页 layout 必须为 title。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.Audience), n, style, pptPlanDSL, n)
 	streamMode := r.URL.Query().Get("stream") == "1" || strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
 	var resp *responsePayload
 	var stream *webUIEventStream
@@ -151,6 +164,19 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for i := range generated.Pages {
+		// Derive the legacy editor summary fields from the layout blocks so the
+		// outline confirmation UI can still display and edit the DSL content.
+		for _, b := range generated.Pages[i].Blocks {
+			if b.Type != "text" {
+				continue
+			}
+			if b.Role == "title" && strings.TrimSpace(generated.Pages[i].Title) == "" {
+				generated.Pages[i].Title = b.Content
+			}
+			if b.Role != "title" && strings.TrimSpace(b.Content) != "" {
+				generated.Pages[i].Bullets = append(generated.Pages[i].Bullets, strings.Split(b.Content, "\n")...)
+			}
+		}
 		if strings.TrimSpace(generated.Pages[i].Title) == "" {
 			generated.Pages[i].Title = fmt.Sprintf("第 %d 页", i+1)
 		}
@@ -209,22 +235,189 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 		p.Theme.Accent = plan.AccentColor
 	}
 	for i, page := range plan.Pages {
-		elems := []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", i+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: page.Title, Style: map[string]any{"fontSize": 36, "fontWeight": 700, "color": p.Theme.Accent}}}
-		body := strings.Join(page.Bullets, "\n")
-		elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-body", i+1), Type: "text", X: 92, Y: 164, Width: 650, Height: 360, Content: body, Style: map[string]any{"fontSize": 26, "lineHeight": 1.5, "color": p.Theme.Foreground}})
+		elems := make([]ppt.Element, 0, len(page.Blocks)+2)
+		if len(page.Blocks) > 0 {
+			for bi, block := range page.Blocks {
+				if block.Type != "text" && block.Type != "image" {
+					continue
+				}
+				x, y, w, h := block.X*p.Width, block.Y*p.Height, block.Width*p.Width, block.Height*p.Height
+				if w <= 0 {
+					w = 300
+				}
+				if h <= 0 {
+					h = 100
+				}
+				if block.Type == "text" {
+					// Editor font sizes are logical CSS pixels (128 px/in). Use
+					// 32/48 px so the exported 18/27 pt text remains readable in
+					// PowerPoint after the px-to-point conversion.
+					style := map[string]any{"fontSize": 32.0, "lineHeight": 1.5, "color": p.Theme.Foreground}
+					if block.Role == "title" {
+						style["fontSize"], style["fontWeight"], style["color"] = 48.0, 700, p.Theme.Accent
+					}
+					elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-block-%d", i+1, bi+1), Type: "text", X: x, Y: y, Width: w, Height: h, Content: block.Content, Style: style})
+				} else {
+					elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-block-%d", i+1, bi+1), Type: "image", X: x, Y: y, Width: w, Height: h, Content: block.ImagePrompt, AssetURL: illustrationDataURL(block.ImagePrompt), Style: map[string]any{"background": "transparent", "objectFit": "contain"}})
+				}
+			}
+		}
+		if len(elems) == 0 {
+			elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-title", i+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: page.Title, Style: map[string]any{"fontSize": 48, "fontWeight": 700, "color": p.Theme.Accent}})
+			body := strings.Join(page.Bullets, "\n")
+			elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-body", i+1), Type: "text", X: 92, Y: 164, Width: 650, Height: 360, Content: body, Style: map[string]any{"fontSize": 32, "lineHeight": 1.5, "color": p.Theme.Foreground}})
+		}
 		asset := ""
 		if i < len(plan.Images) {
 			asset = plan.Images[i]
 		}
-		if asset == "" && page.ImagePrompt != "" {
+		hasImage := false
+		for j := range elems {
+			if elems[j].Type == "image" {
+				hasImage = true
+				if asset != "" {
+					elems[j].AssetURL = asset
+				}
+				break
+			}
+		}
+		if !hasImage && asset == "" && page.ImagePrompt != "" {
 			asset = illustrationDataURL(page.ImagePrompt)
 		}
-		if asset != "" {
-			elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-image", i+1), Type: "image", X: 790, Y: 170, Width: 400, Height: 300, AssetURL: asset, Style: map[string]any{"background": "transparent"}})
+		if asset != "" && !hasImage {
+			elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-image", i+1), Type: "image", X: 790, Y: 170, Width: 400, Height: 300, Content: page.ImagePrompt, AssetURL: asset, Style: map[string]any{"background": "transparent", "objectFit": "contain"}})
 		}
 		p.Slides = append(p.Slides, ppt.Slide{ID: fmt.Sprintf("slide-%d", i+1), Layout: page.Layout, Elements: elems})
 	}
 	writeJSON(w, 200, p)
+}
+
+// handlePPTImages generates images after the text/layout phase. Each slide is
+// independent: an image failure is returned in errors while successful images
+// are applied to the presentation.
+func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		Presentation ppt.Presentation `json:"presentation"`
+		SlideIndex   *int             `json:"slideIndex,omitempty"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	imageModel := strings.TrimSpace(in.Presentation.AIImageModel)
+	if imageModel == "" && s.clientOpts.imageModel != nil {
+		imageModel = strings.TrimSpace(*s.clientOpts.imageModel)
+	}
+	if imageModel == "" {
+		writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "errors": []string{"image model is not configured"}})
+		return
+	}
+	c, err := s.clientOpts.newClient()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer c.Close()
+	indices := make([]int, 0, len(in.Presentation.Slides))
+	if in.SlideIndex != nil {
+		if *in.SlideIndex < 0 || *in.SlideIndex >= len(in.Presentation.Slides) {
+			writeError(w, 400, "slideIndex out of range")
+			return
+		}
+		indices = append(indices, *in.SlideIndex)
+	} else {
+		for i := range in.Presentation.Slides {
+			indices = append(indices, i)
+		}
+	}
+	errs := []string{}
+	for _, i := range indices {
+		slide := &in.Presentation.Slides[i]
+		var target *ppt.Element
+		for j := range slide.Elements {
+			if slide.Elements[j].Type == "image" {
+				target = &slide.Elements[j]
+				break
+			}
+		}
+		if target == nil || strings.TrimSpace(target.Content) == "" {
+			continue
+		}
+		resp, genErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: target.Content, N: 1, Size: "1024x1024"})
+		if genErr != nil {
+			errs = append(errs, fmt.Sprintf("slide %d: %v", i+1, genErr))
+			continue
+		}
+		saved, saveErr := saveImagesFromResponse(r.Context(), c.httpClient, resp, s.saveDirectory(), false, "")
+		if saveErr != nil || len(saved) == 0 {
+			if saveErr == nil {
+				saveErr = fmt.Errorf("empty image response")
+			}
+			errs = append(errs, fmt.Sprintf("slide %d: %v", i+1, saveErr))
+			continue
+		}
+		if urls := s.publicImageURLs(saved, s.saveDirectory()); len(urls) > 0 {
+			target.AssetURL = urls[0]
+			adjustImageElementAspect(target, saved[0])
+		} else {
+			errs = append(errs, fmt.Sprintf("slide %d: saved image is not publicly accessible", i+1))
+		}
+	}
+	writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "errors": errs})
+}
+
+func adjustImageElementAspect(e *ppt.Element, path string) {
+	if e == nil || path == "" {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return
+	}
+	if e.Style == nil {
+		e.Style = map[string]any{}
+	}
+	boxW, boxH := e.Width, e.Height
+	if v, ok := e.Style["frameWidth"].(float64); ok && v > 0 {
+		boxW = v
+	}
+	if v, ok := e.Style["frameHeight"].(float64); ok && v > 0 {
+		boxH = v
+	}
+	if _, ok := e.Style["frameWidth"]; !ok {
+		e.Style["frameWidth"], e.Style["frameHeight"], e.Style["frameX"], e.Style["frameY"] = boxW, boxH, e.X, e.Y
+	}
+	baseX, baseY := e.X, e.Y
+	if v, ok := e.Style["frameX"].(float64); ok {
+		baseX = v
+	}
+	if v, ok := e.Style["frameY"].(float64); ok {
+		baseY = v
+	}
+	ratio := float64(cfg.Width) / float64(cfg.Height)
+	if ratio <= 0 {
+		return
+	}
+	if boxW/boxH > ratio {
+		e.Width = boxH * ratio
+		e.Height = boxH
+		e.X = baseX + (boxW-e.Width)/2
+		e.Y = baseY
+	} else {
+		e.Height = boxW / ratio
+		e.Width = boxW
+		e.X = baseX
+		e.Y = baseY + (boxH-e.Height)/2
+	}
 }
 
 // handlePPTSlideGenerate regenerates one slide using the selected text model.
@@ -315,7 +508,7 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 					body = out.ImagePrompt
 				}
 				page.Layout = out.Layout
-				page.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", in.SlideIndex+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: title, Style: map[string]any{"fontSize": 36, "fontWeight": 700, "color": in.Presentation.Theme.Foreground}}, {ID: fmt.Sprintf("slide-%d-body", in.SlideIndex+1), Type: "text", X: 92, Y: 164, Width: 650, Height: 360, Content: body, Style: map[string]any{"fontSize": 26, "lineHeight": 1.5, "color": in.Presentation.Theme.Foreground}}}
+				page.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-title", in.SlideIndex+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: title, Style: map[string]any{"fontSize": 48, "fontWeight": 700, "color": in.Presentation.Theme.Foreground}}, {ID: fmt.Sprintf("slide-%d-body", in.SlideIndex+1), Type: "text", X: 92, Y: 164, Width: 650, Height: 360, Content: body, Style: map[string]any{"fontSize": 32, "lineHeight": 1.5, "color": in.Presentation.Theme.Foreground}}}
 				if out.ImagePrompt != "" {
 					page.Elements = append(page.Elements, ppt.Element{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 790, Y: 170, Width: 400, Height: 300, AssetURL: illustrationDataURL(out.ImagePrompt)})
 				}
@@ -326,19 +519,20 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 				if imageModel != "" && out.ImagePrompt != "" && len(page.Elements) > 0 {
 					if imgResp, imgErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: out.ImagePrompt, N: 1, Size: "1024x1024"}); imgErr != nil {
 						if streamMode {
-							stream.send("error", map[string]string{"error": imgErr.Error()})
-							return
+							// Keep the regenerated text/layout even when the optional
+							// image phase fails. The client can retry the image alone.
+							stream.send("status", map[string]string{"message": "配图生成失败，已保留文字内容"})
 						}
 					} else if imgResp != nil {
 						if saved, saveErr := saveImagesFromResponse(r.Context(), c.httpClient, imgResp, s.saveDirectory(), false, ""); saveErr != nil {
+							// Image generation is best-effort; keep the regenerated text slide
+							// usable even when the image provider or storage fails.
 							if streamMode {
-								stream.send("error", map[string]string{"error": "保存生成图片失败: " + saveErr.Error()})
-								return
+								stream.send("status", map[string]string{"message": "配图生成失败，已保留文字内容"})
 							}
-							writeError(w, http.StatusInternalServerError, "保存生成图片失败: "+saveErr.Error())
-							return
 						} else if urls := s.publicImageURLs(saved, s.saveDirectory()); len(urls) > 0 {
 							page.Elements[len(page.Elements)-1].AssetURL = urls[0]
+							adjustImageElementAspect(&page.Elements[len(page.Elements)-1], saved[0])
 						}
 					}
 				}

@@ -1,4 +1,6 @@
-# PPT JSON DSL
+# PPT DSL
+
+本文区分两层 DSL：AI 方案阶段使用下方的最小页面 DSL；确认后由服务端转换为后文完整的 `Presentation` DSL。模型只需要理解前者。
 
 ## AI 生成流程 API
 
@@ -6,9 +8,12 @@
 
 - `GET /api/ipricing`：获取可用模型列表，其中 `data.text` 用于文案/大纲模型，`data.img` 用于图片模型；前端可将选中的模型名传入下方接口。
 - `POST /api/ppt/plan`：请求体支持 `title`、`style`、`audience`、`textModel`、`imageModel`、`references[]`、`images[]`、`pageCount`，返回包含 `pages[]`（标题、要点、布局和插画提示词）的方案。
-- `POST /api/ppt/generate`：提交确认后的方案，返回本 DSL 的完整 `Presentation`。每页会优先使用对应的 `images[]`，缺少图片时生成内置 SVG 插画占位，后续可替换为图片模型产物。
+- `POST /api/ppt/generate`：提交确认后的方案，先返回仅包含文字/布局的完整 `Presentation`；图片提示词会保存在图片元素的 `content` 中。
+- `POST /api/ppt/images`：在文字阶段之后按页生成配图。可传 `slideIndex` 只重试一页；接口始终返回文字版 `presentation`，单张图片失败会列在 `errors[]`，不会导致整份 PPT 失败。
 
 这样 UI 或第三方客户端都可以在“确认风格/大纲”和“一键生成”之间插入人工编辑，而不需要改变 PPT 编辑器数据模型。
+
+AI 方案阶段使用一个排版 DSL：`pages[].blocks[]` 中用 `type`、比例坐标 `x/y/width/height`、`content` 或 `imagePrompt` 描述每个文字块和图片块。定义会随提示词传给模型；最终的完整 `Presentation` DSL 由服务端负责生成。图片生成是独立阶段，因此可以单独重试；生成图片与占位框比例不一致时，服务端会在框内按比例居中调整显示尺寸。
 
 PPT 编辑器、PPTX 导入和 PPTX 导出共用这一份 JSON 数据模型。坐标单位是逻辑像素，默认画布为 `1280 x 720`（16:9）。
 

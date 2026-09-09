@@ -18,7 +18,7 @@
   const progressState = (text) => { progress.hidden = false; form.hidden = true; outline.hidden = true; styleStep.hidden = true; $("pptAiProgressText").textContent = text; };
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
   const renderOutline = () => { $("pptAiOutlineList").innerHTML = (currentPlan.pages || []).map((p, i) => `<div class="ppt-ai-outline-item"><input class="outline-title" data-i="${i}" value="${esc(p.title)}"><textarea class="outline-bullets" data-i="${i}" rows="2">${esc((p.bullets || []).join("\n"))}</textarea></div>`).join(""); };
-  const readOutline = () => { document.querySelectorAll(".outline-title").forEach(x => { currentPlan.pages[+x.dataset.i].title = x.value.trim() || `第 ${+x.dataset.i + 1} 页`; }); document.querySelectorAll(".outline-bullets").forEach(x => { currentPlan.pages[+x.dataset.i].bullets = x.value.split(/\n+/).map(v => v.trim()).filter(Boolean); }); };
+  const readOutline = () => { document.querySelectorAll(".outline-title").forEach(x => { const p=currentPlan.pages[+x.dataset.i]; p.title = x.value.trim() || `第 ${+x.dataset.i + 1} 页`; const b=(p.blocks||[]).find(v=>v.type==="text"&&v.role==="title"); if(b)b.content=p.title; }); document.querySelectorAll(".outline-bullets").forEach(x => { const p=currentPlan.pages[+x.dataset.i]; p.bullets = x.value.split(/\n+/).map(v => v.trim()).filter(Boolean); const b=(p.blocks||[]).find(v=>v.type==="text"&&v.role!=="title"); if(b)b.content=p.bullets.join("\n"); }); };
   setTimeout(() => {
     const bar = document.querySelector(".bar"), entry = document.querySelector(".ppt-ai-entry"), button = $("pptAiOpen");
     if (bar && button) { bar.appendChild(button); entry?.remove(); [...bar.querySelectorAll("input")].filter(x => x.placeholder === "主题" || x.placeholder === "风格").forEach(x => x.remove()); }
@@ -28,7 +28,7 @@
       if (thumb.querySelector(".thumb-actions")) return;
       const label = thumb.querySelector(".thumb-label"); if (!label) return;
       const actions = document.createElement("span"); actions.className = "thumb-actions";
-      [["sparkles", "AI 重新生成本页", "ai"], ["plus", "新增页面", "add"], ["copy", "复制页面", "duplicate"], ["trash-2", "删除页面（不可撤销）", "delete"]].forEach(([icon, title, action]) => { const b = document.createElement("button"); b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = `<i data-lucide="${icon}"></i>`; b.onclick = ev => { ev.stopPropagation(); if (action === "delete" && !window.confirm("删除此页后不可撤销，确定继续吗？")) return; const index = [...document.querySelectorAll("#slides .thumb")].indexOf(thumb); window.dispatchEvent(new CustomEvent(action === "ai" ? "ppt:ai-page" : "ppt:page", { detail: action === "ai" ? index : action })); }; actions.appendChild(b); });
+      [["sparkles", "AI 重新生成本页", "ai"], ["image", "重新生成本页配图", "image"], ["plus", "新增页面", "add"], ["copy", "复制页面", "duplicate"], ["trash-2", "删除页面（不可撤销）", "delete"]].forEach(([icon, title, action]) => { const b = document.createElement("button"); b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = `<i data-lucide="${icon}"></i>`; b.onclick = ev => { ev.stopPropagation(); if (action === "delete" && !window.confirm("删除此页后不可撤销，确定继续吗？")) return; const index = [...document.querySelectorAll("#slides .thumb")].indexOf(thumb); window.dispatchEvent(new CustomEvent(action === "ai" ? "ppt:ai-page" : action === "image" ? "ppt:image-page" : "ppt:page", { detail: action === "ai" || action === "image" ? index : action })); }; actions.appendChild(b); });
       window.lucide?.createIcons?.();
       label.appendChild(actions);
     });
@@ -59,6 +59,14 @@
     if (!currentPlan) return; readOutline(); const button = $("pptAiGenerate"); button.disabled = true; button.textContent = "正在生成…";
     currentPlan.accentColor = $("pptAiAccent").value; currentPlan.backgroundColor = $("pptAiBackground").value; currentPlan.unifiedBackground = $("pptAiUnified").checked; currentPlan.styleReference = await readOne($("pptAiStyleImage").files[0]);
     progressState("已确认风格，正在生成全部页面");
-    try { const res = await fetch("/api/ppt/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(currentPlan) }); if (!res.ok) throw new Error(await res.text()); $("pptAiProgressText").textContent = "页面生成完成，正在载入编辑器"; window.dispatchEvent(new CustomEvent("ppt:generated", { detail: await res.json() })); show(false); } catch (e) { alert("PPT 生成失败：" + e.message); styleStep.hidden = false; progress.hidden = true; } finally { button.disabled = false; button.textContent = "下一步"; }
+    try {
+      const res = await fetch("/api/ppt/generate", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(currentPlan) });
+      if (!res.ok) throw new Error(await res.text());
+      const textDeck = await res.json();
+      // Commit text/layout only. Image generation is intentionally manual:
+      // users can retry a single slide from its "重新生成本页配图" action.
+      window.dispatchEvent(new CustomEvent("ppt:generated", { detail: textDeck }));
+      show(false);
+    } catch (e) { alert("PPT 文字生成失败：" + e.message); styleStep.hidden = false; progress.hidden = true; } finally { button.disabled = false; button.textContent = "下一步"; }
   };
 })();
