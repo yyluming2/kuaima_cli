@@ -7,10 +7,20 @@
   setTimeout(() => {
     const bar = document.querySelector(".bar"), entry = document.querySelector(".ppt-ai-entry"), button = $("pptAiOpen");
     if (bar && button) { bar.appendChild(button); entry?.remove(); [...bar.querySelectorAll("input")].filter(x => x.placeholder === "主题" || x.placeholder === "风格").forEach(x => x.remove()); }
-    const slides = document.querySelector("#slides");
-    if (slides && !document.querySelector(".ppt-page-actions")) { const actions = document.createElement("div"); actions.className = "ppt-page-actions"; actions.innerHTML = '<button data-page-action="add">＋ 新增</button><button data-page-action="duplicate">复制</button><button data-page-action="delete">删除</button>'; actions.onclick = ev => { const action = ev.target.closest("[data-page-action]")?.dataset.pageAction; if (action) window.dispatchEvent(new CustomEvent("ppt:page", { detail: action })); }; slides.parentElement?.insertBefore(actions, slides); }
   }, 80);
+  setInterval(() => {
+    document.querySelectorAll("#slides .thumb").forEach(thumb => {
+      if (thumb.querySelector(".thumb-actions")) return;
+      const label = thumb.querySelector(".thumb-label"); if (!label) return;
+      const actions = document.createElement("span"); actions.className = "thumb-actions";
+      [["plus", "新增页面", "add"], ["copy", "复制页面", "duplicate"], ["trash-2", "删除页面（不可撤销）", "delete"]].forEach(([icon, title, action]) => { const b = document.createElement("button"); b.type = "button"; b.title = title; b.setAttribute("aria-label", title); b.innerHTML = `<i data-lucide="${icon}"></i>`; b.onclick = ev => { ev.stopPropagation(); if (action === "delete" && !window.confirm("删除此页后不可撤销，确定继续吗？")) return; window.dispatchEvent(new CustomEvent("ppt:page", { detail: action })); }; actions.appendChild(b); });
+      window.lucide?.createIcons?.();
+      label.appendChild(actions);
+    });
+  }, 250);
   $("pptAiOpen").onclick = () => show(true); $("pptAiClose").onclick = () => show(false); $("pptAiCancel").onclick = () => show(false);
+  // 打开 PPT 页面时直接进入 AI 制作流程。
+  setTimeout(() => show(true), 0);
   $("pptAiBack").onclick = () => { form.hidden = false; outline.hidden = true; };
   $("pptAiImages").onchange = () => { $("pptAiImageHint").textContent = `${$("pptAiImages").files.length} 张图片`; };
   $("pptAiDeck").onchange = () => { $("pptAiDeckHint").textContent = $("pptAiDeck").files[0]?.name || "可选"; };

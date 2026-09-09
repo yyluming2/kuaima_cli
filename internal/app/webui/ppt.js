@@ -75,7 +75,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
   document.querySelector("#pptReferenceDeck")?.addEventListener("change", referenceStatus);
   setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: [], future: [] }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: [], future: [] }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
     useEffect(() => { const onGenerated = ev => { if (!ev.detail) return; setDeck(normalizeDeck(ev.detail)); history.current = { past: [], future: [] }; setSlide(0); setSelected(null); }; const onPage = ev => setDeck(d => { if (!d) return d; const n = structuredClone(d), at = Math.max(0, Math.min(slide, n.slides.length - 1)); if (ev.detail === "add") n.slides.splice(at + 1, 0, { id: "slide-" + Date.now(), layout: "content", elements: [] }); if (ev.detail === "duplicate") n.slides.splice(at + 1, 0, structuredClone({ ...n.slides[at], id: "slide-" + Date.now() })); if (ev.detail === "delete" && n.slides.length > 1) n.slides.splice(at, 1); return n; }); addEventListener("ppt:generated", onGenerated); addEventListener("ppt:page", onPage); return () => { removeEventListener("ppt:generated", onGenerated); removeEventListener("ppt:page", onPage); }; }, [slide]);
     const trackedSetDeck = fn => setDeck(d => {
       const n = typeof fn === "function" ? fn(d) : fn;
@@ -111,6 +111,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       selection.addRange(range);
     }, [editing]);
     const generate = async () => {
+      const hasContent = !!deck?.slides?.some(s => (s.elements || []).length > 0);
+      if (hasContent && !window.confirm("新建 PPT 将清空当前内容，且当前编辑无法恢复。确定继续吗？")) return;
       setBusy(true);
       try {
         const refs = pptReferences();
@@ -213,7 +215,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       if (d) update(e => {
         e.x = d.ex + dx;
         e.y = d.ey + dy
-      });
+      }, d.id, false);
       else update(e => {
         let x = r.ex, y = r.ey, w = r.ew, h = r.eh;
         if (r.dir.includes("e")) w = Math.max(40, r.ew + dx);
@@ -228,10 +230,19 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
         e.y = y;
         e.width = w;
         e.height = h
-      })
+      }, r.id, false)
     };
     useEffect(() => {
       const up = () => {
+        const operation = drag.current || resize.current;
+        if (operation?.before) setDeck(d => {
+          if (JSON.stringify(operation.before) !== JSON.stringify(d)) {
+            history.current.past.push(operation.before);
+            if (history.current.past.length > 100) history.current.past.shift();
+            history.current.future = [];
+          }
+          return d;
+        });
         drag.current = null;
         resize.current = null
       };
@@ -252,10 +263,14 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       } catch (e) { alert("导出失败：" + e.message) }
     };
     const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"]];
-    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "生成草稿")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), h("button", { onClick: () => setInspectorOpen(v => !v) }, icon(inspectorOpen ? "panel-right-close" : "panel-right-open"), h("span", null, inspectorOpen ? "收起属性" : "展开属性")), h("button", {
+    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "新建 PPT")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), h("button", { onClick: () => setInspectorOpen(v => !v) }, icon(inspectorOpen ? "panel-right-close" : "panel-right-open"), h("span", null, inspectorOpen ? "收起属性" : "展开属性")), h("button", {
       className: "danger", disabled: !current, onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
-      key: i, className: "thumb " + (i === slide ? "active" : ""), onClick: () => {
+      key: s.id || i, className: "thumb " + (i === slide ? "active" : ""), draggable: true,
+      onDragStart: ev => { slideDrag.current = i; ev.dataTransfer.effectAllowed = "move"; ev.currentTarget.classList.add("dragging"); },
+      onDragEnd: ev => { slideDrag.current = null; ev.currentTarget.classList.remove("dragging"); },
+      onDragOver: ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; },
+      onDrop: ev => { ev.preventDefault(); const from = slideDrag.current; if (from == null || from === i) return; const target = from < i ? i - 1 : i; trackedSetDeck(d => { const n = structuredClone(d), moved = n.slides.splice(from, 1)[0]; n.slides.splice(i, 0, moved); return n; }); setSlide(target); slideDrag.current = null; }, onClick: () => {
         setSlide(i);
         setSelected(null)
       }
@@ -272,13 +287,13 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
         }, onMouseDown: ev => {
           if (ev.button === 0 && !e.locked && !isEditing) {
             setSelected(e.id);
-            drag.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement }
+            drag.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement, before: structuredClone(deck) }
           }
         }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, textAlign: textAlign(st.align), lineHeight: st.lineHeight || 1.2, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, ...fillStyle(st.background), ...shapeStyle(st.shape, st), zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center", ...boxStyle(st) }
       }, customPath(e), e.type === "image" && e.assetUrl ? h(ImageBlock, { src: e.assetUrl, alt: "图片", style: st }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const next = []; [...(node?.childNodes || [])].forEach((n, i) => { if (n.nodeType === 3) next.push({ content: n.nodeValue || "", style: {} }); else { const txt = n.textContent || ""; if (txt) { const cs = getComputedStyle(n); next.push({ content: txt, style: { fontFamily: cs.fontFamily, fontSize: parseFloat(cs.fontSize) || undefined, color: cs.color, bold: cs.fontWeight >= 600, italic: cs.fontStyle === "italic", underline: (cs.textDecorationLine || "").includes("underline") } }); } } }); const runs = next.filter(r => r.content); update(x => { x.textRuns = runs.length ? runs : [{ content: node?.textContent || "", style: { ...x.style } }]; x.content = runs.map(r => r.content).join(""); }, e.id); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); setEditing(null) } } }, textRuns(e, st)) : textRuns(e, st), e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
         key: dir, className: "handle " + dir, onMouseDown: ev => {
           ev.stopPropagation();
-          resize.current = { x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement }
+          resize.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement, before: structuredClone(deck) }
         }
       })))
     }))), h("input", {
