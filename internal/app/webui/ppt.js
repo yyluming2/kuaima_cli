@@ -12,7 +12,7 @@
   // PPTX import are fallbacks only, so re-rendering cannot undo an edit.
   const visualStyle = (e, st = {}) => { const out = {}; const f = e && e.fill, l = e && e.line, t = e && e.textStyle, g = e && e.geometry; if (f && st.background == null) { if (f.type === "solid" && f.color) out.background = f.color.rgb || f.color.css || "transparent"; else if (f.type === "gradient" && f.gradient && f.gradient.stops) out.background = `linear-gradient(${Number(f.gradient.angle) || 0}deg,${f.gradient.stops.map(x => `${x.color.rgb || x.color.css || "#000"} ${Number(x.position) || 0}%`).join(",")})`; else if (f.type === "none") out.background = "transparent"; } if (l && st.border == null && l.color && l.color.type !== "none") out.border = `${Number(l.width) || 1}px ${l.dash && /dot/i.test(l.dash) ? "dotted" : l.dash && l.dash !== "solid" ? "dashed" : "solid"} ${l.color.rgb || l.color.css || "#64748b"}`; if (t) { if (st.fontFamily == null && t.fontFamily) out.fontFamily = t.fontFamily; if (st.fontSize == null && t.fontSize) out.fontSize = t.fontSize; if (st.bold == null && t.bold != null) out.bold = t.bold; if (st.italic == null && t.italic != null) out.italic = t.italic; if (st.underline == null && t.underline != null) out.underline = t.underline; if (st.lineHeight == null && t.lineHeight) out.lineHeight = t.lineHeight; if (st.align == null && t.align) out.align = t.align; } if (g && g.type && st.shape == null) out.shape = g.preset || g.type; if (e && (e.flipH || e.flipV)) out.transform = `${e.flipH ? "scaleX(-1) " : ""}${e.flipV ? "scaleY(-1)" : ""}`.trim(); if (e && e.effects) { if (st.shadow == null) out.shadow = e.effects.shadow || undefined; if (st.boxShadow == null && e.effects.innerShadow) out.boxShadow = e.effects.innerShadow; } return out; };
   const canonicalStyle = e => ({ ...defaults, ...(e && e.style || {}), ...visualStyle(e, e && e.style || {}) });
-  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach((s, i) => { if (!s.id) s.id = "slide-" + (i + 1); (s.elements || []).forEach(e => { e.style = canonicalStyle(e); }); }); if (n.master?.elements) n.master.elements = n.master.elements.map((e, i) => ({ ...e, id: String(e.id || `master-${i + 1}`).startsWith("master-") ? (e.id || `master-${i + 1}`) : `master-${e.id}`, locked: true, style: canonicalStyle(e) })); return n; };
+  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach((s, i) => { if (!s.id) s.id = "slide-" + (i + 1); (s.elements || []).forEach(e => { e.style = canonicalStyle(e); }); }); if (n.master?.elements) n.master.elements = n.master.elements.map((e, i) => ({ ...e, id: String(e.id || `master-${i + 1}`).startsWith("master-") ? (e.id || `master-${i + 1}`) : `master-${e.id}`, locked: false, style: canonicalStyle(e) })); return n; };
   const textAlign = value => ({ l: "left", ctr: "center", r: "right", just: "justify", dist: "justify", thaiDist: "justify" }[String(value || "").toLowerCase()] || value || undefined);
   const textRuns = (e, base, scale = 1) => {
     const runs = Array.isArray(e && e.textRuns) ? e.textRuns : [];
@@ -82,11 +82,11 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     const openMaster = () => setShowMaster(true);
     const applyMaster = m => {
       if (!deck) return;
-      setDeck(d => { const n = structuredClone(d); n.master = m; n.theme = { ...n.theme, background: m.background || n.theme.background, foreground: m.foreground || n.theme.foreground, accent: m.accent || n.theme.accent, fonts: m.fonts?.length ? m.fonts : n.theme.fonts };
-        (n.slides || []).forEach(s => { const own = (s.elements || []).filter(e => !String(e.id).startsWith("master-")); const shared = (m.elements || []).map(e => ({ ...structuredClone(e), locked: true })); s.elements = [...shared, ...own]; own.forEach(e => { if (e.type !== "text") return; const isTitle = /title/i.test(e.id || "") || e.y < 150; const size = isTitle ? Number(m.titleSize) : Number(m.bodySize); if (size > 0) e.style = { ...e.style, fontSize: size, fontFamily: m.fontFamily || e.style?.fontFamily, color: e.style?.color || (isTitle ? m.accent : m.foreground) }; }); }); return n; });
+      setDeck(d => { const n = structuredClone(d); n.master = { ...m, elements: (m.elements || []).map(e => ({ ...e, locked: false })) }; n.theme = { ...n.theme, background: m.background || n.theme.background, foreground: m.foreground || n.theme.foreground, accent: m.accent || n.theme.accent, fonts: m.fonts?.length ? m.fonts : n.theme.fonts };
+        (n.slides || []).forEach(s => { const own = (s.elements || []).filter(e => !String(e.id).startsWith("master-")); const shared = (n.master.elements || []).map(e => ({ ...structuredClone(e), locked: true })); s.elements = [...shared, ...own]; own.forEach(e => { if (e.type !== "text") return; const isTitle = /title/i.test(e.id || "") || e.y < 150; const size = isTitle ? Number(m.titleSize) : Number(m.bodySize); if (size > 0) e.style = { ...e.style, fontSize: size, fontFamily: m.fontFamily || e.style?.fontFamily, color: e.style?.color || (isTitle ? m.accent : m.foreground) }; }); }); return n; });
       document.documentElement.style.setProperty("--ppt-master-bg", m.background || "#fff"); setShowMaster(false);
     };
-    useEffect(() => { const btn = document.querySelector("#pptMasterOpen"); if (!btn) return; const onMaster = () => { if (!deck) return; const t = deck.master || {}; const background = prompt("母版背景色（CSS 十六进制）", t.background || deck.theme.background || "#ffffff"); if (!background) return; const accent = prompt("主题色", t.accent || deck.theme.accent || "#2563eb") || t.accent; const foreground = prompt("前景色", t.foreground || deck.theme.foreground || "#172033") || t.foreground; const titleSize = Number(prompt("标题字号", t.titleSize || 40)); const bodySize = Number(prompt("正文字号", t.bodySize || 24)); const common = selected ? prompt("将当前选中对象设为公共元素？输入 yes 确认", "yes") === "yes" : false; const shared = common ? [...(t.elements || []).filter(e => e.id !== "master-" + selected.id), { ...structuredClone(selected), id: "master-" + selected.id, locked: true }] : (t.elements || []); applyMaster({ ...t, background, accent, foreground, titleSize: titleSize || 40, bodySize: bodySize || 24, elements: shared, fontFamily: prompt("统一字体（可留空）", t.fontFamily || deck.theme.fonts?.[0] || "") || t.fontFamily }); }; btn.addEventListener("click", onMaster); return () => btn.removeEventListener("click", onMaster); }, [deck, selected]);
+    useEffect(() => { const btn = document.querySelector("#pptMasterOpen"); if (!btn) return; const onMaster = () => { if (deck) setShowMaster(true); }; btn.addEventListener("click", onMaster); return () => btn.removeEventListener("click", onMaster); }, [deck]);
     useEffect(() => { const btn = document.querySelector("#pptMasterMode"); if (!btn) return; const sync = () => { btn.textContent = masterMode ? "返回页面画布" : "进入母版画布"; btn.classList.toggle("active", masterMode); }; const onToggle = () => { if (!deck) return; setMasterMode(v => !v); setSelected(null); setEditing(null); }; btn.addEventListener("click", onToggle); sync(); return () => btn.removeEventListener("click", onToggle); }, [masterMode, deck]);
     useEffect(() => { const onPageMaster = () => { if (!deck?.master?.elements?.length) return; setDeck(d => { if (!d) return d; const n = structuredClone(d), shared = n.master.elements.map(e => ({ ...structuredClone(e), locked: true })); n.slides = (n.slides || []).map(s => ({ ...s, elements: [...shared, ...(s.elements || []).filter(e => !String(e.id).startsWith("master-"))] })); return n; }); }; addEventListener("ppt:page", onPageMaster); return () => removeEventListener("ppt:page", onPageMaster); }, [deck]);
     const slideKey = (value, index = slide) => value?.slides?.[index]?.id || "slide-" + index;
@@ -108,7 +108,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       // not resolve the target from the mutable `selected` state at commit
       // time; callers editing a specific object pass its id explicitly.
       const n = structuredClone(d), e = masterMode ? n.master?.elements?.find(e => e.id === targetId) : n.slides[slide].elements.find(e => e.id === targetId);
-      if (e) { fn(e); if (masterMode && String(targetId).startsWith("master-")) (n.slides || []).forEach(s => { const i = (s.elements || []).findIndex(x => x.id === targetId); if (i >= 0) s.elements[i] = { ...structuredClone(e), locked: true }; }); }
+      if (e && (masterMode || !e.locked)) { fn(e); if (masterMode && String(targetId).startsWith("master-")) (n.slides || []).forEach(s => { const i = (s.elements || []).findIndex(x => x.id === targetId); if (i >= 0) s.elements[i] = { ...structuredClone(e), locked: true }; }); }
       return n
     });
     const W = Number(deck?.width) || 1280, H = Number(deck?.height) || 720;
@@ -159,8 +159,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     const insertImage = data => {
       if (!deck || !data) return;
       const e = { id: "image-" + Date.now(), type: "image", x: 120, y: 120, width: 420, height: 260, content: "", assetUrl: data, style: { ...defaults } };
-      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; n.master.elements = [...(n.master.elements || []), { ...e, id: "master-" + e.id, locked: true }]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== "master-" + e.id), { ...e, id: "master-" + e.id, locked: true }]; }); } else n.slides[slide].elements.push(e); return n });
-      setSelected(e.id)
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const me = { ...e, id: "master-" + e.id, locked: false }; n.master.elements = [...(n.master.elements || []), me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), { ...me, locked: true }]; }); } else n.slides[slide].elements.push(e); return n });
+      setSelected(masterMode ? "master-" + e.id : e.id)
     };
     const add = type => {
       if (!deck) return;
@@ -168,8 +168,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       if (type === "redo") { redo(); return; }
       if (type === "image") { imageTarget.current = null; fileInput.current?.click(); return }
       const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "形状", table: "A | B\n1 | 2", chart: "数据图表" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent" }, ...(type === "text" ? { textRuns: [{ content: "双击编辑", style: { ...defaults } }] } : {}) };
-      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const me = { ...e, id: "master-" + e.id, locked: true }; n.master.elements = [...(n.master.elements || []), me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), structuredClone(me)]; }); } else n.slides[slide].elements.push(e); return n });
-      setSelected(e.id);
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const me = { ...e, id: "master-" + e.id, locked: false }; n.master.elements = [...(n.master.elements || []), me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), { ...me, locked: true }]; }); } else n.slides[slide].elements.push(e); return n });
+      setSelected(masterMode ? "master-" + e.id : e.id);
       if (type === "image") fileInput.current?.click()
     };
     const removeSelected = () => {
@@ -304,7 +304,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
           resize.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement, before: structuredClone(deck) }
         }
       })))
-    }))), h("input", {
+    }))), showMaster && deck && h(MasterEditor, { deck, selected: current, onApply: applyMaster, onClose: () => setShowMaster(false) }), h("input", {
       ref: fileInput, type: "file", accept: "image/*", style: { display: "none" }, onChange: ev => {
         const f = ev.target.files?.[0];
         if (f) {
