@@ -12,14 +12,29 @@ import (
 const LogicalDPI = 128.0
 
 type Presentation struct {
-	ID           string  `json:"id,omitempty"`
-	Title        string  `json:"title"`
-	Width        float64 `json:"width"` // logical pixels at LogicalDPI; defaults to 1280x720
-	Height       float64 `json:"height"`
-	Theme        Theme   `json:"theme"`
+	ID     string  `json:"id,omitempty"`
+	Title  string  `json:"title"`
+	Width  float64 `json:"width"` // logical pixels at LogicalDPI; defaults to 1280x720
+	Height float64 `json:"height"`
+	Theme  Theme   `json:"theme"`
+	// Master contains optional presentation-wide styling and elements. Clients
+	// may materialize these into slides when editing or exporting.
+	Master       *Master `json:"master,omitempty"`
 	Slides       []Slide `json:"slides"`
 	AIModel      string  `json:"aiModel,omitempty"`
 	AIImageModel string  `json:"aiImageModel,omitempty"`
+}
+
+// Master is the editable slide-master definition shared by all slides.
+type Master struct {
+	Background string    `json:"background,omitempty"`
+	Foreground string    `json:"foreground,omitempty"`
+	Accent     string    `json:"accent,omitempty"`
+	FontFamily string    `json:"fontFamily,omitempty"`
+	Fonts      []string  `json:"fonts,omitempty"`
+	Elements   []Element `json:"elements,omitempty"`
+	TitleSize  float64   `json:"titleSize,omitempty"`
+	BodySize   float64   `json:"bodySize,omitempty"`
 }
 
 type Theme struct {
@@ -163,6 +178,19 @@ func (p *Presentation) Validate() error {
 	if len(p.Slides) == 0 {
 		return fmt.Errorf("presentation must contain at least one slide")
 	}
+	if p.Master != nil {
+		for i, e := range p.Master.Elements {
+			if e.ID == "" || e.Type == "" {
+				return fmt.Errorf("master element %d requires id and type", i)
+			}
+			if !strings.HasPrefix(e.ID, "master-") {
+				return fmt.Errorf("master element %s id must start with master-", e.ID)
+			}
+			if e.Width < 0 || e.Height < 0 {
+				return fmt.Errorf("master element %s has negative size", e.ID)
+			}
+		}
+	}
 	for i, s := range p.Slides {
 		if s.ID == "" {
 			return fmt.Errorf("slide %d has no id", i)
@@ -235,5 +263,6 @@ func (p *Presentation) Diagnostics() []string {
 
 func New16x9(title string) Presentation {
 	return Presentation{Title: title, Width: 1280, Height: 720,
-		Theme: Theme{Name: "商务蓝", Background: "#FFFFFF", Foreground: "#172033", Accent: "#2563EB", Fonts: []string{"Aptos", "Microsoft YaHei"}}}
+		Theme:  Theme{Name: "商务蓝", Background: "#FFFFFF", Foreground: "#172033", Accent: "#2563EB", Fonts: []string{"Aptos", "Microsoft YaHei"}},
+		Master: &Master{Background: "#FFFFFF", Foreground: "#172033", Accent: "#2563EB", Fonts: []string{"Aptos", "Microsoft YaHei"}, FontFamily: "Microsoft YaHei", TitleSize: 40, BodySize: 24}}
 }

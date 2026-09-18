@@ -9,6 +9,12 @@ body {
     background: #f5f7fb;
     overflow-x: hidden
 }
+.ppt-master-open { position: fixed; top: 10px; right: 18px; z-index: 20; border: 1px solid #2563eb; border-radius: 7px; padding: 7px 12px; background: #fff; color: #1d4ed8; cursor: pointer; box-shadow: 0 2px 8px #17203322; }
+.master-help { color: #64748b; font-size: 13px; }
+.master-panel { max-width: 560px; }
+.master-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.master-shared { display:flex; align-items:center; gap:12px; margin-top:14px; color:#64748b; font-size:13px; }
+.canvas { background: var(--ppt-master-bg, #fff) !important; }
 
 header,
 .bar,
@@ -917,3 +923,4 @@ main.inspector-collapsed {
         opacity: 1
     }
 }
+.ppt-master-mode{position:fixed;top:12px;right:140px;z-index:20;background:#2563eb;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer}.ppt-master-mode.active{background:#059669}.master-banner{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;background:#fef3c7;color:#92400e;padding:6px;font-size:13px}.ppt-master-editing .canvas-wrap{outline:3px solid #f59e0b;outline-offset:6px}.ppt-master-editing #slides{opacity:.55}

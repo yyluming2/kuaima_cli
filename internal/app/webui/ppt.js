@@ -12,7 +12,7 @@
   // PPTX import are fallbacks only, so re-rendering cannot undo an edit.
   const visualStyle = (e, st = {}) => { const out = {}; const f = e && e.fill, l = e && e.line, t = e && e.textStyle, g = e && e.geometry; if (f && st.background == null) { if (f.type === "solid" && f.color) out.background = f.color.rgb || f.color.css || "transparent"; else if (f.type === "gradient" && f.gradient && f.gradient.stops) out.background = `linear-gradient(${Number(f.gradient.angle) || 0}deg,${f.gradient.stops.map(x => `${x.color.rgb || x.color.css || "#000"} ${Number(x.position) || 0}%`).join(",")})`; else if (f.type === "none") out.background = "transparent"; } if (l && st.border == null && l.color && l.color.type !== "none") out.border = `${Number(l.width) || 1}px ${l.dash && /dot/i.test(l.dash) ? "dotted" : l.dash && l.dash !== "solid" ? "dashed" : "solid"} ${l.color.rgb || l.color.css || "#64748b"}`; if (t) { if (st.fontFamily == null && t.fontFamily) out.fontFamily = t.fontFamily; if (st.fontSize == null && t.fontSize) out.fontSize = t.fontSize; if (st.bold == null && t.bold != null) out.bold = t.bold; if (st.italic == null && t.italic != null) out.italic = t.italic; if (st.underline == null && t.underline != null) out.underline = t.underline; if (st.lineHeight == null && t.lineHeight) out.lineHeight = t.lineHeight; if (st.align == null && t.align) out.align = t.align; } if (g && g.type && st.shape == null) out.shape = g.preset || g.type; if (e && (e.flipH || e.flipV)) out.transform = `${e.flipH ? "scaleX(-1) " : ""}${e.flipV ? "scaleY(-1)" : ""}`.trim(); if (e && e.effects) { if (st.shadow == null) out.shadow = e.effects.shadow || undefined; if (st.boxShadow == null && e.effects.innerShadow) out.boxShadow = e.effects.innerShadow; } return out; };
   const canonicalStyle = e => ({ ...defaults, ...(e && e.style || {}), ...visualStyle(e, e && e.style || {}) });
-  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach((s, i) => { if (!s.id) s.id = "slide-" + (i + 1); (s.elements || []).forEach(e => { e.style = canonicalStyle(e); }); }); return n; };
+  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach((s, i) => { if (!s.id) s.id = "slide-" + (i + 1); (s.elements || []).forEach(e => { e.style = canonicalStyle(e); }); }); if (n.master?.elements) n.master.elements = n.master.elements.map((e, i) => ({ ...e, id: String(e.id || `master-${i + 1}`).startsWith("master-") ? (e.id || `master-${i + 1}`) : `master-${e.id}`, locked: true, style: canonicalStyle(e) })); return n; };
   const textAlign = value => ({ l: "left", ctr: "center", r: "right", just: "justify", dist: "justify", thaiDist: "justify" }[String(value || "").toLowerCase()] || value || undefined);
   const textRuns = (e, base, scale = 1) => {
     const runs = Array.isArray(e && e.textRuns) ? e.textRuns : [];
@@ -77,7 +77,18 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
   document.querySelector("#pptReferenceDeck")?.addEventListener("change", referenceStatus);
   setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
   function App() {
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = deck?.slides?.[slide]?.elements || [], current = elements.find(e => e.id === selected);
+    const [masterMode, setMasterMode] = useState(false);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [showMaster, setShowMaster] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const openMaster = () => setShowMaster(true);
+    const applyMaster = m => {
+      if (!deck) return;
+      setDeck(d => { const n = structuredClone(d); n.master = m; n.theme = { ...n.theme, background: m.background || n.theme.background, foreground: m.foreground || n.theme.foreground, accent: m.accent || n.theme.accent, fonts: m.fonts?.length ? m.fonts : n.theme.fonts };
+        (n.slides || []).forEach(s => { const own = (s.elements || []).filter(e => !String(e.id).startsWith("master-")); const shared = (m.elements || []).map(e => ({ ...structuredClone(e), locked: true })); s.elements = [...shared, ...own]; own.forEach(e => { if (e.type !== "text") return; const isTitle = /title/i.test(e.id || "") || e.y < 150; const size = isTitle ? Number(m.titleSize) : Number(m.bodySize); if (size > 0) e.style = { ...e.style, fontSize: size, fontFamily: m.fontFamily || e.style?.fontFamily, color: e.style?.color || (isTitle ? m.accent : m.foreground) }; }); }); return n; });
+      document.documentElement.style.setProperty("--ppt-master-bg", m.background || "#fff"); setShowMaster(false);
+    };
+    useEffect(() => { const btn = document.querySelector("#pptMasterOpen"); if (!btn) return; const onMaster = () => { if (!deck) return; const t = deck.master || {}; const background = prompt("母版背景色（CSS 十六进制）", t.background || deck.theme.background || "#ffffff"); if (!background) return; const accent = prompt("主题色", t.accent || deck.theme.accent || "#2563eb") || t.accent; const foreground = prompt("前景色", t.foreground || deck.theme.foreground || "#172033") || t.foreground; const titleSize = Number(prompt("标题字号", t.titleSize || 40)); const bodySize = Number(prompt("正文字号", t.bodySize || 24)); const common = selected ? prompt("将当前选中对象设为公共元素？输入 yes 确认", "yes") === "yes" : false; const shared = common ? [...(t.elements || []).filter(e => e.id !== "master-" + selected.id), { ...structuredClone(selected), id: "master-" + selected.id, locked: true }] : (t.elements || []); applyMaster({ ...t, background, accent, foreground, titleSize: titleSize || 40, bodySize: bodySize || 24, elements: shared, fontFamily: prompt("统一字体（可留空）", t.fontFamily || deck.theme.fonts?.[0] || "") || t.fontFamily }); }; btn.addEventListener("click", onMaster); return () => btn.removeEventListener("click", onMaster); }, [deck, selected]);
+    useEffect(() => { const btn = document.querySelector("#pptMasterMode"); if (!btn) return; const sync = () => { btn.textContent = masterMode ? "返回页面画布" : "进入母版画布"; btn.classList.toggle("active", masterMode); }; const onToggle = () => { if (!deck) return; setMasterMode(v => !v); setSelected(null); setEditing(null); }; btn.addEventListener("click", onToggle); sync(); return () => btn.removeEventListener("click", onToggle); }, [masterMode, deck]);
+    useEffect(() => { const onPageMaster = () => { if (!deck?.master?.elements?.length) return; setDeck(d => { if (!d) return d; const n = structuredClone(d), shared = n.master.elements.map(e => ({ ...structuredClone(e), locked: true })); n.slides = (n.slides || []).map(s => ({ ...s, elements: [...shared, ...(s.elements || []).filter(e => !String(e.id).startsWith("master-"))] })); return n; }); }; addEventListener("ppt:page", onPageMaster); return () => removeEventListener("ppt:page", onPageMaster); }, [deck]);
     const slideKey = (value, index = slide) => value?.slides?.[index]?.id || "slide-" + index;
     const historyBucket = (value, index = slide) => { const key = slideKey(value, index), h = history.current; if (!h.past.has(key)) h.past.set(key, []); if (!h.future.has(key)) h.future.set(key, []); return { key, past: h.past.get(key), future: h.future.get(key) }; };
     const resetHistory = () => { history.current = { past: new Map(), future: new Map() }; };
@@ -96,8 +107,8 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       // Canvas editing can blur after another object has been selected.  Do
       // not resolve the target from the mutable `selected` state at commit
       // time; callers editing a specific object pass its id explicitly.
-      const n = structuredClone(d), e = n.slides[slide].elements.find(e => e.id === targetId);
-      if (e) fn(e);
+      const n = structuredClone(d), e = masterMode ? n.master?.elements?.find(e => e.id === targetId) : n.slides[slide].elements.find(e => e.id === targetId);
+      if (e) { fn(e); if (masterMode && String(targetId).startsWith("master-")) (n.slides || []).forEach(s => { const i = (s.elements || []).findIndex(x => x.id === targetId); if (i >= 0) s.elements[i] = { ...structuredClone(e), locked: true }; }); }
       return n
     });
     const W = Number(deck?.width) || 1280, H = Number(deck?.height) || 720;
@@ -144,14 +155,11 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
     };
     // Start with an empty canvas; the AI 制作入口 is the explicit creation flow.
     useEffect(() => { window.lucide && window.lucide.createIcons(); const color = deck?.theme?.background || "#fff"; document.querySelectorAll(".canvas, .thumb-preview").forEach(el => { el.style.background = color; }); }, [deck]);
+    useEffect(() => { document.body.classList.toggle("ppt-master-editing", masterMode); const color = deck?.master?.background || deck?.theme?.background || "#fff"; document.querySelectorAll(".canvas").forEach(el => { if (masterMode) el.style.background = color; }); return () => document.body.classList.remove("ppt-master-editing"); }, [masterMode, deck]);
     const insertImage = data => {
       if (!deck || !data) return;
       const e = { id: "image-" + Date.now(), type: "image", x: 120, y: 120, width: 420, height: 260, content: "", assetUrl: data, style: { ...defaults } };
-      trackedSetDeck(d => {
-        const n = structuredClone(d);
-        n.slides[slide].elements.push(e);
-        return n
-      });
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; n.master.elements = [...(n.master.elements || []), { ...e, id: "master-" + e.id, locked: true }]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== "master-" + e.id), { ...e, id: "master-" + e.id, locked: true }]; }); } else n.slides[slide].elements.push(e); return n });
       setSelected(e.id)
     };
     const add = type => {
@@ -160,22 +168,14 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       if (type === "redo") { redo(); return; }
       if (type === "image") { imageTarget.current = null; fileInput.current?.click(); return }
       const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "形状", table: "A | B\n1 | 2", chart: "数据图表" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent" }, ...(type === "text" ? { textRuns: [{ content: "双击编辑", style: { ...defaults } }] } : {}) };
-      trackedSetDeck(d => {
-        const n = structuredClone(d);
-        n.slides[slide].elements.push(e);
-        return n
-      });
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const me = { ...e, id: "master-" + e.id, locked: true }; n.master.elements = [...(n.master.elements || []), me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), structuredClone(me)]; }); } else n.slides[slide].elements.push(e); return n });
       setSelected(e.id);
       if (type === "image") fileInput.current?.click()
     };
     const removeSelected = () => {
       if (!selected || editing) return;
       if (!window.confirm("确定要删除当前选中的元素吗？删除后无法恢复。")) return;
-      trackedSetDeck(d => {
-        const n = structuredClone(d);
-        n.slides[slide].elements = n.slides[slide].elements.filter(e => e.id !== selected);
-        return n
-      });
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode && String(selected).startsWith("master-")) { n.master.elements = (n.master.elements || []).filter(e => e.id !== selected); (n.slides || []).forEach(s => { s.elements = (s.elements || []).filter(e => e.id !== selected); }); } else n.slides[slide].elements = n.slides[slide].elements.filter(e => e.id !== selected); return n });
       setSelected(null)
     };
     const openDeck = () => { if (openFileInput.current) { openFileInput.current.accept = ".json,.pptx"; openFileInput.current.click(); } };
@@ -314,6 +314,12 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
         } ev.target.value = ""
       }
     }), h("input", { ref: openFileInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: loadDeckFile }), inspectorOpen && h(Inspector, { element: current, onChange: update, onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } }), showJson && h("div", { className: "json-overlay", onClick: () => setShowJson(false) }, h("div", { className: "json-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, current ? `对象 JSON · ${names[current.type] || current.type}` : "对象 JSON"), h("button", { onClick: () => setShowJson(false) }, "关闭")), current ? h("textarea", { className: "json-editor", value: jsonText, onChange: e => setJsonText(e.target.value), spellCheck: false }) : h("div", { className: "json-empty" }, "请先选择一个对象"), current && h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => { try { const parsed = JSON.parse(jsonText); update(x => { Object.keys(x).forEach(k => delete x[k]); Object.assign(x, parsed); }); setShowJson(false); } catch (e) { alert("JSON 格式错误：" + e.message); } } }, "应用修改"), h("button", { onClick: () => setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)) }, "还原"))))))
+  }
+  function MasterEditor({ deck, onApply, onClose, selected }) {
+    const base = deck?.master || {}, [m, setM] = useState({ background: deck?.theme?.background || "#ffffff", foreground: deck?.theme?.foreground || "#172033", accent: deck?.theme?.accent || "#2563eb", fonts: deck?.theme?.fonts || [], titleSize: 40, bodySize: 24, ...base });
+    const set = (k, v) => setM(x => ({ ...x, [k]: v }));
+    const addSelected = () => { if (!selected || selected.type === "text" && !selected.content) return; setM(x => ({ ...x, elements: [...(x.elements || []).filter(e => e.id !== "master-" + selected.id), { ...structuredClone(selected), id: "master-" + selected.id, locked: true }] })); };
+    return h("div", { className: "json-overlay master-overlay", onClick: onClose }, h("div", { className: "json-panel master-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, "编辑母版"), h("button", { onClick: onClose }, "关闭")), h("p", { className: "master-help" }, "统一设置背景、主题颜色、字体层级，并把公共元素应用到所有页面。"), h("div", { className: "master-grid" }, h("label", null, "背景填充", h("input", { type: "color", value: m.background || "#ffffff", onChange: e => set("background", e.target.value) })), h("label", null, "主题色", h("input", { type: "color", value: m.accent || "#2563eb", onChange: e => set("accent", e.target.value) })), h("label", null, "前景色", h("input", { type: "color", value: m.foreground || "#172033", onChange: e => set("foreground", e.target.value) })), h("label", null, "标题字号", h("input", { type: "number", min: 10, value: m.titleSize || 40, onChange: e => set("titleSize", Number(e.target.value)) })), h("label", null, "正文字号", h("input", { type: "number", min: 10, value: m.bodySize || 24, onChange: e => set("bodySize", Number(e.target.value)) })), h("label", null, "字体", h("input", { value: m.fontFamily || m.fonts?.[0] || "Microsoft YaHei", onChange: e => { set("fontFamily", e.target.value); set("fonts", e.target.value ? e.target.value.split(",").map(x => x.trim()).filter(Boolean) : []); } })) ), h("div", { className: "master-shared" }, h("button", { className: "btn", onClick: addSelected, disabled: !selected }, "将当前选中对象设为公共元素"), h("span", null, `${(m.elements || []).length} 个公共元素`)), h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => onApply(m) }, "应用到全部页面"), h("button", { onClick: onClose }, "取消"))));
   }
   function Inspector({ element, onChange, onReplaceImage, onJson }) {
     const st = { ...defaults, ...(element?.style || {}) };
