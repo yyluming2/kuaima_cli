@@ -918,6 +918,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, e := range sld.Elements {
 			opts := genppt.ShapeOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
+			explicitBorder := false
 			if e.Style != nil {
 				opts.Fill = styleColor(e.Style, "fill")
 				if opts.Fill == "" {
@@ -933,6 +934,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					opts.LineWidth = v * 72 / ppt.LogicalDPI
 				}
 				if b := styleString(e.Style, "border"); b != "" {
+					explicitBorder = true
 					parts := strings.Fields(b)
 					if len(parts) > 0 {
 						var n float64
@@ -950,6 +952,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				}
 				if e.Style != nil {
 					if bo, ok := e.Style["border"].(map[string]any); ok {
+						explicitBorder = true
 						if c, ok := bo["color"].(string); ok {
 							opts.LineColor = c
 						}
@@ -958,6 +961,11 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 						}
 						if d, ok := bo["style"].(string); ok {
 							opts.LineStyle = borderStyleValue(d)
+						}
+						if w, ok := styleFloat(bo, "width"); ok && w <= 0 {
+							opts.LineColor = ""
+							opts.LineWidth = 0
+							opts.LineStyle = genppt.BorderNone
 						}
 					}
 				}
@@ -989,7 +997,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			if strings.EqualFold(opts.Fill, "transparent") || strings.EqualFold(opts.Fill, "none") {
 				opts.Fill = "transparent"
 			}
-			if opts.LineColor == "" && e.Line != nil {
+			if opts.LineColor == "" && e.Line != nil && !explicitBorder {
 				opts.LineColor = colorFrom(e.Line.Color)
 				opts.LineWidth = e.Line.Width * 72 / ppt.LogicalDPI
 				opts.LineStyle = borderStyleValue(e.Line.Dash)
@@ -1096,6 +1104,9 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					sl.AddText(e.Content, o)
 				}
 			} else if e.Type == "shape" {
+				if e.Style == nil {
+					e.Style = map[string]any{}
+				}
 				shape := genppt.ShapeRect
 				shapeName := styleString(e.Style, "shape")
 				if shapeName == "" && e.Geometry != nil {
@@ -1134,6 +1145,19 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					case "line":
 						shape = genppt.ShapeLine
 					}
+				}
+				if shape == genppt.ShapeRoundRect {
+					radius := 12.0
+					if v, ok := styleFloat(e.Style, "radius"); ok {
+						radius = v
+					}
+					if radius < 0 {
+						radius = 0
+					}
+					if radius > 50 {
+						radius = 50
+					}
+					opts.Rounding = radius
 				}
 				sl.AddShape(shape, opts)
 			} else if e.Type == "table" {

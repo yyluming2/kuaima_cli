@@ -14,7 +14,7 @@
   }[String(shape || "").toLowerCase()]);
 
   const boxStyle = (style = {}) => ({
-    border: style.border ? (typeof style.border === "string" ? style.border : `${style.border.width || 1}px solid ${style.border.color || "#64748b"}`) : undefined,
+    border: style.border && !(typeof style.border === "object" && (Number(style.border.width) <= 0 || String(style.border.style || "").toLowerCase() === "none")) ? (typeof style.border === "string" ? style.border : `${style.border.width || 0}px ${style.border.style || "solid"} ${style.border.color || "#64748b"}`) : undefined,
     boxShadow: style.shadow || undefined
   });
   const fillStyle = value => !value ? {} : (String(value).includes("gradient") ? { backgroundImage: value, backgroundColor: "transparent" } : { backgroundColor: value });
