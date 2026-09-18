@@ -2,81 +2,13 @@
   "use strict";
   const moveStreamStatusToCanvas = () => { const status = document.querySelector("body > .ppt-stream-status"), canvas = document.querySelector(".canvas-wrap"); if (status && canvas) canvas.appendChild(status); };
   setInterval(moveStreamStatusToCanvas, 100);
-  const { useState, useEffect, useRef } = React, h = React.createElement, names = { text: "文本", shape: "形状", table: "表格", chart: "图表", image: "图片" }, defaults = { fontSize: 24, fontFamily: "Microsoft YaHei", bold: false, italic: false, underline: false, color: "#111827", background: "transparent", lineHeight: 1.2, letterSpacing: 0 }, shapeClip = s => ({ ellipse: "ellipse(50% 50% at 50% 50%)", oval: "ellipse(50% 50% at 50% 50%)", triangle: "polygon(50% 0%,100% 100%,0% 100%)", diamond: "polygon(50% 0%,100% 50%,50% 100%,0% 50%)", hexagon: "polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)", pentagon: "polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%)", parallelogram: "polygon(20% 0%,100% 0%,80% 100%,0% 100%)", righttriangle: "polygon(0 0,100% 100%,0 100%)", rttriangle: "polygon(0 0,100% 100%,0 100%)" }[String(s || "").toLowerCase()]);
-  const boxStyle = (st = {}) => ({ border: st.border ? (typeof st.border === "string" ? st.border : `${st.border.width || 1}px solid ${st.border.color || "#64748b"}`) : undefined, boxShadow: st.shadow || undefined });
-  const fillStyle = v => !v ? {} : (String(v).includes("gradient") ? { backgroundImage: v, backgroundColor: "transparent" } : { backgroundColor: v });
-  const shapeStyle = (s, st = {}) => { const k = String(s || "").toLowerCase(); if (k === "donut") return { maskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)", WebkitMaskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)" }; if (k === "roundrect") return { borderRadius: `${Math.max(0, Math.min(50, Number(st.radius) || 12))}%` }; return { clipPath: shapeClip(s) }; };
-  // Normalize the structured DrawingML model into the legacy CSS surface used
-  // by the editor.  Imported decks may contain either representation.
-  // `style` is the single editable source of truth. Structured fields from
-  // PPTX import are fallbacks only, so re-rendering cannot undo an edit.
-  const visualStyle = (e, st = {}) => { const out = {}; const f = e && e.fill, l = e && e.line, t = e && e.textStyle, g = e && e.geometry; if (f && st.background == null) { if (f.type === "solid" && f.color) out.background = f.color.rgb || f.color.css || "transparent"; else if (f.type === "gradient" && f.gradient && f.gradient.stops) out.background = `linear-gradient(${Number(f.gradient.angle) || 0}deg,${f.gradient.stops.map(x => `${x.color.rgb || x.color.css || "#000"} ${Number(x.position) || 0}%`).join(",")})`; else if (f.type === "none") out.background = "transparent"; } if (l && st.border == null && l.color && l.color.type !== "none") out.border = `${Number(l.width) || 1}px ${l.dash && /dot/i.test(l.dash) ? "dotted" : l.dash && l.dash !== "solid" ? "dashed" : "solid"} ${l.color.rgb || l.color.css || "#64748b"}`; if (t) { if (st.fontFamily == null && t.fontFamily) out.fontFamily = t.fontFamily; if (st.fontSize == null && t.fontSize) out.fontSize = t.fontSize; if (st.bold == null && t.bold != null) out.bold = t.bold; if (st.italic == null && t.italic != null) out.italic = t.italic; if (st.underline == null && t.underline != null) out.underline = t.underline; if (st.lineHeight == null && t.lineHeight) out.lineHeight = t.lineHeight; if (st.align == null && t.align) out.align = t.align; } if (g && g.type && st.shape == null) out.shape = g.preset || g.type; if (e && (e.flipH || e.flipV)) out.transform = `${e.flipH ? "scaleX(-1) " : ""}${e.flipV ? "scaleY(-1)" : ""}`.trim(); if (e && e.effects) { if (st.shadow == null) out.shadow = e.effects.shadow || undefined; if (st.boxShadow == null && e.effects.innerShadow) out.boxShadow = e.effects.innerShadow; } return out; };
-  const canonicalStyle = e => ({ ...defaults, ...(e && e.style || {}), ...visualStyle(e, e && e.style || {}) });
-  const normalizeDeck = value => { const n = structuredClone(value); (n.slides || []).forEach((s, i) => { if (!s.id) s.id = "slide-" + (i + 1); (s.elements || []).forEach(e => { e.style = canonicalStyle(e); }); }); if (n.master?.elements) n.master.elements = n.master.elements.map((e, i) => ({ ...e, id: String(e.id || `master-${i + 1}`).startsWith("master-") ? (e.id || `master-${i + 1}`) : `master-${e.id}`, locked: false, style: canonicalStyle(e) })); return n; };
-  const textAlign = value => ({ l: "left", ctr: "center", r: "right", just: "justify", dist: "justify", thaiDist: "justify" }[String(value || "").toLowerCase()] || value || undefined);
-  const textRuns = (e, base, scale = 1) => {
-    const runs = Array.isArray(e && e.textRuns) ? e.textRuns : [];
-    if (!runs.length) return e && e.content || "";
-    return runs.flatMap((run, i) => {
-      const rs = { ...base, ...(run && run.style || {}) };
-      const lead = i > 0 && Number(run?.paragraph) !== Number(runs[i-1]?.paragraph) ? h("br", { key: "br"+i }) : null;
-      return [lead, h("span", { key: i, style: { fontFamily: rs.fontFamily, fontSize: Number(rs.fontSize) ? Number(rs.fontSize) * scale : undefined, color: rs.color, fontWeight: rs.bold ? "bold" : "normal", fontStyle: rs.italic ? "italic" : "normal", textDecoration: rs.underline ? "underline" : "none" } }, run && run.content || "")];
-    });
-  };
-const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEach(r => String(r.content || "").split(/\n/).forEach((part, i, a) => { if (part) out.push({ ...r, content: part, paragraph: p }); if (i < a.length - 1) p++; })); return out; };
-  const rewriteRunContent = (element, content) => {
-    const runs = Array.isArray(element.textRuns) ? element.textRuns : [];
-    if (!runs.length) { element.content = content; return; }
-    let cursor = 0;
-    element.textRuns = runs.map((run, i) => {
-      const remainingRuns = runs.length - i - 1;
-      const oldPartLength = String(run.content || "").length;
-      const take = i === runs.length - 1 ? content.length - cursor : Math.min(oldPartLength, Math.max(0, content.length - cursor - remainingRuns));
-      const part = content.slice(cursor, cursor + take);
-      cursor += take;
-      return { ...run, content: part };
-    });
-    // Keep the flat field in sync for export, validation and integrations.
-    element.content = content;
-  };
-  // TextBlock owns rich-text display and the contentEditable lifecycle. The
-  // canvas only decides when editing starts and commits the normalized runs.
-  const TextBlock = ({ element, style, editing, editRef, scale = 1, onCommit }) => {
-    if (!editing) return textRuns(element, style, scale);
-    return h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true,
-      onBlur: ev => {
-        const next = [];
-        [...(ev.currentTarget.childNodes || [])].forEach(n => {
-          const content = n.textContent || "";
-          if (!content) return;
-          if (n.nodeType === 3) next.push({ content, style: {} });
-          else { const cs = getComputedStyle(n); next.push({ content, style: { fontFamily: cs.fontFamily, fontSize: parseFloat(cs.fontSize) || undefined, color: cs.color, bold: cs.fontWeight >= 600, italic: cs.fontStyle === "italic", underline: (cs.textDecorationLine || "").includes("underline") } }); }
-        });
-        onCommit(next.filter(r => r.content), ev.currentTarget.textContent || "");
-      },
-      onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); onCommit(null); } }
-    }, textRuns(element, style));
-  };
-  const customPath = e => e && e.geometry && e.geometry.type === "custom" && e.geometry.path ? h("svg", { className: "shape-svg", viewBox: e.geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("path", { d: e.geometry.path, fill: e.fill && e.fill.color ? (e.fill.color.rgb || e.fill.color.css || "currentColor") : "currentColor", stroke: e.line && e.line.color && e.line.color.type !== "none" ? (e.line.color.rgb || e.line.color.css || "none") : "none", strokeWidth: e.line && e.line.width ? Number(e.line.width) : 0 })) : null;
-  // OOXML srcRect values are thousandths of a percent.  Expand the image
-  // inside its clipped frame so the requested crop is visible in the editor.
-  const imageCropStyle = (style = {}) => { const c = style.crop || {}, l = Math.max(0, Math.min(0.99, Number(c.left) || 0)), t = Math.max(0, Math.min(0.99, Number(c.top) || 0)), r = Math.max(0, Math.min(0.99 - l, Number(c.right) || 0)), b = Math.max(0, Math.min(0.99 - t, Number(c.bottom) || 0)), iw = 100 / (1 - l - r), ih = 100 / (1 - t - b); return { position: "absolute", maxWidth: "none", width: iw + "%", height: ih + "%", left: (-l * iw) + "%", top: (-t * ih) + "%", objectFit: "fill" }; };
-  // Keep the image inside its element frame. The crop transform intentionally
-  // enlarges/repositions the bitmap, so clipping must happen on a wrapper;
-  // applying overflow:hidden to `.el` would also hide its resize handles.
-  const ImageBlock = ({ src, style, alt = "" }) => h("div", { className: "image-frame" }, h("img", { src, alt, style: imageCropStyle(style) }));
-  const elementTransform = e => e.rotation ? `rotate(${Number(e.rotation) || 0}deg)` : undefined;
-  const api = async (url, o) => {
-    const r = await fetch(url, o);
-    if (!r.ok) throw Error("请求失败（" + r.status + "）");
-    return r
-  }, readSSE = async res => { const reader = res.body.getReader(), decoder = new TextDecoder(); let pending = "", done = null; while (true) { const part = await reader.read(); pending += decoder.decode(part.value || new Uint8Array(), { stream: !part.done }); const chunks = pending.split("\n\n"); pending = chunks.pop() || ""; for (const block of chunks) { const line = block.split("\n").find(x => x.startsWith("data:")); if (!line) continue; let value; try { value = JSON.parse(line.slice(5).trim()); } catch (_) { continue; } if (block.includes("event: error")) throw new Error(value.error || "流式生成失败"); if (block.includes("event: done")) done = value; } if (part.done) break; } return done; }, icon = n => h("i", { "data-lucide": n });
+  const { useState, useEffect, useRef } = React, h = React.createElement;
+  const { names, defaults, boxStyle, fillStyle, shapeStyle, visualStyle, normalizeDeck, textAlign, textRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon, Inspector } = window.PPTEditor;
   const pptReferences = () => ({ text: document.querySelector("#pptReferenceText")?.value || "", images: [...(document.querySelector("#pptReferenceImages")?.files || [])], deck: document.querySelector("#pptReferenceDeck")?.files?.[0] || null });
   const referenceStatus = () => { const r = pptReferences(), el = document.querySelector("#pptReferenceStatus"); if (el) el.textContent = [r.images.length ? `${r.images.length} 张图片` : "", r.deck ? r.deck.name : ""].filter(Boolean).join(" · "); };
   document.querySelector("#pptReferenceImages")?.addEventListener("change", referenceStatus);
   document.querySelector("#pptReferenceDeck")?.addEventListener("change", referenceStatus);
   setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
-  let activeMaster = null, activeMasterChange = null;
   function App() {
     const [masterMode, setMasterMode] = useState(false);
     const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
@@ -106,6 +38,27 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
       if (e && (masterMode || !e.locked)) fn(e);
       return n
     });
+    const changeLayer = direction => {
+      if (!selected) return;
+      trackedSetDeck(d => {
+        const n = structuredClone(d);
+        const list = masterMode ? (n.master?.elements || []) : (n.slides?.[slide]?.elements || []);
+        const target = list.find(element => element.id === selected);
+        if (!target || (!masterMode && target.locked)) return d;
+        const ordered = list.map((element, index) => ({ element, index })).sort((a, b) => (Number(a.element.zIndex) || 0) - (Number(b.element.zIndex) || 0) || a.index - b.index).map(item => item.element);
+        const from = ordered.findIndex(element => element.id === selected);
+        const to = direction === "front" ? ordered.length - 1 : direction === "back" ? 0 : Math.max(0, Math.min(ordered.length - 1, from + (direction === "up" ? 1 : -1)));
+        if (from === to) return d;
+        ordered.splice(to, 0, ordered.splice(from, 1)[0]);
+        ordered.forEach((element, index) => { element.zIndex = index; });
+        if (masterMode) {
+          n.master.elements = ordered;
+          const layers = new Map(ordered.map(element => [element.id, element.zIndex]));
+          (n.slides || []).forEach(page => (page.elements || []).forEach(element => { if (layers.has(element.id)) element.zIndex = layers.get(element.id); }));
+        } else n.slides[slide].elements = ordered;
+        return n;
+      });
+    };
     const W = Number(deck?.width) || 1280, H = Number(deck?.height) || 720;
     const jsonSnapshot = current ? structuredClone(current) : null;
     const pageJsonSnapshot = deck ? { ...deck, slides: (deck.slides || []).slice(slide, slide + 1) } : null;
@@ -256,8 +209,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
         removeEventListener("mouseup", up)
       }
     }, [selected, slide, deck]);
-    activeMaster = masterMode ? (deck?.master || {}) : null;
-    activeMasterChange = fn => setDeck(d => { const n = structuredClone(d); n.master = n.master || {}; fn(n.master); return n; });
+    const changeMaster = fn => setDeck(d => { const n = structuredClone(d); n.master = n.master || {}; fn(n.master); return n; });
     const exportDeck = async () => {
       if (!deck) return;
       try {
@@ -311,42 +263,7 @@ const splitEditorParagraphs = runs => { let p = 0, out = []; (runs || []).forEac
           r.readAsDataURL(f)
         } ev.target.value = ""
       }
-    }), h("input", { ref: openFileInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: loadDeckFile }), inspectorOpen && h(Inspector, { element: current, onChange: update, onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } }), showJson && h("div", { className: "json-overlay", onClick: () => setShowJson(false) }, h("div", { className: "json-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, current ? `对象 JSON · ${names[current.type] || current.type}` : "对象 JSON"), h("button", { onClick: () => setShowJson(false) }, "关闭")), current ? h("textarea", { className: "json-editor", value: jsonText, onChange: e => setJsonText(e.target.value), spellCheck: false }) : h("div", { className: "json-empty" }, "请先选择一个对象"), current && h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => { try { const parsed = JSON.parse(jsonText); update(x => { Object.keys(x).forEach(k => delete x[k]); Object.assign(x, parsed); }); setShowJson(false); } catch (e) { alert("JSON 格式错误：" + e.message); } } }, "应用修改"), h("button", { onClick: () => setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)) }, "还原"))))))
-  }
-  function MasterEditor({ deck, onApply, onClose, selected }) {
-    const base = deck?.master || {}, [m, setM] = useState({ background: deck?.theme?.background || "#ffffff", foreground: deck?.theme?.foreground || "#172033", accent: deck?.theme?.accent || "#2563eb", fonts: deck?.theme?.fonts || [], titleSize: 40, bodySize: 24, ...base });
-    const set = (k, v) => setM(x => ({ ...x, [k]: v }));
-    const addSelected = () => { if (!selected || selected.type === "text" && !selected.content) return; setM(x => ({ ...x, elements: [...(x.elements || []).filter(e => e.id !== "master-" + selected.id), { ...structuredClone(selected), id: "master-" + selected.id, locked: true }] })); };
-    return h("div", { className: "json-overlay master-overlay", onClick: onClose }, h("div", { className: "json-panel master-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, "编辑母版"), h("button", { onClick: onClose }, "关闭")), h("p", { className: "master-help" }, "统一设置背景、主题颜色、字体层级，并把公共元素应用到所有页面。"), h("div", { className: "master-grid" }, h("label", null, "背景填充", h("input", { type: "color", value: m.background || "#ffffff", onChange: e => set("background", e.target.value) })), h("label", null, "主题色", h("input", { type: "color", value: m.accent || "#2563eb", onChange: e => set("accent", e.target.value) })), h("label", null, "前景色", h("input", { type: "color", value: m.foreground || "#172033", onChange: e => set("foreground", e.target.value) })), h("label", null, "标题字号", h("input", { type: "number", min: 10, value: m.titleSize || 40, onChange: e => set("titleSize", Number(e.target.value)) })), h("label", null, "正文字号", h("input", { type: "number", min: 10, value: m.bodySize || 24, onChange: e => set("bodySize", Number(e.target.value)) })), h("label", null, "字体", h("input", { value: m.fontFamily || m.fonts?.[0] || "Microsoft YaHei", onChange: e => { set("fontFamily", e.target.value); set("fonts", e.target.value ? e.target.value.split(",").map(x => x.trim()).filter(Boolean) : []); } })) ), h("div", { className: "master-shared" }, h("button", { className: "btn", onClick: addSelected, disabled: !selected }, "将当前选中对象设为公共元素"), h("span", null, `${(m.elements || []).length} 个公共元素`)), h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => onApply(m) }, "应用到全部页面"), h("button", { onClick: onClose }, "取消"))));
-  }
-  const palette = ["#111827", "#ffffff", "#2563eb", "#0f9f8f", "#f97316", "#dc2626", "#facc15", "#8b5cf6", "#64748b"];
-  function ColorField({ label, value, onChange }) { return h("div", { className: "color-field" }, h("span", null, label), h("div", { className: "color-swatches" }, palette.map(c => h("button", { type: "button", key: c, title: c, className: value === c ? "selected" : "", style: { background: c }, onClick: () => onChange(c) })), h("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(value || "") ? value : "#ffffff", onChange: e => onChange(e.target.value), "aria-label": label }))); }
-  function Inspector({ element, onChange, onReplaceImage, onJson }) {
-    if (!element && activeMaster) {
-      const m = activeMaster, set = (k, v) => activeMasterChange(x => x[k] = v);
-      return h("aside", { className: "side master-settings" }, h("b", null, "母版属性"), h("p", { className: "type-hint" }, "退出母版画布后应用到所有页面"), ColorField({ label: "背景填充", value: m.background || "#ffffff", onChange: v => set("background", v) }), ColorField({ label: "主题色", value: m.accent || "#2563eb", onChange: v => set("accent", v) }), ColorField({ label: "前景色", value: m.foreground || "#172033", onChange: v => set("foreground", v) }), h("label", null, "标题字号", h("input", { type: "number", min: 10, value: m.titleSize || 40, onChange: e => set("titleSize", Number(e.target.value)) })), h("label", null, "正文字号", h("input", { type: "number", min: 10, value: m.bodySize || 24, onChange: e => set("bodySize", Number(e.target.value)) })), h("label", null, "字体", h("input", { value: m.fontFamily || "Microsoft YaHei", onChange: e => { set("fontFamily", e.target.value); set("fonts", e.target.value.split(",").map(x => x.trim()).filter(Boolean)); } })));
-    }
-    const st = { ...defaults, ...(element?.style || {}) };
-    if (!element) return h("aside", { className: "side" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, "未选择元素"));
-    const setStyle = (x, key, value) => {
-      x.style = { ...x.style, [key]: value };
-      if (Array.isArray(x.textRuns)) {
-        x.textRuns = x.textRuns.map(run => ({ ...run, style: { ...run.style, [key]: value } }));
-      }
-    }, field = (label, key, type = "text") => h("label", null, label, h("input", {
-      type, step: type === "number" ? "0.1" : undefined, value: type === "number" && ["x", "y", "width", "height"].includes(key) ? Number(element[key] || 0).toFixed(1) : (element[key] ?? st[key] ?? ""), onChange: e => onChange(x => {
-        if (key in x) x[key] = type === "number" ? Number(e.target.value) : e.target.value;
-        else setStyle(x, key, type === "number" ? Number(e.target.value) : e.target.value)
-      })
-    })), cropField = (label, key) => h("label", null, label, h("input", { type: "number", min: 0, max: 0.99, step: 0.01, value: Number(st.crop?.[key] || 0), onChange: e => onChange(x => x.style = { ...x.style, crop: { ...(x.style?.crop || {}), [key]: Number(e.target.value) } }) })), toggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!st[key], onChange: e => onChange(x => setStyle(x, key, e.target.checked)) }), label);
-    const hasShape = element.type === "shape" || !!st.shape, fillLabel = hasShape && element.type !== "text" ? "形状填充" : "文字填充";
-    return h("aside", { className: "side" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, names[element.type] || element.type, st.shapeName ? ` · ${st.shapeName}` : ""), hasShape && field("形状类型", "shape"), hasShape && field("形状名称", "shapeName"), String(st.shape || "").toLowerCase() === "roundrect" && field("圆角大小(%)", "radius", "number"), element.type === "image" && h("button", { className: "replace-image", type: "button", onClick: () => onReplaceImage?.(element.id) }, "替换图片"), element.type === "image" && h("section", { className: "geometry" }, cropField("裁剪左", "left"), cropField("裁剪上", "top"), cropField("裁剪右", "right"), cropField("裁剪下", "bottom")), element.type !== "image" && h("label", null, "内容", h("textarea", { value: element.content || "", onChange: e => onChange(x => {
-      // Keep character-level formatting when editing text from the inspector.
-      // Removing textRuns here made the renderer fall back to the element
-      // defaults, so imported bold/colour/font differences disappeared.
-      if (x.type === "text") rewriteRunContent(x, e.target.value);
-      else x.content = e.target.value;
-    }) })), h("section", { className: "geometry" }, field("X 位置", "x", "number"), field("Y 位置", "y", "number"), field("宽度", "width", "number"), field("高度", "height", "number")), field("对象透明度", "opacity", "number"), element.type === "text" && h("section", null, field("字号", "fontSize", "number"), field("字体", "fontFamily"), field("文字颜色", "color", "color"), h("label", null, "文字对齐", h("select", { value: st.align || "l", onChange: e => onChange(x => x.style = { ...x.style, align: e.target.value }) }, h("option", { value: "l" }, "左对齐"), h("option", { value: "ctr" }, "居中"), h("option", { value: "r" }, "右对齐"), h("option", { value: "just" }, "两端对齐"))), field("行间距", "lineHeight", "number"), field("字间距", "letterSpacing", "number"), h("div", { className: "checks" }, toggle("加粗", "bold"), toggle("斜体", "italic"), toggle("下划线", "underline"))), (element.type === "shape" || element.type === "text") && field(fillLabel, "background"), h("section", { className: "geometry" }, field("边框", "border"), field("阴影", "shadow")), field("旋转角度", "rotation", "number"))
+    }), h("input", { ref: openFileInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: loadDeckFile }), inspectorOpen && h(Inspector, { element: current, onChange: update, onLayer: changeLayer, master: masterMode ? (deck?.master || {}) : null, onMasterChange: changeMaster, onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } }), showJson && h("div", { className: "json-overlay", onClick: () => setShowJson(false) }, h("div", { className: "json-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, current ? `对象 JSON · ${names[current.type] || current.type}` : "对象 JSON"), h("button", { onClick: () => setShowJson(false) }, "关闭")), current ? h("textarea", { className: "json-editor", value: jsonText, onChange: e => setJsonText(e.target.value), spellCheck: false }) : h("div", { className: "json-empty" }, "请先选择一个对象"), current && h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => { try { const parsed = JSON.parse(jsonText); update(x => { Object.keys(x).forEach(k => delete x[k]); Object.assign(x, parsed); }); setShowJson(false); } catch (e) { alert("JSON 格式错误：" + e.message); } } }, "应用修改"), h("button", { onClick: () => setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)) }, "还原"))))))
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
