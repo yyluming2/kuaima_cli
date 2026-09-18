@@ -23,6 +23,19 @@ type Presentation struct {
 	Slides       []Slide `json:"slides"`
 	AIModel      string  `json:"aiModel,omitempty"`
 	AIImageModel string  `json:"aiImageModel,omitempty"`
+	// FontAssets contains fonts physically embedded in an imported PPTX. Some
+	// Office fonts are license-obfuscated; those are preserved but not exposed
+	// as browser-loadable data until they can be decoded safely.
+	FontAssets []FontAsset `json:"fontAssets,omitempty"`
+}
+
+type FontAsset struct {
+	Family     string `json:"family"`
+	Style      string `json:"style,omitempty"`
+	Weight     int    `json:"weight,omitempty"`
+	AssetURL   string `json:"assetUrl,omitempty"`
+	FileName   string `json:"fileName,omitempty"`
+	Obfuscated bool   `json:"obfuscated,omitempty"`
 }
 
 // Master is the editable slide-master definition shared by all slides.

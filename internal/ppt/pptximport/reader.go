@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type node struct {
@@ -188,7 +189,59 @@ func parseThemeColors(b []byte) map[string]string {
 			colors[strings.ToLower(entry.Name)] = c
 		}
 	}
+	// Keep theme typeface aliases in the same lookup table. DrawingML run
+	// properties commonly contain +mj-ea/+mn-ea rather than a real family.
+	var fontScheme *node
+	var findFonts func(*node)
+	findFonts = func(n *node) {
+		if n == nil || fontScheme != nil {
+			return
+		}
+		if n.Name == "fontScheme" {
+			fontScheme = n
+			return
+		}
+		for _, k := range n.Kids {
+			findFonts(k)
+		}
+	}
+	findFonts(root)
+	if fontScheme != nil {
+		for _, spec := range []struct{ node, prefix string }{{"majorFont", "+mj-"}, {"minorFont", "+mn-"}} {
+			if group := fontScheme.child(spec.node); group != nil {
+				for _, face := range []struct{ node, suffix string }{{"latin", "lt"}, {"ea", "ea"}, {"cs", "cs"}} {
+					if value := group.child(face.node).attr("typeface"); value != "" {
+						colors["font:"+spec.prefix+face.suffix] = value
+					}
+				}
+				// Modern Office themes often leave <a:ea typeface=""> empty and
+				// provide locale-specific East Asian faces instead.
+				if colors["font:"+spec.prefix+"ea"] == "" {
+					for _, script := range []string{"Hans", "Hant", "Jpan", "Hang"} {
+						for _, candidate := range group.children("font") {
+							if candidate.attr("script") == script && candidate.attr("typeface") != "" {
+								colors["font:"+spec.prefix+"ea"] = candidate.attr("typeface")
+								break
+							}
+						}
+						if colors["font:"+spec.prefix+"ea"] != "" {
+							break
+						}
+					}
+				}
+			}
+		}
+	}
 	return colors
+}
+
+func resolveTypeface(value string, theme map[string]string) string {
+	if strings.HasPrefix(value, "+") && theme != nil {
+		if resolved := theme["font:"+strings.ToLower(value)]; resolved != "" {
+			return resolved
+		}
+	}
+	return value
 }
 
 func clr(n *node, theme map[string]string) string {
@@ -606,7 +659,23 @@ func runStyle(r, p *node, theme map[string]string) map[string]any {
 	if q == nil {
 		q = p.child("endParaRPr")
 	}
-	return rPrStyle(q, theme)
+	st := rPrStyle(q, theme)
+	text := r.child("t").Text
+	if containsEastAsian(text) {
+		if f := q.child("ea"); f != nil && f.attr("typeface") != "" {
+			st["fontFamily"] = resolveTypeface(f.attr("typeface"), theme)
+		}
+	}
+	return st
+}
+
+func containsEastAsian(value string) bool {
+	for _, r := range value {
+		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
+			return true
+		}
+	}
+	return false
 }
 func rPrStyle(q *node, theme map[string]string) map[string]any {
 	st := map[string]any{}
@@ -627,8 +696,14 @@ func rPrStyle(q *node, theme map[string]string) map[string]any {
 	if q.attr("u") != "" && q.attr("u") != "none" {
 		st["underline"] = true
 	}
-	if f := q.child("latin"); f != nil && f.attr("typeface") != "" {
-		st["fontFamily"] = f.attr("typeface")
+	// DrawingML keeps separate typefaces for latin, East Asian and complex
+	// script text.  Using only latin makes Chinese text silently fall back to
+	// an unrelated browser/exporter font, so prefer the first explicit face.
+	for _, tag := range []string{"latin", "ea", "cs"} {
+		if f := q.child(tag); f != nil && f.attr("typeface") != "" {
+			st["fontFamily"] = resolveTypeface(f.attr("typeface"), theme)
+			break
+		}
 	}
 	if c := fillStyle(q, theme); c != "" && !strings.Contains(c, "gradient") {
 		st["color"] = c
@@ -679,9 +754,14 @@ func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any,
 					para.LineHeight = st["lineHeight"].(float64)
 				}
 				if pts := ls.child("spcPts"); pts != nil {
-					// spacing in hundredths of a point; normalize to a CSS multiplier
-					st["lineHeight"] = num(pts.attr("val")) / 1200
-					para.LineHeight = st["lineHeight"].(float64)
+					// spcPts is an absolute value in hundredths of a point. Our
+					// lineHeight is a multiplier, so divide it by the paragraph's
+					// effective font size instead of the old hard-coded 12pt value.
+					fontPt := paragraphFontSizePoints(p)
+					if fontPt > 0 {
+						st["lineHeight"] = num(pts.attr("val")) / 100 / fontPt
+						para.LineHeight = st["lineHeight"].(float64)
+					}
 				}
 			}
 		}
@@ -715,7 +795,39 @@ func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any,
 		paragraphs = append(paragraphs, para)
 		ls = append(ls, b.String())
 	}
+	var commonLineHeight float64
+	explicitLineHeights := 0
+	lineHeightSet, lineHeightMixed := false, false
+	for _, para := range paragraphs {
+		if para.LineHeight <= 0 {
+			continue
+		}
+		explicitLineHeights++
+		if !lineHeightSet {
+			commonLineHeight, lineHeightSet = para.LineHeight, true
+		} else if math.Abs(commonLineHeight-para.LineHeight) > 0.000001 {
+			lineHeightMixed = true
+		}
+	}
+	if explicitLineHeights != 0 && explicitLineHeights != len(paragraphs) {
+		lineHeightMixed = true
+	}
+	if lineHeightSet && !lineHeightMixed {
+		st["lineHeight"] = commonLineHeight
+	} else {
+		delete(st, "lineHeight")
+	}
 	runs = mergeTextRuns(runs)
+	// Element style is the compatibility/default style used by the editor.
+	// Populate missing typography from the first effective run instead of
+	// allowing UI defaults to replace the actual PPTX font and size.
+	if len(runs) > 0 {
+		for k, v := range runs[0].Style {
+			if _, exists := st[k]; !exists {
+				st[k] = v
+			}
+		}
+	}
 	for i := range paragraphs {
 		paragraphs[i].Runs = paragraphs[i].Runs[:0]
 	}
@@ -725,6 +837,23 @@ func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any,
 		}
 	}
 	return strings.Join(ls, "\n"), st, runs, paragraphs
+}
+
+func paragraphFontSizePoints(p *node) float64 {
+	if p == nil {
+		return 0
+	}
+	candidates := []*node{p.child("pPr").child("defRPr")}
+	for _, run := range p.children("r") {
+		candidates = append(candidates, run.child("rPr"))
+	}
+	candidates = append(candidates, p.child("endParaRPr"))
+	for _, candidate := range candidates {
+		if candidate != nil && candidate.attr("sz") != "" {
+			return num(candidate.attr("sz")) / 100
+		}
+	}
+	return 0
 }
 
 // mergeTextRuns reduces adjacent runs that have the same effective style.
@@ -855,6 +984,12 @@ func (im *importer) walk(n *node, c ctx) {
 		var structuredLineValue *ppt.Line
 		var structuredEffectsValue *ppt.Effects
 		if sp := n.child("spPr"); sp != nil {
+			if bl := sp.child("blipFill"); bl != nil && bl.child("blip") != nil {
+				if src := im.imageData(im.rel[bl.child("blip").attr("embed")]); src != "" {
+					style["background"] = src
+					structuredFillValue = &ppt.Fill{Type: "image", Image: &ppt.ImageFill{AssetURL: src, RotateWithShape: bl.attr("rotWithShape") != "0"}}
+				}
+			}
 			if c := fillStyle(sp, im.theme); c != "" {
 				style["background"] = c
 			}
@@ -879,7 +1014,9 @@ func (im *importer) walk(n *node, c ctx) {
 				style["border"] = v
 			}
 			geom = presetGeometry(sp)
-			structuredFillValue = structuredFill(sp, im.theme)
+			if structuredFillValue == nil {
+				structuredFillValue = structuredFill(sp, im.theme)
+			}
 			structuredLineValue = structuredLine(sp, im.theme)
 			structuredEffectsValue = structuredEffects(sp, im.theme)
 			if n.Name == "cxnSp" && geom == nil {
@@ -921,6 +1058,7 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 	// filenames, especially after slides are rearranged in PowerPoint).
 	slideOrder := map[string]int{}
 	var presentationRels map[string]string
+	var presentationRoot *node
 	for _, f := range z.File {
 		if f.Name == "ppt/presentation.xml" {
 			b, _ := f.Open()
@@ -937,6 +1075,7 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 				p.Height = float64(v.S.Cy) / 914400 * ppt.LogicalDPI
 			}
 			if root, er := parseTree(d); er == nil {
+				presentationRoot = root
 				if ids := root.child("sldIdLst"); ids != nil {
 					for i, id := range ids.Kids {
 						if rid := id.relID(); rid != "" {
@@ -953,6 +1092,7 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 			presentationRels = parseRels(d)
 		}
 	}
+	p.FontAssets = embeddedFonts(z, presentationRoot, presentationRels)
 	// zip entry order is not presentation order. Sort slide XML by its numeric
 	// suffix (the normal OOXML ordering) before parsing.
 	slides := make([]*zip.File, 0)
@@ -1048,6 +1188,83 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 		return ppt.Presentation{}, fmt.Errorf("pptx contains no slides")
 	}
 	return p, nil
+}
+
+func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.FontAsset {
+	if root == nil || rels == nil {
+		return nil
+	}
+	list := root.child("embeddedFontLst")
+	if list == nil {
+		return nil
+	}
+	var out []ppt.FontAsset
+	for _, embedded := range list.children("embeddedFont") {
+		family := embedded.child("font").attr("typeface")
+		for _, variant := range []struct {
+			name   string
+			style  string
+			weight int
+		}{{"regular", "normal", 400}, {"bold", "normal", 700}, {"italic", "italic", 400}, {"boldItalic", "italic", 700}} {
+			part := embedded.child(variant.name)
+			if part == nil {
+				continue
+			}
+			target := rels[part.relID()]
+			if target == "" {
+				continue
+			}
+			name := strings.TrimPrefix(target, "/")
+			if !strings.HasPrefix(name, "ppt/") {
+				name = filepath.ToSlash(filepath.Join("ppt", name))
+			}
+			raw := zipPart(z, name)
+			if len(raw) == 0 {
+				continue
+			}
+			mime, usable := fontMIME(raw)
+			asset := ppt.FontAsset{Family: family, Style: variant.style, Weight: variant.weight, FileName: filepath.Base(name), Obfuscated: !usable,
+				AssetURL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)}
+			out = append(out, asset)
+		}
+	}
+	return out
+}
+
+func zipPart(z *zip.Reader, name string) []byte {
+	for _, f := range z.File {
+		if f.Name == name {
+			b, err := f.Open()
+			if err != nil {
+				return nil
+			}
+			raw, _ := io.ReadAll(b)
+			b.Close()
+			return raw
+		}
+	}
+	return nil
+}
+
+func fontMIME(raw []byte) (string, bool) {
+	if len(raw) < 4 {
+		return "", false
+	}
+	sig := string(raw[:4])
+	switch sig {
+	case "OTTO":
+		return "font/otf", true
+	case "wOFF":
+		return "font/woff", true
+	case "wOF2":
+		return "font/woff2", true
+	case "\x00\x01\x00\x00", "true", "typ1":
+		return "font/ttf", true
+	default:
+		// Office may store license-obfuscated font data. Preserve its metadata
+		// in JSON, but do not hand undecoded bytes to the browser as a font.
+		return "application/vnd.openxmlformats-officedocument.obfuscatedFont", false
+	}
 }
 
 func slideNumber(name string) int {

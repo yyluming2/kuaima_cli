@@ -3,7 +3,9 @@
 
   const h = React.createElement;
   const names = { text: "文本", shape: "形状", table: "表格", chart: "图表", image: "图片" };
-  const defaults = { fontSize: 24, fontFamily: "Microsoft YaHei", bold: false, italic: false, underline: false, color: "#111827", background: "transparent", lineHeight: 1.2, letterSpacing: 0 };
+  // Browser defaults are correct for omitted PPTX typography. In particular,
+  // do not invent fontFamily or lineHeight fields during normalization.
+  const defaults = { fontSize: 24, bold: false, italic: false, underline: false, color: "#111827", background: "transparent", letterSpacing: 0 };
   const shapeClip = shape => ({
     ellipse: "ellipse(50% 50% at 50% 50%)", oval: "ellipse(50% 50% at 50% 50%)",
     triangle: "polygon(50% 0%,100% 100%,0% 100%)", diamond: "polygon(50% 0%,100% 50%,50% 100%,0% 50%)",
@@ -17,7 +19,14 @@
     border: style.border && !(typeof style.border === "object" && (Number(style.border.width) <= 0 || String(style.border.style || "").toLowerCase() === "none")) ? (typeof style.border === "string" ? style.border : `${style.border.width || 0}px ${style.border.style || "solid"} ${style.border.color || "#64748b"}`) : undefined,
     boxShadow: style.shadow || undefined
   });
-  const fillStyle = value => !value ? {} : (String(value).includes("gradient") ? { backgroundImage: value, backgroundColor: "transparent" } : { backgroundColor: value });
+  const fillStyle = value => {
+    if (!value) return {};
+    const v = String(value);
+    if (v.includes("gradient")) return { backgroundImage: v, backgroundColor: "transparent" };
+    if (/^data:image\//i.test(v) || /^https?:\/\//i.test(v)) return { backgroundImage: `url("${v}")`, backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundColor: "transparent" };
+    return { backgroundColor: v };
+  };
+  const imageFill = value => (/^data:image\//i.test(String(value || "")) || /^https?:\/\//i.test(String(value || ""))) ? h("img", { src: value, alt: "", className: "fill-image", draggable: false }) : null;
   const shapeStyle = (shape, style = {}) => {
     const key = String(shape || "").toLowerCase();
     if (key === "donut") return { maskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)", WebkitMaskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)" };
@@ -29,6 +38,7 @@
     if (fill && style.background == null) {
       if (fill.type === "solid" && fill.color) out.background = fill.color.rgb || fill.color.css || "transparent";
       else if (fill.type === "gradient" && fill.gradient?.stops) out.background = `linear-gradient(${Number(fill.gradient.angle) || 0}deg,${fill.gradient.stops.map(x => `${x.color.rgb || x.color.css || "#000"} ${Number(x.position) || 0}%`).join(",")})`;
+      else if (fill.type === "image" && fill.image?.assetUrl) out.background = fill.image.assetUrl;
       else if (fill.type === "none") out.background = "transparent";
     }
     if (line && style.border == null && line.color && line.color.type !== "none") out.border = `${Number(line.width) || 1}px ${line.dash && /dot/i.test(line.dash) ? "dotted" : line.dash && line.dash !== "solid" ? "dashed" : "solid"} ${line.color.rgb || line.color.css || "#64748b"}`;
@@ -48,9 +58,15 @@
     }
     return out;
   };
-  const canonicalStyle = element => ({ ...defaults, ...(element?.style || {}), ...visualStyle(element, element?.style || {}) });
+  const canonicalStyle = element => ({ ...(element?.style || {}), ...visualStyle(element, element?.style || {}) });
+  const registerFontAssets = assets => (assets || []).forEach((font, index) => {
+    if (!font?.family || !font?.assetUrl || font.obfuscated || !window.FontFace) return;
+    const face = new FontFace(font.family, `url(${font.assetUrl})`, { style: font.style || "normal", weight: String(font.weight || 400) });
+    face.load().then(loaded => document.fonts.add(loaded)).catch(() => {});
+  });
   const normalizeDeck = value => {
     const next = structuredClone(value);
+    registerFontAssets(next.fontAssets);
     (next.slides || []).forEach((slide, index) => {
       if (!slide.id) slide.id = "slide-" + (index + 1);
       (slide.elements || []).forEach(element => { element.style = canonicalStyle(element); });
@@ -86,7 +102,7 @@
     });
     element.content = content;
   };
-  const customPath = element => element?.geometry?.type === "custom" && element.geometry.path ? h("svg", { className: "shape-svg", viewBox: element.geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("path", { d: element.geometry.path, fill: element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : "currentColor", stroke: element.line?.color?.type !== "none" ? (element.line?.color?.rgb || element.line?.color?.css || "none") : "none", strokeWidth: element.line?.width ? Number(element.line.width) : 0 })) : null;
+  const customPath = element => element?.geometry?.type === "custom" && element.geometry.path ? h("svg", { className: "shape-svg", viewBox: element.geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("path", { d: element.geometry.path, fill: element.fill?.type === "image" ? "transparent" : (element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : "currentColor"), stroke: element.line?.color?.type !== "none" ? (element.line?.color?.rgb || element.line?.color?.css || "none") : "none", strokeWidth: element.line?.width ? Number(element.line.width) : 0 })) : null;
   const imageCropStyle = (style = {}) => {
     const crop = style.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0)), right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0)), width = 100 / (1 - left - right), height = 100 / (1 - top - bottom);
     return { position: "absolute", maxWidth: "none", width: width + "%", height: height + "%", left: (-left * width) + "%", top: (-top * height) + "%", objectFit: "fill" };
@@ -111,5 +127,5 @@
   };
   const icon = name => h("i", { "data-lucide": name });
 
-  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, shapeStyle, visualStyle, normalizeDeck, textAlign, textRuns, rewriteRunContent, customPath, ImageBlock, elementTransform, api, readSSE, icon };
+  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, textRuns, rewriteRunContent, customPath, ImageBlock, elementTransform, api, readSSE, icon };
 })();

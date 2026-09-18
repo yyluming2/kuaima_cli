@@ -34,6 +34,20 @@ func TestTextBodyPreservesParagraphs(t *testing.T) {
 	}
 }
 
+func TestAbsoluteLineSpacingUsesParagraphFontSize(t *testing.T) {
+	n, err := parseTree([]byte(`<sp><txBody><bodyPr/><p><pPr><defRPr sz="2000"/><lnSpc><spcPts val="2400"/></lnSpc></pPr><r><rPr sz="2000"/><t>text</t></r></p></txBody></sp>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, style, _, paragraphs := textBodyDetailed(n, nil)
+	if got := style["lineHeight"]; got != 1.2 {
+		t.Fatalf("absolute 24pt spacing on 20pt text should be 1.2, got %#v", got)
+	}
+	if len(paragraphs) != 1 || paragraphs[0].LineHeight != 1.2 {
+		t.Fatalf("paragraph line height not preserved: %#v", paragraphs)
+	}
+}
+
 func TestReadGenerated(t *testing.T) {
 	p := genppt.New().SetTitle("x")
 	s := p.AddSlide()

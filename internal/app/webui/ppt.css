@@ -178,6 +178,23 @@ main.inspector-collapsed {
     pointer-events: none
 }
 
+.el-content > .fill-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.el-content > .shape-svg,
+.el-content > .inline-editor,
+.el-content > span {
+    position: relative;
+    z-index: 1;
+}
+
 .el.dragging {
     cursor: grabbing;
     transition: none

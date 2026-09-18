@@ -38,7 +38,7 @@
 
   const primaryTab = element => element?.type === "text" ? "text" : element?.type === "image" ? "image" : element?.type === "shape" ? "shape" : element ? "content" : "layout";
 
-  function Inspector({ element, onChange, onReplaceImage, onLayer, master, onMasterChange, themeColors = [] }) {
+  function Inspector({ element, onChange, onReplaceImage, onPickBackground, onPickElementBackground, onLayer, master, onMasterChange, themeColors = [] }) {
     const [activeTab, setActiveTab] = useState(primaryTab(element));
     useEffect(() => setActiveTab(primaryTab(element)), [element?.id, !!master]);
     useEffect(() => { window.lucide && window.lucide.createIcons(); }, [activeTab, element?.id]);
@@ -48,6 +48,7 @@
       return h("aside", { className: "side master-settings" },
         h("div", { className: "inspector-heading" }, h("b", null, "母版属性"), h("p", { className: "type-hint" }, "修改后立即应用到所有页面")),
         ColorField({ label: "背景填充", value: master.background || "#ffffff", onChange: value => set("background", value) }),
+        h("button", { type: "button", className: "replace-image", onClick: () => onPickBackground?.() }, "选择背景图片"),
         ColorField({ label: "主题色（标题与强调）", value: master.accent || "#2563eb", onChange: value => set("accent", value) }),
         ColorField({ label: "前景色（正文）", value: master.foreground || "#172033", onChange: value => set("foreground", value) }),
         h("div", { className: "geometry" },
@@ -134,6 +135,7 @@
         ))),
         h("h3", null, "填充与轮廓"),
         ColorField({ label: "填充颜色", value: style.background, allowTransparent: true, themeColors, onChange: value => setColor("background", value) }),
+        h("button", { type: "button", className: "replace-image", onClick: () => onPickElementBackground?.(element.id) }, "选择填充图片"),
         ColorField({ label: "轮廓颜色", value: border.color || "transparent", allowTransparent: true, themeColors, onChange: value => setBorder("color", value) }),
         h("section", { className: "geometry" },
           h("label", null, "轮廓宽度", h("input", { type: "number", min: 0, step: .5, value: Number(border.width) || 0, onChange: event => setBorder("width", Number(event.target.value)) })),
@@ -148,6 +150,7 @@
       shownTab === "appearance" && h("div", { className: "inspector-tab" },
         h("h3", null, "填充与轮廓"),
         ColorField({ label: element.type === "text" ? "背景颜色" : "填充颜色", value: style.background, allowTransparent: true, themeColors, onChange: value => setColor("background", value) }),
+        h("button", { type: "button", className: "replace-image", onClick: () => onPickElementBackground?.(element.id) }, "选择填充图片"),
         hasShape && field("形状类型", "shape"), hasShape && field("形状名称", "shapeName"),
         String(style.shape || "").toLowerCase() === "roundrect" && field("圆角大小 (%)", "radius", "number", { min: 0, max: 50 }),
         h("h3", null, "边框与效果"),

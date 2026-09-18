@@ -914,7 +914,19 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 	for _, sld := range model.Slides {
 		sl := p.AddSlide()
 		if model.Theme.Background != "" {
-			sl.SetBackground(genppt.BackgroundOptions{Color: model.Theme.Background})
+			bg := model.Theme.Background
+			if strings.HasPrefix(strings.ToLower(bg), "data:image/") {
+				// genppt exposes solid slide backgrounds only. Materialize an
+				// image fill as a full-slide image so it remains editable and is
+				// preserved in the exported PPTX.
+				if comma := strings.Index(bg, ","); comma >= 0 {
+					if data, decErr := base64.StdEncoding.DecodeString(bg[comma+1:]); decErr == nil && len(data) > 0 {
+						sl.AddImage(genppt.ImageOptions{X: 0, Y: 0, Width: model.Width / ppt.LogicalDPI, Height: model.Height / ppt.LogicalDPI, Data: data})
+					}
+				}
+			} else {
+				sl.SetBackground(genppt.BackgroundOptions{Color: bg})
+			}
 		}
 		for _, e := range sld.Elements {
 			opts := genppt.ShapeOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
@@ -1011,6 +1023,12 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			if e.Effects != nil && e.Effects.Shadow != "" {
 				opts.Shadow = true
 			}
+			if e.Fill != nil && e.Fill.Type == "image" && e.Fill.Image != nil {
+				if data := dataURLBytes(e.Fill.Image.AssetURL); len(data) > 0 {
+					sl.AddImage(genppt.ImageOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Data: data, Rotate: e.Rotation})
+					opts.Fill = "transparent"
+				}
+			}
 			if e.Type == "text" {
 				o := genppt.TextOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
 				if v, ok := styleFloat(e.Style, "fontSize"); ok {
@@ -1057,7 +1075,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 						o.LineSpacing = e.Text.LineHeight
 					}
 				}
-				if v := styleString(e.Style, "background"); v != "" && v != "transparent" {
+				if v := styleString(e.Style, "background"); v != "" && v != "transparent" && !strings.HasPrefix(strings.ToLower(v), "data:image/") {
 					o.Fill, _ = cssColor(v)
 				}
 				if o.Fill == "" && opts.Fill != "" && !strings.EqualFold(opts.Fill, "transparent") && !strings.EqualFold(opts.Fill, "none") {
@@ -1214,4 +1232,19 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "presentation.pptx"))
 	w.Write(b)
+}
+
+func dataURLBytes(value string) []byte {
+	if !strings.HasPrefix(strings.ToLower(value), "data:") {
+		return nil
+	}
+	comma := strings.Index(value, ",")
+	if comma < 0 {
+		return nil
+	}
+	b, err := base64.StdEncoding.DecodeString(value[comma+1:])
+	if err != nil {
+		return nil
+	}
+	return b
 }
