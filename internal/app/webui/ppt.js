@@ -167,11 +167,11 @@
       const d = drag.current, r = resize.current, c = (d || r)?.canvas;
       if (!c) return;
       const q = c.getBoundingClientRect(), dx = (ev.clientX - (d || r).x) * W / q.width, dy = (ev.clientY - (d || r).y) * H / q.height;
-      if (d) update(e => {
-        e.x = d.ex + dx;
-        e.y = d.ey + dy
-      }, d.id, false);
-      else update(e => {
+      if (d) {
+        d.current = { x: d.ex + dx, y: d.ey + dy };
+        const node = c.querySelector(`[data-ppt-id="${CSS.escape(d.id)}"]`);
+        if (node) { node.style.left = d.current.x / W * 100 + "%"; node.style.top = d.current.y / H * 100 + "%"; }
+      } else {
         let x = r.ex, y = r.ey, w = r.ew, h = r.eh;
         if (r.dir.includes("e")) w = Math.max(40, r.ew + dx);
         if (r.dir.includes("s")) h = Math.max(30, r.eh + dy);
@@ -181,23 +181,24 @@
         } if (r.dir.includes("n")) {
           h = Math.max(30, r.eh - dy);
           y = r.ey + dy
-        } e.x = x;
-        e.y = y;
-        e.width = w;
-        e.height = h
-      }, r.id, false)
+        }
+        r.current = { x, y, width: w, height: h };
+        const node = c.querySelector(`[data-ppt-id="${CSS.escape(r.id)}"]`);
+        if (node) { node.style.left = x / W * 100 + "%"; node.style.top = y / H * 100 + "%"; node.style.width = w / W * 100 + "%"; node.style.height = h / H * 100 + "%"; }
+      }
     };
     useEffect(() => {
       const up = () => {
         const operation = drag.current || resize.current;
-        if (operation?.before) setDeck(d => {
-          if (JSON.stringify(operation.before) !== JSON.stringify(d)) {
-            const bucket = historyBucket(operation.before);
-            bucket.past.push(structuredClone(operation.before.slides[slide]));
-            if (bucket.past.length > 100) bucket.past.shift();
-            bucket.future.length = 0;
-          }
-          return d;
+        if (operation?.before && operation.current) setDeck(d => {
+          const n = structuredClone(d), target = (n.slides?.[slide]?.elements || []).find(e => e.id === operation.id);
+          if (!target) return d;
+          Object.assign(target, operation.current);
+          const bucket = historyBucket(operation.before, 0);
+          bucket.past.push(structuredClone(operation.before.slides[0]));
+          if (bucket.past.length > 100) bucket.past.shift();
+          bucket.future.length = 0;
+          return n;
         });
         drag.current = null;
         resize.current = null
@@ -235,7 +236,7 @@
       }, h("div", { className: "thumb-preview" }, [...(s.elements || [])].sort((a,b) => (Number(a.zIndex)||0) - (Number(b.zIndex)||0)).map(e => { const ts = { ...defaults, ...(e.style || {}), ...visualStyle(e, e.style || {}) }; return h("div", { key: e.id, className: "thumb-el", style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: ts.opacity ?? e.opacity ?? 1, ...fillStyle(ts.background || (e.type === "shape" ? "#dbeafe" : "transparent")), ...shapeStyle(ts.shape, ts), color: ts.color || "#172033", textAlign: textAlign(ts.align), fontSize: Math.max(8, (Number(ts.fontSize) || 24) * 0.18), lineHeight: ts.lineHeight || undefined, letterSpacing: ts.letterSpacing ? (Number(ts.letterSpacing) * .18) + "px" : undefined, fontWeight: ts.bold ? "bold" : "normal", fontStyle: ts.italic ? "italic" : "normal", textDecoration: ts.underline ? "underline" : "none", transform: elementTransform(e), transformOrigin: "center", ...boxStyle(ts) } }, e.type === "image" && e.assetUrl ? h(ImageBlock, { src: e.assetUrl, style: ts }) : e.type === "image" ? icon("image") : textRuns(e, ts, .18)); })), h("span", { className: "thumb-label" }, `第${i + 1}页`)))), h("div", { className: "canvas-wrap", style: { width: W * zoom + "px", height: H * zoom + "px" } }, h("div", { className: "canvas", style: { width: W + "px", height: H + "px", transform: `scale(${zoom})` }, onClick: () => setSelected(null) }, [...elements].sort((a,b) => (Number(a.zIndex)||0) - (Number(b.zIndex)||0)).map(e => {
       const st = { ...defaults, ...e.style, ...visualStyle(e, e.style || {}) }, bold = st.bold || Number(st.fontWeight) >= 600, isEditing = editing === e.id;
       return h("div", {
-        key: e.id, className: "el " + (e.type === "image" ? "image-el " : "") + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
+        key: e.id, "data-ppt-id": e.id, className: "el " + (e.type === "image" ? "image-el " : "") + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
           ev.stopPropagation();
           setSelected(e.id)
         }, onDoubleClick: ev => {
@@ -245,13 +246,13 @@
         }, onMouseDown: ev => {
           if (ev.button === 0 && !e.locked && !isEditing) {
             setSelected(e.id);
-            drag.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement, before: structuredClone(deck) }
+            drag.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } }
           }
         }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, textAlign: textAlign(st.align), lineHeight: st.lineHeight || undefined, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center" }
       }, h("div", { className: "el-content", style: { ...fillStyle(st.background), ...shapeStyle(st.shape, st), ...boxStyle(st) } }, imageFill(st.background), customPath(e), e.type === "image" && e.assetUrl ? h(ImageBlock, { src: e.assetUrl, alt: "图片", style: st }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const next = []; [...(node?.childNodes || [])].forEach((n, i) => { if (n.nodeType === 3) next.push({ content: n.nodeValue || "", style: {} }); else { const txt = n.textContent || ""; if (txt) { const cs = getComputedStyle(n); next.push({ content: txt, style: { fontFamily: cs.fontFamily, fontSize: parseFloat(cs.fontSize) || undefined, color: cs.color, bold: cs.fontWeight >= 600, italic: cs.fontStyle === "italic", underline: (cs.textDecorationLine || "").includes("underline") } }); } } }); const runs = next.filter(r => r.content); update(x => { x.textRuns = runs.length ? runs : [{ content: node?.textContent || "", style: { ...x.style } }]; x.content = runs.map(r => r.content).join(""); }, e.id); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); setEditing(null) } } }, textRuns(e, st)) : textRuns(e, st)), e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
         key: dir, className: "handle " + dir, onMouseDown: ev => {
           ev.stopPropagation();
-          resize.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement, before: structuredClone(deck) }
+          resize.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } }
         }
       })))
     }))), h("input", {

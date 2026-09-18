@@ -140,6 +140,11 @@ main.inspector-collapsed {
     padding: 2px 8px 8px 2px;
     scrollbar-width: thin
 }
+#slides .thumb {
+    content-visibility: auto;
+    contain: layout paint style;
+    contain-intrinsic-size: 180px 110px;
+}
 
 .canvas-wrap {
     position: relative;

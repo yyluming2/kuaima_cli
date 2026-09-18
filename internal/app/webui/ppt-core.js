@@ -107,7 +107,7 @@
     const crop = style.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0)), right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0)), width = 100 / (1 - left - right), height = 100 / (1 - top - bottom);
     return { position: "absolute", maxWidth: "none", width: width + "%", height: height + "%", left: (-left * width) + "%", top: (-top * height) + "%", objectFit: "fill" };
   };
-  const ImageBlock = ({ src, style, alt = "" }) => h("div", { className: "image-frame" }, h("img", { src, alt, style: imageCropStyle(style) }));
+  const ImageBlock = ({ src, style, alt = "" }) => h("div", { className: "image-frame" }, h("img", { src, alt, loading: "lazy", decoding: "async", style: imageCropStyle(style) }));
   const elementTransform = element => element.rotation ? `rotate(${Number(element.rotation) || 0}deg)` : undefined;
   const api = async (url, options) => { const response = await fetch(url, options); if (!response.ok) throw Error("请求失败（" + response.status + "）"); return response; };
   const readSSE = async response => {
