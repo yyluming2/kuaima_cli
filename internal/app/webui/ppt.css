@@ -10,6 +10,16 @@ body {
     overflow-x: hidden
 }
 .ppt-master-open { position: fixed; top: 10px; right: 18px; z-index: 20; border: 1px solid #2563eb; border-radius: 7px; padding: 7px 12px; background: #fff; color: #1d4ed8; cursor: pointer; box-shadow: 0 2px 8px #17203322; }
+.ppt-toolbar-actions { position: fixed; top: 10px; right: 18px; z-index: 20; display: flex; gap: 6px; }
+.ppt-toolbar-actions button { border: 1px solid #cbd5e1; border-radius: 7px; padding: 7px 12px; background: #fff; color: #334155; cursor: pointer; }
+.ppt-toolbar-actions button.active, .ppt-toolbar-actions button:hover { border-color: #2563eb; color: #1d4ed8; }
+.tools .ppt-toolbar-actions { position: static; z-index: auto; display: inline-flex; gap: 6px; margin-left: 6px; }
+.color-field { margin: 10px 0; }
+.color-field > span { display:block; margin-bottom:5px; }
+.color-swatches { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+.color-swatches button { width:20px; height:20px; border:1px solid #cbd5e1; border-radius:50%; cursor:pointer; padding:0; }
+.color-swatches button.selected { outline:2px solid #2563eb; outline-offset:2px; }
+.color-swatches input[type=color] { width:28px; height:24px; padding:1px; }
 .master-help { color: #64748b; font-size: 13px; }
 .master-panel { max-width: 560px; }
 .master-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
