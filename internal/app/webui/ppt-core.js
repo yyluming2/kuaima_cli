@@ -114,7 +114,8 @@
       if (!block || block.paragraph !== item.paragraph) { block = { paragraph: item.paragraph, nodes: [] }; blocks.push(block); }
       block.nodes.push(item.node);
     });
-    return blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", whiteSpace: "pre-wrap" } }, block.nodes));
+    const paragraphs = Array.isArray(element?.textParagraphs) ? element.textParagraphs : [];
+    return blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", whiteSpace: "pre-wrap", textAlign: textAlign(paragraphs[block.paragraph]?.align) || textAlign(base.align) } }, block.nodes));
   };
   const rewriteRunContent = (element, content) => {
     const runs = Array.isArray(element.textRuns) ? element.textRuns : [];
@@ -129,17 +130,36 @@
     });
     element.content = content;
   };
+  // Read the rendered rich-text tree without collapsing spans that carry
+  // character-level formatting. Paragraph containers are kept as indexes.
+  const readEditableRuns = node => {
+    const out = [], paragraphs = [...(node?.childNodes || [])];
+    const visit = (n, paragraph, inherited) => {
+      if (n.nodeType === 3) {
+        if (n.nodeValue) out.push({ content: n.nodeValue, paragraph, style: inherited });
+        return;
+      }
+      if (n.nodeType !== 1) return;
+      const cs = getComputedStyle(n);
+      const style = { fontFamily: cs.fontFamily, fontSize: parseFloat(cs.fontSize) || undefined, color: cs.color, bold: Number(cs.fontWeight) >= 600, italic: cs.fontStyle === "italic", underline: (cs.textDecorationLine || "").includes("underline") };
+      [...n.childNodes].forEach(child => visit(child, paragraph, style));
+    };
+    paragraphs.forEach((paragraph, index) => [...paragraph.childNodes].forEach(child => visit(child, index, {})));
+    return out.filter(run => run.content);
+  };
   const customPath = (element, style = {}) => {
     const geometry = element?.geometry;
     if (!geometry || (geometry.type !== "custom" && geometry.type !== "line")) return null;
     const line = element.line || {};
-    const stroke = line.color?.type !== "none" ? (line.color?.rgb || line.color?.css || style.border?.split?.(" ").slice(-1)[0] || "currentColor") : (style.border ? style.border.split(" ").slice(-1)[0] : "currentColor");
-    const width = Number(line.width) || Number(style.border?.split?.(" ")[0]) || 1;
+    const hasLine = line.color && line.color.type !== "none" || style.border;
+    const stroke = hasLine ? (line.color?.type !== "none" ? (line.color?.rgb || line.color?.css || style.border?.split?.(" ").slice(-1)[0] || "currentColor") : (style.border ? style.border.split(" ").slice(-1)[0] : "none")) : "none";
+    const width = hasLine ? (Number(line.width) || Number(style.border?.split?.(" ")[0]) || 1) : 0;
     if (geometry.type === "line") return h("svg", { className: "shape-svg", viewBox: "0 0 100 100", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible" } }, h("line", { x1: 0, y1: 0, x2: 100, y2: 100, fill: "none", stroke, strokeWidth: width, vectorEffect: "non-scaling-stroke" }));
     const fillID = "ppt-fill-" + String(element.id || "shape").replace(/[^a-zA-Z0-9_-]/g, "_");
     const fill = element.fill?.type === "none" ? "none" : element.fill?.type === "image" || /^data:image\//i.test(String(style.background || "")) ? `url(#${fillID})` : (element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : (style.background || "currentColor"));
     const image = style.background || element.fill?.image?.assetUrl;
-    return h("svg", { className: "shape-svg", viewBox: geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("defs", null, fill === `url(#${fillID})` && h("pattern", { id: fillID, patternContentUnits: "objectBoundingBox", width: 1, height: 1 }, h("image", { href: image, xlinkHref: image, x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "xMidYMid slice" }))), h("path", { d: geometry.path, fill, fillRule: "evenodd", stroke, strokeWidth: width }));
+    const viewBox = geometry.viewBox || "0 0 1000 1000";
+    return h("svg", { className: "shape-svg", viewBox, preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("defs", null, fill === `url(#${fillID})` && h("pattern", { id: fillID, patternContentUnits: "objectBoundingBox", width: 1, height: 1 }, h("image", { href: image, xlinkHref: image, x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "xMidYMid slice" }))), h("path", { d: geometry.path, fill, fillRule: "evenodd", stroke, strokeWidth: width || undefined }));
   };
   const imageCropStyle = (style = {}) => {
     const crop = style.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0)), right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0)), width = 100 / (1 - left - right), height = 100 / (1 - top - bottom);
@@ -171,5 +191,5 @@
   };
   const icon = name => h("i", { "data-lucide": name });
 
-  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, textRuns, rewriteRunContent, customPath, ImageBlock, elementTransform, api, readSSE, icon };
+  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
 })();
