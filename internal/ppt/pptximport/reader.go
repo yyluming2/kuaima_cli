@@ -449,8 +449,8 @@ func presetGeometry(sp *node) *ppt.Geometry {
 	return nil
 }
 
-// roundRectRadius returns the DrawingML adjustment for a rounded rectangle.
-// The value is expressed in 1/100000 of the shape's minor dimension.
+// roundRectRadius returns the DrawingML adjustment as an editor percentage
+// (0..50). DrawingML stores the adjustment in 1/100000 units.
 func roundRectRadius(sp *node) (float64, bool) {
 	if sp == nil {
 		return 0, false
@@ -466,7 +466,7 @@ func roundRectRadius(sp *node) (float64, bool) {
 				formula := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(gd.attr("fmla")), "val"))
 				v := num(formula)
 				if v > 0 {
-					return math.Max(0, math.Min(0.5, v/100000)), true
+					return math.Max(0, math.Min(50, v/1000)), true
 				}
 			}
 		}

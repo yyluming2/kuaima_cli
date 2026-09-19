@@ -180,7 +180,10 @@ main.inspector-collapsed {
     position: absolute;
     inset: 0;
     overflow: visible;
-    pointer-events: none
+    pointer-events: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word
 }
 
 .el-content > .fill-image {

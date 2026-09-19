@@ -27,16 +27,20 @@
     return { backgroundColor: v };
   };
   const imageFill = value => (/^data:image\//i.test(String(value || "")) || /^https?:\/\//i.test(String(value || ""))) ? h("img", { src: value, alt: "", className: "fill-image", draggable: false }) : null;
-  const shapeStyle = (shape, style = {}) => {
+  const shapeStyle = (shape, style = {}, width, height) => {
     const key = String(shape || "").toLowerCase();
     if (["donut", "ring", "torus", "concentriccircles", "concentriccircle"].includes(key)) {
       const hole = Math.max(1, Math.min(95, Number(style.holeRadius ?? style.innerRadius) || 38));
       return { maskImage: `radial-gradient(ellipse at center, transparent 0 ${hole}%, #000 ${Math.min(100, hole + 1)}% 100%)`, WebkitMaskImage: `radial-gradient(ellipse at center, transparent 0 ${hole}%, #000 ${Math.min(100, hole + 1)}% 100%)` };
     }
     if (key === "roundrect") {
-      const radius = Number(style.radius);
-      const percent = radius > 1 ? radius : radius * 100;
-      return { borderRadius: `${Math.max(0, Math.min(50, percent || 12))}%` };
+      const percent = Number(style.radius);
+      const bounded = Math.max(0, Math.min(50, percent || 12));
+      // DrawingML's adjustment is relative to the short side. CSS percent
+      // radii are relative to each axis independently, so use px when the
+      // element dimensions are available to preserve the PPTX geometry.
+      if (Number(width) > 0 && Number(height) > 0) return { borderRadius: `${Math.min(width, height) * bounded / 100}px` };
+      return { borderRadius: `${bounded}%` };
     }
     return { clipPath: shapeClip(shape) };
   };
@@ -78,7 +82,7 @@
       if (!slide.id) slide.id = "slide-" + (index + 1);
       (slide.elements || []).forEach(element => {
         element.style = canonicalStyle(element);
-        if (String(element.style.shape || "").toLowerCase() === "roundrect" && element.style.radius == null) element.style.radius = 0.12;
+        if (String(element.style.shape || "").toLowerCase() === "roundrect" && element.style.radius == null) element.style.radius = 12;
         element.flipH = !!element.flipH;
         element.flipV = !!element.flipV;
       });
@@ -95,14 +99,22 @@
   const textRuns = (element, base, scale = 1) => {
     const runs = Array.isArray(element?.textRuns) ? element.textRuns : [];
     if (!runs.length) return element?.content || "";
-    return runs.flatMap((run, index) => {
+    // Some producers keep line breaks only in the compatibility `content`
+    // field. Preserve those breaks when there is a single rich-text run.
+    if (runs.length === 1 && typeof element?.content === "string" && element.content.includes("\n") && !String(runs[0]?.content || "").includes("\n")) {
+      return h("span", { style: { ...base, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined, whiteSpace: "pre-wrap" } }, element.content);
+    }
+    const rendered = runs.flatMap((run, index) => {
       const style = { ...base, ...(run?.style || {}) };
-      // A paragraph break is represented once here.  Ignore empty/invalid
-      // paragraph jumps, which otherwise create an extra visual blank line.
-      const prev = runs[index - 1];
-      const lead = index > 0 && prev && Number(run?.paragraph) > Number(prev?.paragraph) ? h("br", { key: "br" + index }) : null;
-      return [lead, h("span", { key: index, style: { fontFamily: style.fontFamily, fontSize: Number(style.fontSize) ? Number(style.fontSize) * scale : undefined, color: style.color, fontWeight: style.bold ? "bold" : "normal", fontStyle: style.italic ? "italic" : "normal", textDecoration: style.underline ? "underline" : "none" } }, run?.content || "")];
+      return { paragraph: Number.isFinite(Number(run?.paragraph)) ? Number(run.paragraph) : 0, node: h("span", { key: index, style: { fontFamily: style.fontFamily, fontSize: Number(style.fontSize) ? Number(style.fontSize) * scale : undefined, color: style.color, fontWeight: style.bold ? "bold" : "normal", fontStyle: style.italic ? "italic" : "normal", textDecoration: style.underline ? "underline" : "none" } }, run?.content || "") };
     });
+    const blocks = [];
+    rendered.forEach(item => {
+      let block = blocks[blocks.length - 1];
+      if (!block || block.paragraph !== item.paragraph) { block = { paragraph: item.paragraph, nodes: [] }; blocks.push(block); }
+      block.nodes.push(item.node);
+    });
+    return blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", whiteSpace: "pre-wrap" } }, block.nodes));
   };
   const rewriteRunContent = (element, content) => {
     const runs = Array.isArray(element.textRuns) ? element.textRuns : [];
@@ -124,9 +136,10 @@
     const stroke = line.color?.type !== "none" ? (line.color?.rgb || line.color?.css || style.border?.split?.(" ").slice(-1)[0] || "currentColor") : (style.border ? style.border.split(" ").slice(-1)[0] : "currentColor");
     const width = Number(line.width) || Number(style.border?.split?.(" ")[0]) || 1;
     if (geometry.type === "line") return h("svg", { className: "shape-svg", viewBox: "0 0 100 100", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible" } }, h("line", { x1: 0, y1: 0, x2: 100, y2: 100, fill: "none", stroke, strokeWidth: width, vectorEffect: "non-scaling-stroke" }));
-    const fill = element.fill?.type === "image" || /^data:image\//i.test(String(style.background || "")) ? "url(#ppt-fill)" : (element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : (style.background || "currentColor"));
+    const fillID = "ppt-fill-" + String(element.id || "shape").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const fill = element.fill?.type === "none" ? "none" : element.fill?.type === "image" || /^data:image\//i.test(String(style.background || "")) ? `url(#${fillID})` : (element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : (style.background || "currentColor"));
     const image = style.background || element.fill?.image?.assetUrl;
-    return h("svg", { className: "shape-svg", viewBox: geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("defs", null, fill === "url(#ppt-fill)" && h("pattern", { id: "ppt-fill", patternContentUnits: "objectBoundingBox", width: 1, height: 1 }, h("image", { href: image, xlinkHref: image, x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "xMidYMid slice" }))), h("path", { d: geometry.path, fill, fillRule: "evenodd", stroke, strokeWidth: width }));
+    return h("svg", { className: "shape-svg", viewBox: geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("defs", null, fill === `url(#${fillID})` && h("pattern", { id: fillID, patternContentUnits: "objectBoundingBox", width: 1, height: 1 }, h("image", { href: image, xlinkHref: image, x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "xMidYMid slice" }))), h("path", { d: geometry.path, fill, fillRule: "evenodd", stroke, strokeWidth: width }));
   };
   const imageCropStyle = (style = {}) => {
     const crop = style.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0)), right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0)), width = 100 / (1 - left - right), height = 100 / (1 - top - bottom);
