@@ -930,6 +930,11 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, e := range sld.Elements {
 			opts := genppt.ShapeOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
+			// genppt intentionally supplies Office defaults for ordinary shapes.
+			// The editor model, however, distinguishes an unset fill/border from
+			// a requested one, so make the absence explicit before adding a shape.
+			opts.Fill = "transparent"
+			opts.LineStyle = genppt.BorderNone
 			explicitBorder := false
 			if e.Style != nil {
 				opts.Fill = styleColor(e.Style, "fill")
