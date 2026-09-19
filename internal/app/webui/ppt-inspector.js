@@ -79,6 +79,7 @@
     }));
     const cropField = (label, key) => h("label", null, label, h("input", { type: "number", min: 0, max: .99, step: .01, value: Number(style.crop?.[key] || 0), onChange: event => onChange(target => { target.style = { ...target.style, crop: { ...(target.style?.crop || {}), [key]: Number(event.target.value) } }; }) }));
     const toggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!style[key], onChange: event => onChange(target => setStyle(target, key, event.target.checked)) }), label);
+    const flipToggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!element[key], onChange: event => onChange(target => { target[key] = event.target.checked; }) }), label);
     const setColor = (key, value) => onChange(target => setStyle(target, key, value));
     const hasShape = element.type === "shape" || !!style.shape;
     const border = typeof style.border === "object" && style.border ? style.border : (() => { const match = String(style.border || "").match(/([\d.]+)px\s+(solid|dashed|dotted)\s+(#[0-9a-f]{6})/i); return match ? { width: Number(match[1]), style: match[2], color: match[3] } : {}; })();
@@ -106,6 +107,7 @@
         h("h3", null, "位置与大小"),
         h("section", { className: "geometry" }, field("X 位置", "x", "number"), field("Y 位置", "y", "number"), field("宽度", "width", "number", { min: 1 }), field("高度", "height", "number", { min: 1 })),
         h("section", { className: "geometry" }, field("旋转角度", "rotation", "number"), field("透明度", "opacity", "number", { min: 0, max: 1, step: .05 })),
+        h("div", { className: "checks" }, flipToggle("水平翻转", "flipH"), flipToggle("垂直翻转", "flipV")),
         h("h3", null, "元素层级"),
         h("div", { className: "layer-actions" },
           h("button", { type: "button", onClick: () => onLayer?.("front"), title: "移到最上层" }, icon("bring-to-front"), h("span", null, "置顶")),

@@ -29,8 +29,15 @@
   const imageFill = value => (/^data:image\//i.test(String(value || "")) || /^https?:\/\//i.test(String(value || ""))) ? h("img", { src: value, alt: "", className: "fill-image", draggable: false }) : null;
   const shapeStyle = (shape, style = {}) => {
     const key = String(shape || "").toLowerCase();
-    if (key === "donut") return { maskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)", WebkitMaskImage: "radial-gradient(circle, transparent 0 38%, #000 40%)" };
-    if (key === "roundrect") return { borderRadius: `${Math.max(0, Math.min(50, Number(style.radius) || 12))}%` };
+    if (["donut", "ring", "torus", "concentriccircles", "concentriccircle"].includes(key)) {
+      const hole = Math.max(1, Math.min(95, Number(style.holeRadius ?? style.innerRadius) || 38));
+      return { maskImage: `radial-gradient(ellipse at center, transparent 0 ${hole}%, #000 ${Math.min(100, hole + 1)}% 100%)`, WebkitMaskImage: `radial-gradient(ellipse at center, transparent 0 ${hole}%, #000 ${Math.min(100, hole + 1)}% 100%)` };
+    }
+    if (key === "roundrect") {
+      const radius = Number(style.radius);
+      const percent = radius > 1 ? radius : radius * 100;
+      return { borderRadius: `${Math.max(0, Math.min(50, percent || 12))}%` };
+    }
     return { clipPath: shapeClip(shape) };
   };
   const visualStyle = (element, style = {}) => {
@@ -69,7 +76,12 @@
     registerFontAssets(next.fontAssets);
     (next.slides || []).forEach((slide, index) => {
       if (!slide.id) slide.id = "slide-" + (index + 1);
-      (slide.elements || []).forEach(element => { element.style = canonicalStyle(element); });
+      (slide.elements || []).forEach(element => {
+        element.style = canonicalStyle(element);
+        if (String(element.style.shape || "").toLowerCase() === "roundrect" && element.style.radius == null) element.style.radius = 0.12;
+        element.flipH = !!element.flipH;
+        element.flipV = !!element.flipV;
+      });
     });
     if (next.master?.elements) next.master.elements = next.master.elements.map((element, index) => ({
       ...element,
@@ -85,7 +97,10 @@
     if (!runs.length) return element?.content || "";
     return runs.flatMap((run, index) => {
       const style = { ...base, ...(run?.style || {}) };
-      const lead = index > 0 && Number(run?.paragraph) !== Number(runs[index - 1]?.paragraph) ? h("br", { key: "br" + index }) : null;
+      // A paragraph break is represented once here.  Ignore empty/invalid
+      // paragraph jumps, which otherwise create an extra visual blank line.
+      const prev = runs[index - 1];
+      const lead = index > 0 && prev && Number(run?.paragraph) > Number(prev?.paragraph) ? h("br", { key: "br" + index }) : null;
       return [lead, h("span", { key: index, style: { fontFamily: style.fontFamily, fontSize: Number(style.fontSize) ? Number(style.fontSize) * scale : undefined, color: style.color, fontWeight: style.bold ? "bold" : "normal", fontStyle: style.italic ? "italic" : "normal", textDecoration: style.underline ? "underline" : "none" } }, run?.content || "")];
     });
   };
@@ -102,13 +117,29 @@
     });
     element.content = content;
   };
-  const customPath = element => element?.geometry?.type === "custom" && element.geometry.path ? h("svg", { className: "shape-svg", viewBox: element.geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("path", { d: element.geometry.path, fill: element.fill?.type === "image" ? "transparent" : (element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : "currentColor"), stroke: element.line?.color?.type !== "none" ? (element.line?.color?.rgb || element.line?.color?.css || "none") : "none", strokeWidth: element.line?.width ? Number(element.line.width) : 0 })) : null;
+  const customPath = (element, style = {}) => {
+    const geometry = element?.geometry;
+    if (!geometry || (geometry.type !== "custom" && geometry.type !== "line")) return null;
+    const line = element.line || {};
+    const stroke = line.color?.type !== "none" ? (line.color?.rgb || line.color?.css || style.border?.split?.(" ").slice(-1)[0] || "currentColor") : (style.border ? style.border.split(" ").slice(-1)[0] : "currentColor");
+    const width = Number(line.width) || Number(style.border?.split?.(" ")[0]) || 1;
+    if (geometry.type === "line") return h("svg", { className: "shape-svg", viewBox: "0 0 100 100", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible" } }, h("line", { x1: 0, y1: 0, x2: 100, y2: 100, fill: "none", stroke, strokeWidth: width, vectorEffect: "non-scaling-stroke" }));
+    const fill = element.fill?.type === "image" || /^data:image\//i.test(String(style.background || "")) ? "url(#ppt-fill)" : (element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : (style.background || "currentColor"));
+    const image = style.background || element.fill?.image?.assetUrl;
+    return h("svg", { className: "shape-svg", viewBox: geometry.viewBox || "0 0 1000 1000", preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("defs", null, fill === "url(#ppt-fill)" && h("pattern", { id: "ppt-fill", patternContentUnits: "objectBoundingBox", width: 1, height: 1 }, h("image", { href: image, xlinkHref: image, x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "xMidYMid slice" }))), h("path", { d: geometry.path, fill, fillRule: "evenodd", stroke, strokeWidth: width }));
+  };
   const imageCropStyle = (style = {}) => {
     const crop = style.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0)), right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0)), width = 100 / (1 - left - right), height = 100 / (1 - top - bottom);
     return { position: "absolute", maxWidth: "none", width: width + "%", height: height + "%", left: (-left * width) + "%", top: (-top * height) + "%", objectFit: "fill" };
   };
   const ImageBlock = ({ src, style, alt = "" }) => h("div", { className: "image-frame" }, h("img", { src, alt, loading: "lazy", decoding: "async", style: imageCropStyle(style) }));
-  const elementTransform = element => element.rotation ? `rotate(${Number(element.rotation) || 0}deg)` : undefined;
+  const elementTransform = element => {
+    const rotation = Number(element?.rotation) || 0;
+    const sx = element?.flipH ? -1 : 1;
+    const sy = element?.flipV ? -1 : 1;
+    if (!rotation && sx === 1 && sy === 1) return undefined;
+    return `rotate(${rotation}deg) scale(${sx}, ${sy})`;
+  };
   const api = async (url, options) => { const response = await fetch(url, options); if (!response.ok) throw Error("请求失败（" + response.status + "）"); return response; };
   const readSSE = async response => {
     const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = "", done = null;

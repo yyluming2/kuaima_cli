@@ -99,14 +99,18 @@ func (n *node) children(k string) []*node {
 // The editor canvas uses a 128 logical-pixel-per-inch coordinate system
 // (1280x720 for the default 10x5.625 inch 16:9 slide). Keep all EMU
 // conversions on that scale so imported geometry matches the canvas.
-func emu(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v / 914400 * ppt.LogicalDPI }
-func num(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+func emu(s string) float64  { v, _ := strconv.ParseFloat(s, 64); return v / 914400 * ppt.LogicalDPI }
+func num(s string) float64  { v, _ := strconv.ParseFloat(s, 64); return v }
+func xmlBool(s string) bool { return s == "1" || strings.EqualFold(strings.TrimSpace(s), "true") }
 
 type xf struct {
 	x, y, w, h, rot float64
 	flipH, flipV    bool
 }
-type ctx struct{ x, y, sx, sy, rot float64 }
+type ctx struct {
+	x, y, sx, sy, rot float64
+	flipH, flipV      bool
+}
 
 func readXF(n *node) xf {
 	if n == nil {
@@ -116,7 +120,7 @@ func readXF(n *node) xf {
 	if o == nil || e == nil {
 		return xf{}
 	}
-	return xf{emu(o.attr("x")), emu(o.attr("y")), emu(e.attr("cx")), emu(e.attr("cy")), num(n.attr("rot")) / 60000, n.attr("flipH") == "1", n.attr("flipV") == "1"}
+	return xf{emu(o.attr("x")), emu(o.attr("y")), emu(e.attr("cx")), emu(e.attr("cy")), num(n.attr("rot")) / 60000, xmlBool(n.attr("flipH")), xmlBool(n.attr("flipV"))}
 }
 func directXF(n *node) *node {
 	for _, c := range n.Kids {
@@ -445,6 +449,31 @@ func presetGeometry(sp *node) *ppt.Geometry {
 	return nil
 }
 
+// roundRectRadius returns the DrawingML adjustment for a rounded rectangle.
+// The value is expressed in 1/100000 of the shape's minor dimension.
+func roundRectRadius(sp *node) (float64, bool) {
+	if sp == nil {
+		return 0, false
+	}
+	g := sp.child("prstGeom")
+	if g == nil || strings.ToLower(g.attr("prst")) != "roundrect" {
+		return 0, false
+	}
+	if av := g.child("avLst"); av != nil {
+		for _, gd := range av.children("gd") {
+			name := strings.ToLower(gd.attr("name"))
+			if name == "adj" || strings.Contains(name, "adj") {
+				formula := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(gd.attr("fmla")), "val"))
+				v := num(formula)
+				if v > 0 {
+					return math.Max(0, math.Min(0.5, v/100000)), true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
 func structuredFill(sp *node, theme map[string]string) *ppt.Fill {
 	if sp == nil {
 		return nil
@@ -765,7 +794,16 @@ func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any,
 				}
 			}
 		}
-		for _, r := range p.children("r") {
+		for _, r := range p.Kids {
+			if r.Name == "br" {
+				b.WriteByte('\n')
+				runs = append(runs, ppt.TextRun{Content: "\n", Style: map[string]any{}, Paragraph: pi})
+				para.Runs = append(para.Runs, len(runs)-1)
+				continue
+			}
+			if r.Name != "r" {
+				continue
+			}
 			var text string
 			if t := r.child("t"); t != nil {
 				text = t.Text
@@ -911,12 +949,14 @@ func (im *importer) walk(n *node, c ctx) {
 	if n.Name == "grpSp" {
 		g := readXF(directXF(n))
 		nc := c
+		nc.flipH = c.flipH != g.flipH
+		nc.flipV = c.flipV != g.flipV
 		if x := directXF(n); x != nil {
 			co, ce := x.child("chOff"), x.child("chExt")
 			if co != nil && ce != nil {
 				cw, ch := emu(ce.attr("cx")), emu(ce.attr("cy"))
 				if cw > 0 && ch > 0 {
-					nc = ctx{c.x + (g.x-emu(co.attr("x")))*c.sx, c.y + (g.y-emu(co.attr("y")))*c.sy, g.w / cw * c.sx, g.h / ch * c.sy, c.rot + g.rot}
+					nc = ctx{c.x + (g.x-emu(co.attr("x")))*c.sx, c.y + (g.y-emu(co.attr("y")))*c.sy, g.w / cw * c.sx, g.h / ch * c.sy, c.rot + g.rot, nc.flipH, nc.flipV}
 				}
 			}
 		}
@@ -1006,6 +1046,9 @@ func (im *importer) walk(n *node, c ctx) {
 			}
 			if g := sp.child("prstGeom"); g != nil && g.attr("prst") != "" {
 				style["shape"] = g.attr("prst")
+				if radius, ok := roundRectRadius(sp); ok {
+					style["radius"] = radius
+				}
 			}
 			if _, ok := style["shape"]; !ok && style["shapeName"] != nil {
 				style["shape"] = "custom"
@@ -1029,7 +1072,7 @@ func (im *importer) walk(n *node, c ctx) {
 		if n.Name == "cxnSp" && geom == nil {
 			geom = &ppt.Geometry{Type: "line"}
 		}
-		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, TextRuns: textRuns, TextParagraphs: textParagraphs, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH, FlipV: t.flipV})
+		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, TextRuns: textRuns, TextParagraphs: textParagraphs, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH != c.flipH, FlipV: t.flipV != c.flipV})
 		im.zorder++
 	}
 }
