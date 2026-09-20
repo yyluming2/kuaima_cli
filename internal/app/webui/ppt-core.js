@@ -81,7 +81,19 @@
     registerFontAssets(next.fontAssets);
     (next.slides || []).forEach((slide, index) => {
       if (!slide.id) slide.id = "slide-" + (index + 1);
+      const usedElementIds = new Set();
       (slide.elements || []).forEach(element => {
+        // PPTX cNvPr ids are only unique within a file and are commonly
+        // reused on every slide. Prefix them for React keys so switching
+        // slides cannot reuse stale SVG/resize-handle DOM.
+        if (element.id && !String(element.id).startsWith(slide.id + ":")) element.id = slide.id + ":" + element.id;
+        if (element.id) {
+          const baseID = String(element.id);
+          let uniqueID = baseID, suffix = 1;
+          while (usedElementIds.has(uniqueID)) uniqueID = `${baseID}~${++suffix}`;
+          element.id = uniqueID;
+          usedElementIds.add(uniqueID);
+        }
         element.style = canonicalStyle(element);
         if (String(element.style.shape || "").toLowerCase() === "roundrect" && element.style.radius == null) element.style.radius = 12;
         element.flipH = !!element.flipH;

@@ -34,6 +34,14 @@ func TestTextBodyPreservesParagraphs(t *testing.T) {
 	}
 }
 
+func TestRunExplicitOffOverridesParagraphDefaults(t *testing.T) {
+	n, _ := parseTree([]byte(`<sp><txBody><bodyPr/><p><pPr><defRPr b="1" i="1" u="sng"/></pPr><r><rPr b="0" i="0" u="none"/><t>plain</t></r></p></txBody></sp>`))
+	_, _, runs := textBody(n, nil)
+	if len(runs) != 1 || runs[0].Style["bold"] != false || runs[0].Style["italic"] != false || runs[0].Style["underline"] != false {
+		t.Fatalf("explicit run-off formatting was lost: %#v", runs)
+	}
+}
+
 func TestAbsoluteLineSpacingUsesParagraphFontSize(t *testing.T) {
 	n, err := parseTree([]byte(`<sp><txBody><bodyPr/><p><pPr><defRPr sz="2000"/><lnSpc><spcPts val="2400"/></lnSpc></pPr><r><rPr sz="2000"/><t>text</t></r></p></txBody></sp>`))
 	if err != nil {

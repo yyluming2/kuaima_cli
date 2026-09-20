@@ -716,14 +716,17 @@ func rPrStyle(q *node, theme map[string]string) map[string]any {
 		// stores CSS-like logical pixels, so convert points using the model DPI.
 		st["fontSize"] = (num(z) / 100) * ppt.LogicalDPI / 72
 	}
-	if q.attr("b") == "1" {
-		st["bold"] = true
+	// Keep explicit false values as well as true values.  DrawingML uses
+	// b="0"/i="0" to turn off a paragraph default for one run; omitting the
+	// value here would incorrectly inherit bold/italic from defRPr.
+	if v := q.attr("b"); v != "" {
+		st["bold"] = xmlBool(v)
 	}
-	if q.attr("i") == "1" {
-		st["italic"] = true
+	if v := q.attr("i"); v != "" {
+		st["italic"] = xmlBool(v)
 	}
-	if q.attr("u") != "" && q.attr("u") != "none" {
-		st["underline"] = true
+	if v := q.attr("u"); v != "" {
+		st["underline"] = !strings.EqualFold(v, "none")
 	}
 	// DrawingML keeps separate typefaces for latin, East Asian and complex
 	// script text.  Using only latin makes Chinese text silently fall back to
@@ -769,7 +772,11 @@ func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any,
 		pp := p.child("pPr")
 		if pp != nil {
 			if a := pp.attr("algn"); a != "" {
-				st["align"] = a
+				// Keep a stable compatibility alignment for single-style consumers.
+				// Per-paragraph alignment is preserved in TextParagraphs below.
+				if _, exists := st["align"]; !exists {
+					st["align"] = a
+				}
 				para.Align = a
 			}
 			if dr := pp.child("defRPr"); dr != nil {
@@ -971,6 +978,15 @@ func (im *importer) walk(n *node, c ctx) {
 		return
 	}
 	if n.Name == "sp" || n.Name == "pic" || n.Name == "cxnSp" {
+		// PowerPoint uses hidden non-visual shapes for editing/layout helpers.
+		// They must not leak into the editable canvas.
+		if nv := n.child("nvSpPr"); nv == nil {
+			if nv = n.child("nvCxnSpPr"); nv != nil && nv.child("cNvPr") != nil && xmlBool(nv.child("cNvPr").attr("hidden")) {
+				return
+			}
+		} else if nv.child("cNvPr") != nil && xmlBool(nv.child("cNvPr").attr("hidden")) {
+			return
+		}
 		t := readXF(directXF(n))
 		x, y, w, h, r := apply(t, c)
 		if w <= 0 || h <= 0 {
@@ -1077,9 +1093,49 @@ func (im *importer) walk(n *node, c ctx) {
 		if n.Name == "cxnSp" && geom == nil {
 			geom = &ppt.Geometry{Type: "line"}
 		}
+		// Empty transparent rectangles/connectors are common Office artifacts
+		// (guides, animation handles, and placeholders).  They have no visual
+		// representation and only obstruct hit testing in the canvas.
+		if content == "" && invisibleElement(geom, structuredFillValue, structuredLineValue, style) {
+			return
+		}
 		*im.elems = append(*im.elems, ppt.Element{ID: typ + "-" + id, Type: typ, X: x, Y: y, Width: w, Height: h, Content: content, Style: style, TextRuns: textRuns, TextParagraphs: textParagraphs, Rotation: r, ZIndex: im.zorder, Geometry: geom, Fill: structuredFillValue, Line: structuredLineValue, Effects: structuredEffectsValue, Text: structuredText(style), FlipH: t.flipH != c.flipH, FlipV: t.flipV != c.flipV})
 		im.zorder++
 	}
+}
+
+func invisibleElement(geom *ppt.Geometry, fill *ppt.Fill, line *ppt.Line, style map[string]any) bool {
+	if geom == nil && fill == nil && line == nil {
+		return true
+	}
+	if line != nil && line.Color != nil && line.Color.Type != "none" {
+		return false
+	}
+	if fill != nil && fill.Type != "none" {
+		return false
+	}
+	if v, ok := style["background"].(string); ok && v != "" && v != "transparent" {
+		if !isTransparentColor(v) {
+			return false
+		}
+	}
+	if v, ok := style["border"].(string); ok && v != "" {
+		return false
+	}
+	return true
+}
+
+func isTransparentColor(value string) bool {
+	v := strings.TrimSpace(strings.ToLower(value))
+	if !strings.HasPrefix(v, "rgba(") || !strings.HasSuffix(v, ")") {
+		return false
+	}
+	parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(v, "rgba("), ")"), ",")
+	if len(parts) != 4 {
+		return false
+	}
+	a, err := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64)
+	return err == nil && a <= 0
 }
 func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 	z, e := zip.NewReader(r, size)
