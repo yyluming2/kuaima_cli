@@ -718,7 +718,13 @@ func elementVAlign(style map[string]any) string {
 	if v := styleString(style, "vAlign"); v != "" {
 		return v
 	}
-	return styleString(style, "vertical-align")
+	if v := styleString(style, "vertical-align"); v != "" {
+		return v
+	}
+	if v := styleString(style, "vertical"); v != "" {
+		return v
+	}
+	return styleString(style, "textVerticalAlign")
 }
 
 // cropImageData applies the editor's normalized crop values to the bitmap
@@ -828,7 +834,22 @@ func customGeometrySVG(e ppt.Element, opts genppt.ShapeOptions) []byte {
 	attr := func(v string) string {
 		return strings.NewReplacer("&", "&amp;", "\"", "&quot;", "<", "&lt;", ">", "&gt;").Replace(v)
 	}
+	// Image fills must live inside the SVG path.  Adding the source image as a
+	// separate PPTX picture would lose the custom geometry and produce a
+	// rectangle when the file is opened in PowerPoint.
+	imageHref := ""
+	if e.Fill != nil && e.Fill.Type == "image" && e.Fill.Image != nil {
+		imageHref = strings.TrimSpace(e.Fill.Image.AssetURL)
+	}
+	if imageHref == "" && e.Style != nil {
+		if bg, ok := e.Style["background"].(string); ok && strings.HasPrefix(strings.ToLower(strings.TrimSpace(bg)), "data:image/") {
+			imageHref = strings.TrimSpace(bg)
+		}
+	}
 	fill := opts.Fill
+	if imageHref != "" {
+		fill = "none"
+	}
 	if fill == "" {
 		fill = "none"
 	}
@@ -836,7 +857,17 @@ func customGeometrySVG(e ppt.Element, opts genppt.ShapeOptions) []byte {
 	if stroke == "" || sw <= 0 {
 		stroke, sw = "none", 0
 	}
-	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s" preserveAspectRatio="none"><path d="%s" fill="%s" stroke="%s" stroke-width="%g"/></svg>`, attr(viewBox), attr(e.Geometry.Path), attr(fill), attr(stroke), sw)
+	defs := ""
+	image := ""
+	if imageHref != "" {
+		// Clip a normal SVG image with the custom path. This is better supported
+		// by PowerPoint than pattern fills, while still preserving the geometry.
+		defs = fmt.Sprintf(`<defs><clipPath id="ppt-image-clip"><path d="%s"/></clipPath></defs>`, attr(e.Geometry.Path))
+		// Keep the legacy xlink form first; Office versions that support SVG
+		// often ignore the newer href-only form for embedded image data.
+		image = fmt.Sprintf(`<image xlink:href="%s" href="%s" x="0" y="0" width="100%%" height="100%%" preserveAspectRatio="none" clip-path="url(#ppt-image-clip)"/>`, attr(imageHref), attr(imageHref))
+	}
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="%s" preserveAspectRatio="none">%s%s<path d="%s" fill="%s" stroke="%s" stroke-width="%g"/></svg>`, attr(viewBox), defs, image, attr(e.Geometry.Path), attr(fill), attr(stroke), sw)
 	return []byte(svg)
 }
 
@@ -1096,7 +1127,9 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			if e.Effects != nil && e.Effects.Shadow != "" {
 				opts.Shadow = true
 			}
-			if e.Fill != nil && e.Fill.Type == "image" && e.Fill.Image != nil {
+			// A custom geometry embeds its image fill in the SVG path below. For
+			// ordinary elements retain the existing editable picture behavior.
+			if (e.Geometry == nil || e.Geometry.Type != "custom") && e.Fill != nil && e.Fill.Type == "image" && e.Fill.Image != nil {
 				if data := dataURLBytes(e.Fill.Image.AssetURL); len(data) > 0 {
 					sl.AddImage(genppt.ImageOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Data: data, Rotate: e.Rotation})
 					opts.Fill = "transparent"
@@ -1129,6 +1162,16 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				align := elementAlign(e.Style)
 				o.Align = alignValue(align)
 				vAlign := elementVAlign(e.Style)
+				if vAlign == "" && e.Text != nil {
+					vAlign = e.Text.VerticalAlign
+				}
+				// The web canvas lays text out from the top (the element has its
+				// own 8px padding). Only an explicit middle/center value should
+				// become PowerPoint's ctr anchor; defaulting to ctr makes exported
+				// text appear noticeably lower than it does on the canvas.
+				if vAlign == "" {
+					vAlign = "top"
+				}
 				o.VAlign = valignValue(vAlign)
 				if e.Text != nil {
 					if o.FontFace == "" {
@@ -1143,9 +1186,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					if align == "" {
 						o.Align = alignValue(e.Text.Align)
 					}
-					if vAlign == "" {
-						o.VAlign = valignValue(e.Text.VerticalAlign)
-					}
+					// vAlign was resolved from the element or text style above.
 					if o.LineSpacing == 0 {
 						o.LineSpacing = e.Text.LineHeight
 					}
@@ -1200,12 +1241,14 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				if e.Style == nil {
 					e.Style = map[string]any{}
 				}
-				// genppt exposes preset shapes only. Materialize custom SVG paths
-				// as SVG media so their geometry, fill and stroke survive export.
+				// Emit custom paths as native DrawingML geometry. This keeps the
+				// shape editable and lets PowerPoint apply image fills directly.
 				if e.Geometry != nil && e.Geometry.Type == "custom" {
-					if data := customGeometrySVG(e, opts); len(data) > 0 {
-						sl.AddImage(genppt.ImageOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Data: data, Rotate: e.Rotation})
+					customOpts := genppt.CustomGeometryOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Path: e.Geometry.Path, ViewBox: e.Geometry.ViewBox, Fill: opts.Fill, LineColor: opts.LineColor, LineWidth: opts.LineWidth, Transparency: opts.Transparency, Rotate: opts.Rotate}
+					if e.Fill != nil && e.Fill.Type == "image" && e.Fill.Image != nil {
+						customOpts.ImageData = dataURLBytes(e.Fill.Image.AssetURL)
 					}
+					sl.AddCustomGeometry(customOpts)
 					continue
 				}
 				shape := genppt.ShapeRect

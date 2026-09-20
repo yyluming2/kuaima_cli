@@ -92,6 +92,7 @@ PPT 编辑器、PPTX 导入和 PPTX 导出共用这一份 JSON 数据模型。�
 - 边框：推荐使用 CSS 字符串 `border: "1px solid #CBD5E1"`；也接受对象 `{ "width": 1, "color": "#CBD5E1", "style": "solid" }`。`style` 可取 `solid`、`dashed`/`dash`、`dotted`/`dot`、`none`。
 - 透明度：元素级 `opacity` 和颜色中的 alpha 通道都会被导出，取值范围为 `0`（完全透明）到 `1`（完全不透明）。
 - 形状变换：`rotation`（角度）。`flipH`、`flipV` 目前保留在模型中供编辑器使用。
+- 文本垂直对齐：`verticalAlign` 可取 `top`、`middle`/`center`、`bottom`；导出时分别映射为 DrawingML 的 `anchor="t"`、`anchor="ctr"`、`anchor="b"`。
 
 PPTX 仅支持 DrawingML 原生填充。CSS 渐变在导出时使用首个渐变色作为兼容回退；编辑器中的渐变信息仍保留在模型中。
 
@@ -116,6 +117,8 @@ PPTX 仅支持 DrawingML 原生填充。CSS 渐变在导出时使用首个渐变
 ## 结构化导入字段
 
 导入器可以保留以下字段，供需要精确还原 PPTX 的渲染器使用：`geometry`、`fill`、`line`、`effects`、`textStyle`、`flipH`、`flipV`。这些字段不能成为第二套编辑状态；前端规范化后，用户修改统一写入 `style`，导出也读取 `style`。
+
+自定义路径使用 `geometry.type: "custom"`、`geometry.path` 和可选的 `geometry.viewBox`。画布端使用 SVG 渲染；PPTX 原生自定义几何和图片填充正在 `genppt` 中补齐，完成后将不再依赖 SVG 内嵌图片作为导出回退。
 
 ## 校验规则
 

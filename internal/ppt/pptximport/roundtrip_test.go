@@ -86,3 +86,27 @@ func TestReadGeneratedRichText(t *testing.T) {
 		t.Fatalf("rich runs lost: %#v", e.TextRuns)
 	}
 }
+
+func TestReadGeneratedVerticalAnchors(t *testing.T) {
+	p := genppt.New().SetTitle("anchors")
+	s := p.AddSlide()
+	s.AddText("top", genppt.TextOptions{X: 1, Y: 1, Width: 3, Height: 1, VAlign: genppt.VAlignTop})
+	s.AddText("bottom", genppt.TextOptions{X: 1, Y: 2, Width: 3, Height: 1, VAlign: genppt.VAlignBottom})
+	s.AddRichText([]genppt.RichTextRun{{Text: "middle", Options: genppt.TextOptions{VAlign: genppt.VAlignMiddle}, Paragraph: 0}}, genppt.TextOptions{X: 1, Y: 3, Width: 3, Height: 1, VAlign: genppt.VAlignMiddle})
+	b, err := p.ToBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Slides[0].Elements) != 3 {
+		t.Fatalf("elements=%d", len(got.Slides[0].Elements))
+	}
+	for i, want := range []string{"t", "b", "ctr"} {
+		if got.Slides[0].Elements[i].Text.VerticalAlign != want {
+			t.Errorf("%s anchor=%q", want, got.Slides[0].Elements[i].Text.VerticalAlign)
+		}
+	}
+}

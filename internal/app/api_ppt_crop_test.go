@@ -5,8 +5,27 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strings"
 	"testing"
+
+	"kuaima_cli/internal/ppt"
+	genppt "github.com/CoolBanHub/genppt"
 )
+
+func TestCustomGeometrySVGEmbedsImageFill(t *testing.T) {
+	e := ppt.Element{
+		Geometry: &ppt.Geometry{Type: "custom", Path: "M0 0H100V100Z", ViewBox: "0 0 100 100"},
+		Fill:     &ppt.Fill{Type: "image", Image: &ppt.ImageFill{AssetURL: "data:image/png;base64,ZmFrZQ=="}},
+	}
+	data := customGeometrySVG(e, genppt.ShapeOptions{Fill: "transparent"})
+	s := string(data)
+	if !strings.Contains(s, "clipPath") || !strings.Contains(s, "data:image/png;base64,ZmFrZQ==") {
+		t.Fatalf("custom geometry image fill was not embedded: %s", s)
+	}
+	if !strings.Contains(s, "clip-path=\"url(#ppt-image-clip)\"") {
+		t.Fatalf("custom geometry does not clip image to path: %s", s)
+	}
+}
 
 func TestCropImageDataAppliesNormalizedCrop(t *testing.T) {
 	src := image.NewRGBA(image.Rect(0, 0, 10, 10))
