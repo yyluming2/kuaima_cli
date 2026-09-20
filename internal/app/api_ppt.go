@@ -655,15 +655,47 @@ func borderStyleValue(v string) genppt.BorderStyle {
 }
 func alignValue(v string) genppt.Align {
 	switch strings.ToLower(v) {
-	case "center", "ctr":
+	case "center", "centre", "ctr", "text-align-center":
 		return genppt.AlignCenter
-	case "right", "r":
+	case "right", "end", "r", "text-align-right":
 		return genppt.AlignRight
-	case "justify", "just":
+	case "justify", "distributed", "dist", "just", "text-align-justify":
 		return genppt.AlignJustify
 	default:
 		return genppt.AlignLeft
 	}
+}
+
+func elementAlign(style map[string]any) string {
+	if v := styleString(style, "align"); v != "" {
+		return v
+	}
+	if v := styleString(style, "textAlign"); v != "" {
+		return v
+	}
+	return styleString(style, "text-align")
+}
+
+// svgDataURLBytes accepts both base64 data URLs and the URL-escaped SVG URLs
+// produced by the editor's generated artwork.
+func svgDataURLBytes(value string) []byte {
+	if !strings.HasPrefix(strings.ToLower(value), "data:") {
+		return nil
+	}
+	comma := strings.IndexByte(value, ',')
+	if comma < 0 {
+		return nil
+	}
+	header, payload := strings.ToLower(value[:comma]), value[comma+1:]
+	if strings.Contains(header, ";base64") {
+		b, _ := base64.StdEncoding.DecodeString(payload)
+		return b
+	}
+	b, err := url.PathUnescape(payload)
+	if err != nil {
+		return []byte(payload)
+	}
+	return []byte(b)
 }
 func valignValue(v string) genppt.VerticalAlign {
 	switch strings.ToLower(v) {
@@ -674,6 +706,19 @@ func valignValue(v string) genppt.VerticalAlign {
 	default:
 		return genppt.VAlignTop
 	}
+}
+
+func elementVAlign(style map[string]any) string {
+	if v := styleString(style, "verticalAlign"); v != "" {
+		return v
+	}
+	if v := styleString(style, "verticalAlignment"); v != "" {
+		return v
+	}
+	if v := styleString(style, "vAlign"); v != "" {
+		return v
+	}
+	return styleString(style, "vertical-align")
 }
 
 // cropImageData applies the editor's normalized crop values to the bitmap
@@ -770,6 +815,29 @@ func fitImageBox(data []byte, x, y, width, height float64) (float64, float64, fl
 		x += (oldWidth - width) / 2
 	}
 	return x, y, width, height
+}
+
+func customGeometrySVG(e ppt.Element, opts genppt.ShapeOptions) []byte {
+	if e.Geometry == nil || strings.TrimSpace(e.Geometry.Path) == "" {
+		return nil
+	}
+	viewBox := e.Geometry.ViewBox
+	if viewBox == "" {
+		viewBox = "0 0 1000 1000"
+	}
+	attr := func(v string) string {
+		return strings.NewReplacer("&", "&amp;", "\"", "&quot;", "<", "&lt;", ">", "&gt;").Replace(v)
+	}
+	fill := opts.Fill
+	if fill == "" {
+		fill = "none"
+	}
+	stroke, sw := opts.LineColor, opts.LineWidth
+	if stroke == "" || sw <= 0 {
+		stroke, sw = "none", 0
+	}
+	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s" preserveAspectRatio="none"><path d="%s" fill="%s" stroke="%s" stroke-width="%g"/></svg>`, attr(viewBox), attr(e.Geometry.Path), attr(fill), attr(stroke), sw)
+	return []byte(svg)
 }
 
 // handlePPTDraft returns a deterministic editable starter document. AI services
@@ -1058,8 +1126,10 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				if v, ok := styleFloat(e.Style, "letterSpacing"); ok {
 					o.CharSpacing = v * 72 / ppt.LogicalDPI
 				}
-				o.Align = alignValue(styleString(e.Style, "align"))
-				o.VAlign = valignValue(styleString(e.Style, "verticalAlign"))
+				align := elementAlign(e.Style)
+				o.Align = alignValue(align)
+				vAlign := elementVAlign(e.Style)
+				o.VAlign = valignValue(vAlign)
 				if e.Text != nil {
 					if o.FontFace == "" {
 						o.FontFace = e.Text.FontFamily
@@ -1070,10 +1140,10 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					o.Bold = o.Bold || e.Text.Bold
 					o.Italic = o.Italic || e.Text.Italic
 					o.Underline = o.Underline || e.Text.Underline
-					if styleString(e.Style, "align") == "" {
+					if align == "" {
 						o.Align = alignValue(e.Text.Align)
 					}
-					if styleString(e.Style, "verticalAlign") == "" {
+					if vAlign == "" {
 						o.VAlign = valignValue(e.Text.VerticalAlign)
 					}
 					if o.LineSpacing == 0 {
@@ -1129,6 +1199,14 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			} else if e.Type == "shape" {
 				if e.Style == nil {
 					e.Style = map[string]any{}
+				}
+				// genppt exposes preset shapes only. Materialize custom SVG paths
+				// as SVG media so their geometry, fill and stroke survive export.
+				if e.Geometry != nil && e.Geometry.Type == "custom" {
+					if data := customGeometrySVG(e, opts); len(data) > 0 {
+						sl.AddImage(genppt.ImageOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Data: data, Rotate: e.Rotation})
+					}
+					continue
 				}
 				shape := genppt.ShapeRect
 				shapeName := styleString(e.Style, "shape")
@@ -1240,16 +1318,5 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func dataURLBytes(value string) []byte {
-	if !strings.HasPrefix(strings.ToLower(value), "data:") {
-		return nil
-	}
-	comma := strings.Index(value, ",")
-	if comma < 0 {
-		return nil
-	}
-	b, err := base64.StdEncoding.DecodeString(value[comma+1:])
-	if err != nil {
-		return nil
-	}
-	return b
+	return svgDataURLBytes(value)
 }

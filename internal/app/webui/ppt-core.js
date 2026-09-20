@@ -26,7 +26,7 @@
     if (/^data:image\//i.test(v) || /^https?:\/\//i.test(v)) return { backgroundImage: `url("${v}")`, backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundColor: "transparent" };
     return { backgroundColor: v };
   };
-  const imageFill = value => (/^data:image\//i.test(String(value || "")) || /^https?:\/\//i.test(String(value || ""))) ? h("img", { src: value, alt: "", className: "fill-image", draggable: false }) : null;
+  const imageFill = value => (/^data:image\//i.test(String(value || "")) || /^https?:\/\//i.test(String(value || ""))) ? h("img", { src: value, alt: "", className: "fill-image", style: /^data:image\/svg\+xml/i.test(String(value || "")) ? { objectFit: "contain" } : undefined, draggable: false }) : null;
   const shapeStyle = (shape, style = {}, width, height) => {
     const key = String(shape || "").toLowerCase();
     if (["donut", "ring", "torus", "concentriccircles", "concentriccircle"].includes(key)) {
@@ -159,7 +159,7 @@
     const fill = element.fill?.type === "none" ? "none" : element.fill?.type === "image" || /^data:image\//i.test(String(style.background || "")) ? `url(#${fillID})` : (element.fill?.color ? (element.fill.color.rgb || element.fill.color.css || "currentColor") : (style.background || "currentColor"));
     const image = style.background || element.fill?.image?.assetUrl;
     const viewBox = geometry.viewBox || "0 0 1000 1000";
-    return h("svg", { className: "shape-svg", viewBox, preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("defs", null, fill === `url(#${fillID})` && h("pattern", { id: fillID, patternContentUnits: "objectBoundingBox", width: 1, height: 1 }, h("image", { href: image, xlinkHref: image, x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "xMidYMid slice" }))), h("path", { d: geometry.path, fill, fillRule: "evenodd", stroke, strokeWidth: width || undefined }));
+    return h("svg", { className: "shape-svg", viewBox, preserveAspectRatio: "none", style: { position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" } }, h("defs", null, fill === `url(#${fillID})` && h("pattern", { id: fillID, patternContentUnits: "objectBoundingBox", width: 1, height: 1 }, h("image", { href: image, xlinkHref: image, x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "xMidYMid meet" }))), h("path", { d: geometry.path, fill, fillRule: "evenodd", stroke, strokeWidth: width || undefined }));
   };
   const imageCropStyle = (style = {}) => {
     const crop = style.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0)), right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0)), width = 100 / (1 - left - right), height = 100 / (1 - top - bottom);
