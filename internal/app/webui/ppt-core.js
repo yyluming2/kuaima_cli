@@ -61,6 +61,7 @@
       if (style.underline == null && text.underline != null) out.underline = text.underline;
       if (style.lineHeight == null && text.lineHeight) out.lineHeight = text.lineHeight;
       if (style.align == null && text.align) out.align = text.align;
+      if (style.verticalAlign == null && text.verticalAlign) out.verticalAlign = text.verticalAlign;
     }
     if (geometry?.type && style.shape == null) out.shape = geometry.preset || geometry.type;
     if (element?.effects) {
@@ -96,13 +97,15 @@
     return next;
   };
   const textAlign = value => ({ l: "left", ctr: "center", r: "right", just: "justify", dist: "justify", thaiDist: "justify" }[String(value || "").toLowerCase()] || value || undefined);
+  const verticalAlign = value => ({ t: "flex-start", top: "flex-start", ctr: "center", center: "center", middle: "center", b: "flex-end", bottom: "flex-end" }[String(value || "").toLowerCase()] || undefined);
   const textRuns = (element, base, scale = 1) => {
     const runs = Array.isArray(element?.textRuns) ? element.textRuns : [];
-    if (!runs.length) return element?.content || "";
+    const containerStyle = { display: "flex", flexDirection: "column", justifyContent: verticalAlign(base.verticalAlign) || "flex-start", width: "100%", height: "100%", textAlign: textAlign(base.align) };
+    if (!runs.length) return h("div", { "data-ppt-text-container": "true", style: containerStyle }, element?.content || "");
     // Some producers keep line breaks only in the compatibility `content`
     // field. Preserve those breaks when there is a single rich-text run.
     if (runs.length === 1 && typeof element?.content === "string" && element.content.includes("\n") && !String(runs[0]?.content || "").includes("\n")) {
-      return h("span", { style: { ...base, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined, whiteSpace: "pre-wrap" } }, element.content);
+      return h("div", { "data-ppt-text-container": "true", style: containerStyle }, h("span", { style: { ...base, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined, whiteSpace: "pre-wrap" } }, element.content));
     }
     const rendered = runs.flatMap((run, index) => {
       const style = { ...base, ...(run?.style || {}) };
@@ -115,7 +118,7 @@
       block.nodes.push(item.node);
     });
     const paragraphs = Array.isArray(element?.textParagraphs) ? element.textParagraphs : [];
-    return blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", whiteSpace: "pre-wrap", textAlign: textAlign(paragraphs[block.paragraph]?.align) || textAlign(base.align) } }, block.nodes));
+    return h("div", { "data-ppt-text-container": "true", style: containerStyle }, blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", width: "100%", whiteSpace: "pre-wrap", textAlign: textAlign(paragraphs[block.paragraph]?.align) || textAlign(base.align) } }, block.nodes)));
   };
   const rewriteRunContent = (element, content) => {
     const runs = Array.isArray(element.textRuns) ? element.textRuns : [];
@@ -133,7 +136,7 @@
   // Read the rendered rich-text tree without collapsing spans that carry
   // character-level formatting. Paragraph containers are kept as indexes.
   const readEditableRuns = node => {
-    const out = [], paragraphs = [...(node?.childNodes || [])];
+    const out = [], container = node?.querySelector?.("[data-ppt-text-container]") || node, paragraphs = [...(container?.childNodes || [])];
     const visit = (n, paragraph, inherited) => {
       if (n.nodeType === 3) {
         if (n.nodeValue) out.push({ content: n.nodeValue, paragraph, style: inherited });
@@ -191,5 +194,5 @@
   };
   const icon = name => h("i", { "data-lucide": name });
 
-  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
+  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, verticalAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
 })();

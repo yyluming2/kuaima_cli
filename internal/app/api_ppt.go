@@ -620,9 +620,11 @@ func cssColor(v string) (string, float64) {
 			return v[i:end], 0
 		}
 	}
-	if strings.HasPrefix(strings.ToLower(v), "rgba(") {
-		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(v[5:], "("), ")"), ",")
-		if len(parts) == 4 {
+	vl := strings.ToLower(v)
+	if strings.HasPrefix(vl, "rgb(") || strings.HasPrefix(vl, "rgba(") {
+		open := strings.IndexByte(v, '(')
+		parts := strings.Split(strings.TrimSuffix(v[open+1:], ")"), ",")
+		if len(parts) == 3 || len(parts) == 4 {
 			var r, g, b int
 			var a float64
 			if _, err := fmt.Sscanf(strings.TrimSpace(parts[0]), "%d", &r); err == nil {
@@ -631,7 +633,11 @@ func cssColor(v string) (string, float64) {
 					_, err = fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &b)
 				}
 				if err == nil {
-					_, err = fmt.Sscanf(strings.TrimSpace(parts[3]), "%f", &a)
+					if len(parts) == 4 {
+						_, err = fmt.Sscanf(strings.TrimSpace(parts[3]), "%f", &a)
+					} else {
+						a = 1
+					}
 				}
 				if err == nil {
 					return fmt.Sprintf("#%02X%02X%02X", r, g, b), (1 - a) * 100
@@ -640,6 +646,11 @@ func cssColor(v string) (string, float64) {
 		}
 	}
 	return v, 0
+}
+
+func exportColor(v string) string {
+	c, _ := cssColor(v)
+	return c
 }
 func borderStyleValue(v string) genppt.BorderStyle {
 	switch strings.ToLower(v) {
@@ -1141,9 +1152,9 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					// genppt expects points; the editor model uses 128 logical px/in.
 					o.FontSize = v * 72 / ppt.LogicalDPI
 				}
-				o.FontColor = styleString(e.Style, "color")
+				o.FontColor = exportColor(styleString(e.Style, "color"))
 				if o.FontColor == "" {
-					o.FontColor = model.Theme.Foreground
+					o.FontColor = exportColor(model.Theme.Foreground)
 				}
 				if v, ok := styleFloat(e.Style, "fontWeight"); ok {
 					o.Bold = v >= 600
@@ -1220,10 +1231,10 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 							r.Options.FontSize = v * 72 / ppt.LogicalDPI
 						}
 						if v := styleString(run.Style, "fontColor"); v != "" {
-							r.Options.FontColor = v
+							r.Options.FontColor = exportColor(v)
 						}
 						if v := styleString(run.Style, "color"); v != "" {
-							r.Options.FontColor = v
+							r.Options.FontColor = exportColor(v)
 						}
 						if v := styleString(run.Style, "fontFamily"); v != "" {
 							r.Options.FontFace = v
