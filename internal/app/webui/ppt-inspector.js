@@ -71,9 +71,9 @@
     };
     const field = (label, key, type = "text", options = {}) => h("label", null, label, h("input", {
       type, min: options.min, max: options.max, step: options.step ?? (type === "number" ? "0.1" : undefined),
-      value: type === "number" && ["x", "y", "width", "height"].includes(key) ? Number(element[key] || 0).toFixed(1) : (element[key] ?? style[key] ?? ""),
+      value: key === "fontSize" ? (Number(element.style?.fontSize ?? element.textStyle?.fontSize ?? style[key] ?? 0) * 72 / 128).toFixed(1) : type === "number" && ["x", "y", "width", "height"].includes(key) ? Number(element[key] || 0).toFixed(1) : (element[key] ?? style[key] ?? ""),
       onChange: event => onChange(target => {
-        const value = type === "number" ? Number(event.target.value) : event.target.value;
+        const value = type === "number" ? (key === "fontSize" ? Number(event.target.value) * 128 / 72 : Number(event.target.value)) : event.target.value;
         if (["x", "y", "width", "height", "rotation"].includes(key) || key in target) target[key] = value; else setStyle(target, key, value);
       })
     }));
@@ -119,7 +119,7 @@
 
       shownTab === "text" && h("div", { className: "inspector-tab" },
         h("label", null, "内容", h("textarea", { value: element.content || "", onChange: event => onChange(target => rewriteRunContent(target, event.target.value)) })),
-        h("section", { className: "geometry" }, field("字号", "fontSize", "number", { min: 1 }), field("字体", "fontFamily")),
+        h("section", { className: "geometry" }, field("字号（磅）", "fontSize", "number", { min: 1 }), field("字体", "fontFamily")),
         ColorField({ label: "文字颜色", value: style.color, themeColors, onChange: value => setColor("color", value) }),
         h("label", null, "文字对齐", h("select", { value: style.align === "just" ? "l" : (style.align || "l"), onChange: event => onChange(target => setStyle(target, "align", event.target.value)) }, h("option", { value: "l" }, "左对齐"), h("option", { value: "ctr" }, "居中"), h("option", { value: "r" }, "右对齐"))),
         h("label", null, "垂直对齐", h("select", { value: style.verticalAlign || "t", onChange: event => onChange(target => setStyle(target, "verticalAlign", event.target.value)) }, h("option", { value: "t" }, "顶部对齐"), h("option", { value: "ctr" }, "垂直居中"), h("option", { value: "b" }, "底部对齐"))),

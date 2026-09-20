@@ -956,7 +956,12 @@ func (im *importer) walk(n *node, c ctx) {
 			if co != nil && ce != nil {
 				cw, ch := emu(ce.attr("cx")), emu(ce.attr("cy"))
 				if cw > 0 && ch > 0 {
-					nc = ctx{c.x + (g.x-emu(co.attr("x")))*c.sx, c.y + (g.y-emu(co.attr("y")))*c.sy, g.w / cw * c.sx, g.h / ch * c.sy, c.rot + g.rot, nc.flipH, nc.flipV}
+					// Group child coordinates are expressed in the group's child
+					// coordinate space. Translate the child origin by the scaled
+					// chOff; subtracting it in parent space causes visible offsets
+					// whenever chExt differs from the group's displayed extents.
+					gsx, gsy := g.w/cw*c.sx, g.h/ch*c.sy
+					nc = ctx{c.x + g.x*c.sx - emu(co.attr("x"))*gsx, c.y + g.y*c.sy - emu(co.attr("y"))*gsy, gsx, gsy, c.rot + g.rot, nc.flipH, nc.flipV}
 				}
 			}
 		}

@@ -1125,9 +1125,13 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				opts.Fill = "transparent"
 			}
 			if opts.LineColor == "" && e.Line != nil && !explicitBorder {
-				opts.LineColor = colorFrom(e.Line.Color)
-				opts.LineWidth = e.Line.Width * 72 / ppt.LogicalDPI
-				opts.LineStyle = borderStyleValue(e.Line.Dash)
+				// A structured line with type=none is an explicit absence of a
+				// border; do not let the custom-geometry writer synthesize one.
+				if e.Line.Color == nil || e.Line.Color.Type != "none" {
+					opts.LineColor = colorFrom(e.Line.Color)
+					opts.LineWidth = e.Line.Width * 72 / ppt.LogicalDPI
+					opts.LineStyle = borderStyleValue(e.Line.Dash)
+				}
 			}
 			if opts.Rotate == 0 {
 				opts.Rotate = e.Rotation
@@ -1142,12 +1146,12 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			// ordinary elements retain the existing editable picture behavior.
 			if (e.Geometry == nil || e.Geometry.Type != "custom") && e.Fill != nil && e.Fill.Type == "image" && e.Fill.Image != nil {
 				if data := dataURLBytes(e.Fill.Image.AssetURL); len(data) > 0 {
-					sl.AddImage(genppt.ImageOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Data: data, Rotate: e.Rotation})
+					sl.AddImage(genppt.ImageOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Data: data, Rotate: e.Rotation, FlipH: e.FlipH, FlipV: e.FlipV})
 					opts.Fill = "transparent"
 				}
 			}
 			if e.Type == "text" {
-				o := genppt.TextOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI}
+				o := genppt.TextOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI, FlipH: e.FlipH, FlipV: e.FlipV}
 				if v, ok := styleFloat(e.Style, "fontSize"); ok {
 					// genppt expects points; the editor model uses 128 logical px/in.
 					o.FontSize = v * 72 / ppt.LogicalDPI
@@ -1255,7 +1259,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				// Emit custom paths as native DrawingML geometry. This keeps the
 				// shape editable and lets PowerPoint apply image fills directly.
 				if e.Geometry != nil && e.Geometry.Type == "custom" {
-					customOpts := genppt.CustomGeometryOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Path: e.Geometry.Path, ViewBox: e.Geometry.ViewBox, Fill: opts.Fill, LineColor: opts.LineColor, LineWidth: opts.LineWidth, Transparency: opts.Transparency, Rotate: opts.Rotate}
+					customOpts := genppt.CustomGeometryOptions{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height, Path: e.Geometry.Path, ViewBox: e.Geometry.ViewBox, Fill: opts.Fill, LineColor: opts.LineColor, LineWidth: opts.LineWidth, Transparency: opts.Transparency, Rotate: opts.Rotate, FlipH: e.FlipH, FlipV: e.FlipV}
 					if e.Fill != nil && e.Fill.Type == "image" && e.Fill.Image != nil {
 						customOpts.ImageData = dataURLBytes(e.Fill.Image.AssetURL)
 					}
@@ -1314,6 +1318,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					}
 					opts.Rounding = radius
 				}
+				opts.FlipH, opts.FlipV = e.FlipH, e.FlipV
 				sl.AddShape(shape, opts)
 			} else if e.Type == "table" {
 				var rows [][]genppt.TableCell
@@ -1356,7 +1361,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					if bytes.Equal(original, data) {
 						x, y, w, h = fitImageBox(data, x, y, w, h)
 					}
-					sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data, Rotate: e.Rotation})
+					sl.AddImage(genppt.ImageOptions{X: x, Y: y, Width: w, Height: h, Data: data, Rotate: e.Rotation, FlipH: e.FlipH, FlipV: e.FlipV})
 				}
 			}
 		}
