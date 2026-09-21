@@ -640,7 +640,40 @@ func styleLineHeight(m map[string]any, key string, fontSizePx float64) (float64,
 }
 
 func exportFontFamily(family string, embedded []ppt.FontAsset) string {
-	return strings.TrimSpace(family)
+	family = strings.TrimSpace(family)
+	if family == "" {
+		return ""
+	}
+	// A font asset can be browser-only (WOFF/WOFF2) or remain obfuscated after
+	// import. Referencing that family in the PPTX would make WPS report it as a
+	// missing font even though the source editor rendered it successfully.
+	found, usable := false, false
+	for _, asset := range embedded {
+		if !strings.EqualFold(strings.TrimSpace(asset.Family), family) {
+			continue
+		}
+		found = true
+		if !asset.Obfuscated && isOfficeEmbeddedFont(dataURLBytes(asset.AssetURL)) {
+			usable = true
+			break
+		}
+	}
+	if found && !usable {
+		return "Arial"
+	}
+	return family
+}
+
+// isOfficeEmbeddedFont reports whether the payload is a font format accepted
+// by PowerPoint/WPS embedded-font parts. Browsers can load WOFF/WOFF2, but
+// those web formats are not valid embedded fonts in a PPTX package and make
+// WPS show a misleading "missing font" warning.
+func isOfficeEmbeddedFont(data []byte) bool {
+	if len(data) < 4 {
+		return false
+	}
+	sig := string(data[:4])
+	return sig == "OTTO" || sig == "ttcf" || sig == "true" || sig == "typ1" || sig == "\x00\x01\x00\x00"
 }
 func styleBool(m map[string]any, key string) bool { v, _ := m[key].(bool); return v }
 func colorFrom(c *ppt.Color) string {
@@ -1061,15 +1094,26 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 	p := genppt.New().SetTitle(model.Title)
 	// Preserve the original family names and carry the embedded font payloads;
 	// export must never silently substitute a different typeface.
+	usedFontFiles := map[string]bool{}
 	for _, font := range model.FontAssets {
 		if font.Obfuscated || font.AssetURL == "" {
 			continue
 		}
 		if data := dataURLBytes(font.AssetURL); len(data) > 0 {
-			name := strings.TrimSuffix(font.FileName, filepath.Ext(font.FileName)) + ".fntdata"
-			if name == ".fntdata" {
-				name = "font.fntdata"
+			if !isOfficeEmbeddedFont(data) {
+				// Keep the family available to the editor, but never emit a web
+				// font as an OOXML embedded part (WPS treats it as missing).
+				continue
 			}
+			base := strings.TrimSuffix(filepath.Base(font.FileName), filepath.Ext(font.FileName))
+			if base == "" || base == "." {
+				base = "font"
+			}
+			name := base + ".fntdata"
+			for n := 2; usedFontFiles[name]; n++ {
+				name = fmt.Sprintf("%s-%d.fntdata", base, n)
+			}
+			usedFontFiles[name] = true
 			p.AddEmbeddedFont(font.Family, font.Style, font.Weight, name, data)
 		}
 	}
@@ -1234,6 +1278,12 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				if v, ok := styleLineHeight(e.Style, "lineHeight", fontSizePx); ok {
 					o.LineSpacing = v
 				}
+				// CSS's normal line-height is roughly 1.2 for the fonts used by
+				// the editor. Make it explicit so WPS/PowerPoint do not choose a
+				// different application default.
+				if o.LineSpacing <= 0 {
+					o.LineSpacing = 1.2
+				}
 				if v, ok := styleFloat(e.Style, "letterSpacing"); ok {
 					o.CharSpacing = v * 72 / ppt.LogicalDPI
 				}
@@ -1297,7 +1347,11 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 						if v, ok := styleFloat(run.Style, "fontSize"); ok {
 							r.Options.FontSize = v * 72 / ppt.LogicalDPI
 						}
-						if v, ok := styleLineHeight(run.Style, "lineHeight", fontSizePx); ok {
+						runFontSizePx := fontSizePx
+						if v, ok := styleFloat(run.Style, "fontSize"); ok {
+							runFontSizePx = v
+						}
+						if v, ok := styleLineHeight(run.Style, "lineHeight", runFontSizePx); ok {
 							r.Options.LineSpacing = v
 						}
 						if v := styleString(run.Style, "fontColor"); v != "" {
