@@ -3,7 +3,7 @@
 
   const { useEffect, useState } = React;
   const h = React.createElement;
-  const { defaults, names, rewriteRunContent, shapeStyle, icon } = window.PPTEditor;
+  const { defaults, names, rewriteRunContent, shapeStyle, icon, loadFontFamily } = window.PPTEditor;
   const palette = ["#111827", "#ffffff", "#2563eb", "#0f9f8f", "#f97316", "#dc2626", "#facc15", "#8b5cf6", "#64748b"];
   const shapePresets = [
     ["rect", "矩形"], ["roundRect", "圆角矩形"], ["ellipse", "椭圆"], ["triangle", "三角形"],
@@ -38,10 +38,14 @@
 
   const primaryTab = element => element?.type === "text" ? "text" : element?.type === "image" ? "image" : element?.type === "shape" ? "shape" : element ? "content" : "layout";
 
-  function Inspector({ element, onChange, onReplaceImage, onPickBackground, onPickElementBackground, onLayer, master, onMasterChange, themeColors = [] }) {
+  function Inspector({ element, onChange, onReplaceImage, onPickBackground, onPickElementBackground, onLayer, master, onMasterChange, themeColors = [], fontFamilies = [] }) {
     const [activeTab, setActiveTab] = useState(primaryTab(element));
     useEffect(() => setActiveTab(primaryTab(element)), [element?.id, !!master]);
     useEffect(() => { window.lucide && window.lucide.createIcons(); }, [activeTab, element?.id]);
+
+    const style = { ...defaults, ...(element?.style || {}) };
+    const fontOptions = Array.from(new Set([...(fontFamilies || []), style?.fontFamily, master?.fontFamily].filter(value => typeof value === "string" && value.trim()))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    const fontSelect = (value, onSelect) => h("select", { value: value || "", onChange: event => { const next = event.target.value; loadFontFamily?.(next).catch(() => {}); onSelect(next); }, title: "选择字体" }, !value && h("option", { value: "" }, "默认字体"), fontOptions.map(font => h("option", { key: font, value: font }, font)));
 
     if (!element && master) {
       const set = (key, value) => onMasterChange?.(target => { target[key] = value; });
@@ -55,14 +59,13 @@
           h("label", null, "标题字号", h("input", { type: "number", min: 10, value: master.titleSize || 40, onChange: event => set("titleSize", Number(event.target.value)) })),
           h("label", null, "正文字号", h("input", { type: "number", min: 10, value: master.bodySize || 24, onChange: event => set("bodySize", Number(event.target.value)) }))
         ),
-        h("label", null, "字体", h("input", { value: master.fontFamily || "Microsoft YaHei", onChange: event => onMasterChange?.(target => { target.fontFamily = event.target.value; target.fonts = event.target.value.split(",").map(value => value.trim()).filter(Boolean); }) })),
+        h("label", null, "字体", fontSelect(master.fontFamily || "Microsoft YaHei", value => onMasterChange?.(target => { target.fontFamily = value; target.fonts = value ? [value] : []; }))),
         h("p", { className: "master-apply-hint" }, "以上设置会立即应用到全部页面的标题和正文。")
       );
     }
 
     if (!element) return h("aside", { className: "side" }, h("div", { className: "inspector-heading" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, "未选择元素")));
 
-    const style = { ...defaults, ...(element.style || {}) };
     const setStyle = (target, key, value) => {
       target.style = { ...target.style, [key]: value };
       if (Array.isArray(target.textRuns) && ["fontFamily", "fontSize", "color", "bold", "italic", "underline", "lineHeight", "letterSpacing"].includes(key)) {
@@ -119,7 +122,7 @@
 
       shownTab === "text" && h("div", { className: "inspector-tab" },
         h("label", null, "内容", h("textarea", { value: element.content || "", onChange: event => onChange(target => rewriteRunContent(target, event.target.value)) })),
-        h("section", { className: "geometry" }, field("字号（磅）", "fontSize", "number", { min: 1 }), field("字体", "fontFamily")),
+        h("section", { className: "geometry" }, field("字号（磅）", "fontSize", "number", { min: 1 }), h("label", null, "字体", fontSelect(style.fontFamily || "", value => onChange(target => setStyle(target, "fontFamily", value))))),
         ColorField({ label: "文字颜色", value: style.color, themeColors, onChange: value => setColor("color", value) }),
         h("label", null, "文字对齐", h("select", { value: style.align === "just" ? "l" : (style.align || "l"), onChange: event => onChange(target => setStyle(target, "align", event.target.value)) }, h("option", { value: "l" }, "左对齐"), h("option", { value: "ctr" }, "居中"), h("option", { value: "r" }, "右对齐"))),
         h("label", null, "垂直对齐", h("select", { value: style.verticalAlign || "t", onChange: event => onChange(target => setStyle(target, "verticalAlign", event.target.value)) }, h("option", { value: "t" }, "顶部对齐"), h("option", { value: "ctr" }, "垂直居中"), h("option", { value: "b" }, "底部对齐"))),

@@ -71,11 +71,22 @@
     return out;
   };
   const canonicalStyle = element => ({ ...(element?.style || {}), ...visualStyle(element, element?.style || {}) });
-  const registerFontAssets = assets => (assets || []).forEach((font, index) => {
-    if (!font?.family || !font?.assetUrl || font.obfuscated || !window.FontFace) return;
-    const face = new FontFace(font.family, `url(${font.assetUrl})`, { style: font.style || "normal", weight: String(font.weight || 400) });
-    face.load().then(loaded => document.fonts.add(loaded)).catch(() => {});
-  });
+  const registerFontAssets = assets => {
+    if (!window.FontFace) return;
+    const registered = new Set();
+    (assets || []).forEach(font => {
+      if (!font?.family || !font?.assetUrl || font.obfuscated) return;
+      const key = `${font.family}\u0000${font.style || "normal"}\u0000${font.weight || 400}`;
+      if (registered.has(key)) return;
+      registered.add(key);
+      const face = new FontFace(font.family, `url(${font.assetUrl})`, { style: font.style || "normal", weight: String(font.weight || 400) });
+      face.load().then(loaded => document.fonts.add(loaded)).catch(() => {});
+    });
+  };
+  const loadFontFamily = family => {
+    if (!family || !document.fonts?.load) return Promise.resolve([]);
+    return document.fonts.load(`16px "${String(family).replace(/"/g, "\\\"")}"`);
+  };
   const normalizeDeck = value => {
     const next = structuredClone(value);
     registerFontAssets(next.fontAssets);
@@ -206,5 +217,5 @@
   };
   const icon = name => h("i", { "data-lucide": name });
 
-  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, verticalAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
+  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, loadFontFamily, textAlign, verticalAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
 })();

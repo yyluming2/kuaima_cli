@@ -4,6 +4,15 @@
   setInterval(moveStreamStatusToCanvas, 100);
   const { useState, useEffect, useRef } = React, h = React.createElement;
   const { names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, verticalAlign, textRuns, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon, Inspector } = window.PPTEditor;
+  const fallbackFonts = ["Microsoft YaHei", "SimSun", "SimHei", "Arial", "Calibri", "Aptos", "Times New Roman"];
+  const presentationFonts = deck => {
+    const found = new Set(), add = value => { if (typeof value === "string") value.split(",").map(item => item.trim()).filter(Boolean).forEach(item => found.add(item)); };
+    (deck?.theme?.fonts || []).forEach(add); (deck?.master?.fonts || []).forEach(add); add(deck?.master?.fontFamily);
+    (deck?.fontAssets || []).forEach(font => add(font?.family));
+    const elements = [...(deck?.master?.elements || []), ...(deck?.slides || []).flatMap(slide => slide.elements || [])];
+    elements.forEach(element => { add(element?.style?.fontFamily); add(element?.textStyle?.fontFamily); (element?.textRuns || []).forEach(run => add(run?.style?.fontFamily)); });
+    return [...found];
+  };
   const pptReferences = () => ({ text: document.querySelector("#pptReferenceText")?.value || "", images: [...(document.querySelector("#pptReferenceImages")?.files || [])], deck: document.querySelector("#pptReferenceDeck")?.files?.[0] || null });
   const referenceStatus = () => { const r = pptReferences(), el = document.querySelector("#pptReferenceStatus"); if (el) el.textContent = [r.images.length ? `${r.images.length} 张图片` : "", r.deck ? r.deck.name : ""].filter(Boolean).join(" · "); };
   document.querySelector("#pptReferenceImages")?.addEventListener("change", referenceStatus);
@@ -11,7 +20,17 @@
   setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
   function App() {
     const [masterMode, setMasterMode] = useState(false);
+    const [localFonts, setLocalFonts] = useState(fallbackFonts);
     const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    useEffect(() => {
+      let cancelled = false;
+      if (typeof window.queryLocalFonts !== "function") return undefined;
+      window.queryLocalFonts().then(fonts => {
+        if (!cancelled) setLocalFonts([...new Set([...fallbackFonts, ...fonts.map(font => font.family).filter(Boolean)])]);
+      }).catch(() => {});
+      return () => { cancelled = true; };
+    }, []);
+    const fontFamilies = [...new Set([...localFonts, ...presentationFonts(deck)])].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     // PPTX object ids are often reused on every slide. Clear stale selection
     // state when changing pages so old SVG connectors and resize handles are
     // removed instead of being associated with the new page.
@@ -273,7 +292,7 @@
           r.readAsDataURL(f)
         } ev.target.value = ""
       }
-    }), h("input", { ref: openFileInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: loadDeckFile }), inspectorOpen && h(Inspector, { element: current, onChange: update, onLayer: changeLayer, master: masterMode ? (deck?.master || {}) : null, onMasterChange: changeMaster, onPickBackground: () => { backgroundTarget.current = "master"; fileInput.current?.click() }, onPickElementBackground: id => { backgroundTarget.current = id; fileInput.current?.click() }, themeColors: [{ label: "主题", value: deck?.master?.accent || deck?.theme?.accent }, { label: "前景", value: deck?.master?.foreground || deck?.theme?.foreground }, { label: "背景", value: deck?.master?.background || deck?.theme?.background }], onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } }), showJson && h("div", { className: "json-overlay", onClick: () => setShowJson(false) }, h("div", { className: "json-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, current ? `对象 JSON · ${names[current.type] || current.type}` : "对象 JSON"), h("button", { onClick: () => setShowJson(false) }, "关闭")), current ? h("textarea", { className: "json-editor", value: jsonText, onChange: e => setJsonText(e.target.value), spellCheck: false }) : h("div", { className: "json-empty" }, "请先选择一个对象"), current && h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => { try { const parsed = JSON.parse(jsonText); update(x => { Object.keys(x).forEach(k => delete x[k]); Object.assign(x, parsed); }); setShowJson(false); } catch (e) { alert("JSON 格式错误：" + e.message); } } }, "应用修改"), h("button", { onClick: () => setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)) }, "还原"))))))
+    }), h("input", { ref: openFileInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: loadDeckFile }), inspectorOpen && h(Inspector, { element: current, onChange: update, onLayer: changeLayer, master: masterMode ? (deck?.master || {}) : null, onMasterChange: changeMaster, fontFamilies, onPickBackground: () => { backgroundTarget.current = "master"; fileInput.current?.click() }, onPickElementBackground: id => { backgroundTarget.current = id; fileInput.current?.click() }, themeColors: [{ label: "主题", value: deck?.master?.accent || deck?.theme?.accent }, { label: "前景", value: deck?.master?.foreground || deck?.theme?.foreground }, { label: "背景", value: deck?.master?.background || deck?.theme?.background }], onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() } }), showJson && h("div", { className: "json-overlay", onClick: () => setShowJson(false) }, h("div", { className: "json-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, current ? `对象 JSON · ${names[current.type] || current.type}` : "对象 JSON"), h("button", { onClick: () => setShowJson(false) }, "关闭")), current ? h("textarea", { className: "json-editor", value: jsonText, onChange: e => setJsonText(e.target.value), spellCheck: false }) : h("div", { className: "json-empty" }, "请先选择一个对象"), current && h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => { try { const parsed = JSON.parse(jsonText); update(x => { Object.keys(x).forEach(k => delete x[k]); Object.assign(x, parsed); }); setShowJson(false); } catch (e) { alert("JSON 格式错误：" + e.message); } } }, "应用修改"), h("button", { onClick: () => setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)) }, "还原"))))))
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();

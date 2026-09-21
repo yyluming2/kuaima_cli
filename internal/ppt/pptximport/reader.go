@@ -3,6 +3,7 @@ package pptximport
 import (
 	"archive/zip"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -1152,6 +1153,15 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 				raw, _ := io.ReadAll(b)
 				b.Close()
 				themeColors = parseThemeColors(raw)
+				// Keep the concrete theme typefaces available to the editor even
+				// when a slide only inherits them through a DrawingML alias.
+				seenThemeFonts := map[string]bool{}
+				for _, key := range []string{"font:+mj-lt", "font:+mj-ea", "font:+mn-lt", "font:+mn-ea"} {
+					if family := strings.TrimSpace(themeColors[key]); family != "" && !seenThemeFonts[family] {
+						seenThemeFonts[family] = true
+						p.Theme.Fonts = append(p.Theme.Fonts, family)
+					}
+				}
 				if len(themeColors) > 0 {
 					break
 				}
@@ -1305,6 +1315,7 @@ func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.Font
 	var out []ppt.FontAsset
 	for _, embedded := range list.children("embeddedFont") {
 		family := embedded.child("font").attr("typeface")
+		key := embeddedFontKey(embedded)
 		for _, variant := range []struct {
 			name   string
 			style  string
@@ -1326,6 +1337,9 @@ func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.Font
 			if len(raw) == 0 {
 				continue
 			}
+			if decoded, ok := decodeObfuscatedFont(raw, key); ok {
+				raw = decoded
+			}
 			mime, usable := fontMIME(raw)
 			asset := ppt.FontAsset{Family: family, Style: variant.style, Weight: variant.weight, FileName: filepath.Base(name), Obfuscated: !usable,
 				AssetURL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)}
@@ -1333,6 +1347,51 @@ func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.Font
 		}
 	}
 	return out
+}
+
+// Office obfuscated font parts XOR the first 32 bytes with a 16-byte GUID.
+// Different producers place that GUID on different embedded-font nodes, so
+// accept the common attribute spellings and both byte orders used in files in
+// the wild.
+func embeddedFontKey(n *node) []byte {
+	for _, cur := range []*node{n, n.child("font")} {
+		if cur == nil {
+			continue
+		}
+		for _, name := range []string{"fontKey", "key", "guid", "fontGuid"} {
+			value := strings.Trim(strings.TrimSpace(cur.attr(name)), "{}")
+			value = strings.TrimPrefix(strings.TrimPrefix(value, "urn:uuid:"), "urn:uuid:")
+			value = strings.ReplaceAll(value, "-", "")
+			if len(value) == 32 {
+				if key, err := hex.DecodeString(value); err == nil {
+					return key
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func decodeObfuscatedFont(raw, key []byte) ([]byte, bool) {
+	if len(key) != 16 || len(raw) < 32 {
+		return raw, false
+	}
+	variants := [][]byte{key, append([]byte(nil), key...)}
+	for i, b := range variants {
+		if i == 1 {
+			for left, right := 0, len(b)-1; left < right; left, right = left+1, right-1 {
+				b[left], b[right] = b[right], b[left]
+			}
+		}
+		candidate := append([]byte(nil), raw...)
+		for j := 0; j < 32; j++ {
+			candidate[j] ^= b[j%16]
+		}
+		if _, usable := fontMIME(candidate); usable {
+			return candidate, true
+		}
+	}
+	return raw, false
 }
 
 func zipPart(z *zip.Reader, name string) []byte {
@@ -1358,6 +1417,10 @@ func fontMIME(raw []byte) (string, bool) {
 	switch sig {
 	case "OTTO":
 		return "font/otf", true
+	case "ttcf":
+		// TrueType collections are valid OpenType containers. Browsers that
+		// support collections can load them through FontFace as well.
+		return "font/ttf", true
 	case "wOFF":
 		return "font/woff", true
 	case "wOF2":
