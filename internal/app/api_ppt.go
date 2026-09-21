@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	genppt "github.com/CoolBanHub/genppt"
@@ -599,6 +600,48 @@ func styleFloat(m map[string]any, key string) (float64, bool) {
 		return 0, false
 	}
 }
+
+// styleLineHeight returns the DrawingML multiplier used by genppt. Numeric
+// values are the editor's multiplier (1.4 means 140%). CSS-style strings are
+// accepted as absolute lengths and converted using the element font size.
+func styleLineHeight(m map[string]any, key string, fontSizePx float64) (float64, bool) {
+	if m == nil {
+		return 0, false
+	}
+	if v, ok := styleFloat(m, key); ok {
+		return v, true
+	}
+	raw, ok := m[key].(string)
+	if !ok {
+		return 0, false
+	}
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" || raw == "normal" || fontSizePx <= 0 {
+		return 0, false
+	}
+	unit := ""
+	for _, suffix := range []string{"px", "pt"} {
+		if strings.HasSuffix(raw, suffix) {
+			raw, unit = strings.TrimSpace(strings.TrimSuffix(raw, suffix)), suffix
+			break
+		}
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, false
+	}
+	if unit == "pt" {
+		v *= ppt.LogicalDPI / 72
+	}
+	if unit == "px" || unit == "pt" {
+		return v / fontSizePx, true
+	}
+	return 0, false
+}
+
+func exportFontFamily(family string, embedded []ppt.FontAsset) string {
+	return strings.TrimSpace(family)
+}
 func styleBool(m map[string]any, key string) bool { v, _ := m[key].(bool); return v }
 func colorFrom(c *ppt.Color) string {
 	if c == nil {
@@ -1016,22 +1059,18 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := genppt.New().SetTitle(model.Title)
-	// Carry embedded fonts from imported presentations into the exported PPTX.
-	// This keeps custom typefaces available on machines where they are not
-	// installed (obfuscated/unusable Office font payloads are intentionally
-	// skipped).
+	// Preserve the original family names and carry the embedded font payloads;
+	// export must never silently substitute a different typeface.
 	for _, font := range model.FontAssets {
 		if font.Obfuscated || font.AssetURL == "" {
 			continue
 		}
 		if data := dataURLBytes(font.AssetURL); len(data) > 0 {
-			// WPS follows the Office convention and only recognizes embedded
-			// font parts as .fntdata (even when the payload itself is TTF/OTF).
-			genpptName := strings.TrimSuffix(font.FileName, filepath.Ext(font.FileName)) + ".fntdata"
-			if genpptName == ".fntdata" {
-				genpptName = "font.fntdata"
+			name := strings.TrimSuffix(font.FileName, filepath.Ext(font.FileName)) + ".fntdata"
+			if name == ".fntdata" {
+				name = "font.fntdata"
 			}
-			p.AddEmbeddedFont(font.Family, font.Style, font.Weight, genpptName, data)
+			p.AddEmbeddedFont(font.Family, font.Style, font.Weight, name, data)
 		}
 	}
 	if model.Width > 0 && model.Height > 0 {
@@ -1184,9 +1223,15 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				o.Bold = o.Bold || styleBool(e.Style, "bold")
 				o.Italic = styleBool(e.Style, "italic")
 				o.Underline = styleBool(e.Style, "underline")
-				o.FontFace = styleString(e.Style, "fontFamily")
+				o.FontFace = exportFontFamily(styleString(e.Style, "fontFamily"), model.FontAssets)
 				o.Rotate = opts.Rotate
-				if v, ok := styleFloat(e.Style, "lineHeight"); ok {
+				fontSizePx := 0.0
+				if v, ok := styleFloat(e.Style, "fontSize"); ok {
+					fontSizePx = v
+				} else if e.Text != nil {
+					fontSizePx = e.Text.FontSize
+				}
+				if v, ok := styleLineHeight(e.Style, "lineHeight", fontSizePx); ok {
 					o.LineSpacing = v
 				}
 				if v, ok := styleFloat(e.Style, "letterSpacing"); ok {
@@ -1208,7 +1253,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				o.VAlign = valignValue(vAlign)
 				if e.Text != nil {
 					if o.FontFace == "" {
-						o.FontFace = e.Text.FontFamily
+						o.FontFace = exportFontFamily(e.Text.FontFamily, model.FontAssets)
 					}
 					if o.FontSize == 0 {
 						o.FontSize = e.Text.FontSize * 72 / ppt.LogicalDPI
@@ -1252,6 +1297,9 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 						if v, ok := styleFloat(run.Style, "fontSize"); ok {
 							r.Options.FontSize = v * 72 / ppt.LogicalDPI
 						}
+						if v, ok := styleLineHeight(run.Style, "lineHeight", fontSizePx); ok {
+							r.Options.LineSpacing = v
+						}
 						if v := styleString(run.Style, "fontColor"); v != "" {
 							r.Options.FontColor = exportColor(v)
 						}
@@ -1259,7 +1307,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 							r.Options.FontColor = exportColor(v)
 						}
 						if v := styleString(run.Style, "fontFamily"); v != "" {
-							r.Options.FontFace = v
+							r.Options.FontFace = exportFontFamily(v, model.FontAssets)
 						}
 						r.Options.Bold = r.Options.Bold || styleBool(run.Style, "bold")
 						r.Options.Italic = r.Options.Italic || styleBool(run.Style, "italic")
@@ -1354,7 +1402,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 				if v, ok := styleFloat(e.Style, "fontSize"); ok {
 					to.FontSize = v * 72 / ppt.LogicalDPI
 				}
-				to.FontFace = styleString(e.Style, "fontFamily")
+				to.FontFace = exportFontFamily(styleString(e.Style, "fontFamily"), model.FontAssets)
 				to.FirstRowBold = styleBool(e.Style, "firstRowBold")
 				to.FirstRowFill = styleString(e.Style, "firstRowFill")
 				sl.AddTable(rows, to)
