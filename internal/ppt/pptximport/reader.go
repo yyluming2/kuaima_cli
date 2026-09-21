@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"kuaima_cli/internal/ppt"
+	"log"
 	"math"
 	"path/filepath"
 	"reflect"
@@ -1306,16 +1307,23 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 
 func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.FontAsset {
 	if root == nil || rels == nil {
+		log.Printf("[ppt-font] embedded font list unavailable: presentation root or relationships missing")
 		return nil
 	}
 	list := root.child("embeddedFontLst")
 	if list == nil {
+		log.Printf("[ppt-font] no embedded fonts in presentation")
 		return nil
 	}
 	var out []ppt.FontAsset
+	presentationKey := embeddedFontKey(root)
 	for _, embedded := range list.children("embeddedFont") {
 		family := embedded.child("font").attr("typeface")
 		key := embeddedFontKey(embedded)
+		if len(key) != 16 {
+			key = presentationKey
+		}
+		log.Printf("[ppt-font] found family=%q key=%t", family, len(key) == 16)
 		for _, variant := range []struct {
 			name   string
 			style  string
@@ -1327,6 +1335,7 @@ func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.Font
 			}
 			target := rels[part.relID()]
 			if target == "" {
+				log.Printf("[ppt-font] missing relationship family=%q variant=%s rid=%q", family, variant.name, part.relID())
 				continue
 			}
 			name := strings.TrimPrefix(target, "/")
@@ -1335,12 +1344,21 @@ func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.Font
 			}
 			raw := zipPart(z, name)
 			if len(raw) == 0 {
+				log.Printf("[ppt-font] empty font part family=%q variant=%s file=%q", family, variant.name, name)
 				continue
 			}
-			if decoded, ok := decodeObfuscatedFont(raw, key); ok {
-				raw = decoded
+			originalSize := len(raw)
+			if unwrapped, offset := unwrapFontContainer(raw); offset > 0 {
+				raw = unwrapped
+				log.Printf("[ppt-font] stripped embedded font container family=%q variant=%s offset=%d bytes=%d", family, variant.name, offset, len(raw))
+			}
+			didDecode := false
+			if decodedBytes, ok := decodeObfuscatedFont(raw, key); ok {
+				raw = decodedBytes
+				didDecode = true
 			}
 			mime, usable := fontMIME(raw)
+			log.Printf("[ppt-font] family=%q variant=%s file=%q bytes=%d decoded=%t mime=%q usable=%t", family, variant.name, name, originalSize, didDecode, mime, usable)
 			asset := ppt.FontAsset{Family: family, Style: variant.style, Weight: variant.weight, FileName: filepath.Base(name), Obfuscated: !usable,
 				AssetURL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)}
 			out = append(out, asset)
@@ -1354,13 +1372,22 @@ func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.Font
 // accept the common attribute spellings and both byte orders used in files in
 // the wild.
 func embeddedFontKey(n *node) []byte {
-	for _, cur := range []*node{n, n.child("font")} {
+	var walk func(*node) []byte
+	walk = func(cur *node) []byte {
 		if cur == nil {
-			continue
+			return nil
 		}
-		for _, name := range []string{"fontKey", "key", "guid", "fontGuid"} {
-			value := strings.Trim(strings.TrimSpace(cur.attr(name)), "{}")
-			value = strings.TrimPrefix(strings.TrimPrefix(value, "urn:uuid:"), "urn:uuid:")
+		// Producers use both attributes (fontKey/guid) and a child text node
+		// for this value, so inspect the whole embeddedFont subtree.
+		values := []string{cur.Text}
+		for _, attr := range cur.Attr {
+			// Standard attributes are named fontKey/guid, while some producers
+			// use a private name. A GUID-shaped value is unambiguous here.
+			values = append(values, attr.Value)
+		}
+		for _, value := range values {
+			value = strings.Trim(strings.TrimSpace(value), "{}")
+			value = strings.TrimPrefix(value, "urn:uuid:")
 			value = strings.ReplaceAll(value, "-", "")
 			if len(value) == 32 {
 				if key, err := hex.DecodeString(value); err == nil {
@@ -1368,21 +1395,37 @@ func embeddedFontKey(n *node) []byte {
 				}
 			}
 		}
+		for _, child := range cur.Kids {
+			if key := walk(child); key != nil {
+				return key
+			}
+		}
+		return nil
 	}
-	return nil
+	return walk(n)
 }
 
 func decodeObfuscatedFont(raw, key []byte) ([]byte, bool) {
 	if len(key) != 16 || len(raw) < 32 {
 		return raw, false
 	}
-	variants := [][]byte{key, append([]byte(nil), key...)}
-	for i, b := range variants {
-		if i == 1 {
-			for left, right := 0, len(b)-1; left < right; left, right = left+1, right-1 {
-				b[left], b[right] = b[right], b[left]
-			}
+	// The key is a UUID, and producers disagree about whether the first
+	// three UUID fields are encoded in their wire (little-endian) order.  A
+	// few producers also reverse the complete 16-byte key.  Try the standard
+	// UUID transformation plus the historical variants before giving up.
+	variants := [][]byte{
+		append([]byte(nil), key...),
+		reverseBytes(key),
+		uuidWireKey(key),
+		reverseBytes(uuidWireKey(key)),
+	}
+	seen := map[string]bool{}
+	for _, b := range variants {
+		fingerprint := string(b)
+		if seen[fingerprint] {
+			continue
 		}
+		seen[fingerprint] = true
 		candidate := append([]byte(nil), raw...)
 		for j := 0; j < 32; j++ {
 			candidate[j] ^= b[j%16]
@@ -1392,6 +1435,54 @@ func decodeObfuscatedFont(raw, key []byte) ([]byte, bool) {
 		}
 	}
 	return raw, false
+}
+
+// Canva exports .fntdata files with a small BSGP/container header in front of
+// an otherwise standard OpenType/TrueType stream. Locate the first plausible
+// font signature rather than treating the private container header as font
+// data. The scan is deliberately bounded: a real font header is near the
+// beginning and this avoids accidentally finding a signature in glyph data.
+func unwrapFontContainer(raw []byte) ([]byte, int) {
+	if _, ok := fontMIME(raw); ok {
+		return raw, 0
+	}
+	limit := len(raw)
+	if limit > 4096 {
+		limit = 4096
+	}
+	for i := 1; i+4 <= limit; i++ {
+		if _, ok := fontMIME(raw[i:]); ok {
+			return raw[i:], i
+		}
+	}
+	return raw, 0
+}
+
+func reverseBytes(in []byte) []byte {
+	out := append([]byte(nil), in...)
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return out
+}
+
+// uuidWireKey converts the textual UUID byte order used by OOXML to the
+// little-endian representation used by the Windows GUID obfuscation rule.
+func uuidWireKey(in []byte) []byte {
+	if len(in) != 16 {
+		return append([]byte(nil), in...)
+	}
+	out := append([]byte(nil), in...)
+	for left, right := 0, 3; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	for left, right := 4, 5; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	for left, right := 6, 7; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return out
 }
 
 func zipPart(z *zip.Reader, name string) []byte {

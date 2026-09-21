@@ -75,12 +75,23 @@
     if (!window.FontFace) return;
     const registered = new Set();
     (assets || []).forEach(font => {
-      if (!font?.family || !font?.assetUrl || font.obfuscated) return;
+      if (!font?.family || !font?.assetUrl) {
+        console.warn("[ppt-font] skip asset without family or source", { family: font?.family, fileName: font?.fileName });
+        return;
+      }
+      if (font.obfuscated) {
+        console.warn("[ppt-font] skip undecoded embedded font", { family: font.family, fileName: font.fileName });
+        return;
+      }
       const key = `${font.family}\u0000${font.style || "normal"}\u0000${font.weight || 400}`;
       if (registered.has(key)) return;
       registered.add(key);
+      console.info("[ppt-font] registering embedded font", { family: font.family, style: font.style || "normal", weight: font.weight || 400, fileName: font.fileName, bytes: font.assetUrl.length });
       const face = new FontFace(font.family, `url(${font.assetUrl})`, { style: font.style || "normal", weight: String(font.weight || 400) });
-      face.load().then(loaded => document.fonts.add(loaded)).catch(() => {});
+      face.load().then(loaded => {
+        document.fonts.add(loaded);
+        console.info("[ppt-font] embedded font loaded", { family: font.family, style: font.style || "normal", weight: font.weight || 400 });
+      }).catch(error => console.warn("[ppt-font] embedded font load failed", { family: font.family, fileName: font.fileName, error: String(error) }));
     });
   };
   const loadFontFamily = family => {
