@@ -152,7 +152,7 @@
       block.nodes.push(item.node);
     });
     const paragraphs = Array.isArray(element?.textParagraphs) ? element.textParagraphs : [];
-    return h("div", { "data-ppt-text-container": "true", style: containerStyle }, blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", width: "100%", whiteSpace: "pre-wrap", textAlign: textAlign(paragraphs[block.paragraph]?.align) || textAlign(base.align) } }, block.nodes)));
+    return h("div", { "data-ppt-text-container": "true", style: containerStyle }, blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", width: "100%", whiteSpace: "pre-wrap", lineHeight: paragraphs[block.paragraph]?.lineHeight || base.lineHeight || undefined, textAlign: textAlign(paragraphs[block.paragraph]?.align) || textAlign(base.align) } }, block.nodes)));
   };
   const rewriteRunContent = (element, content) => {
     const runs = Array.isArray(element.textRuns) ? element.textRuns : [];

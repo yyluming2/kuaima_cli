@@ -1016,6 +1016,24 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := genppt.New().SetTitle(model.Title)
+	// Carry embedded fonts from imported presentations into the exported PPTX.
+	// This keeps custom typefaces available on machines where they are not
+	// installed (obfuscated/unusable Office font payloads are intentionally
+	// skipped).
+	for _, font := range model.FontAssets {
+		if font.Obfuscated || font.AssetURL == "" {
+			continue
+		}
+		if data := dataURLBytes(font.AssetURL); len(data) > 0 {
+			// WPS follows the Office convention and only recognizes embedded
+			// font parts as .fntdata (even when the payload itself is TTF/OTF).
+			genpptName := strings.TrimSuffix(font.FileName, filepath.Ext(font.FileName)) + ".fntdata"
+			if genpptName == ".fntdata" {
+				genpptName = "font.fntdata"
+			}
+			p.AddEmbeddedFont(font.Family, font.Style, font.Weight, genpptName, data)
+		}
+	}
 	if model.Width > 0 && model.Height > 0 {
 		p.SetSlideSize(model.Width/ppt.LogicalDPI, model.Height/ppt.LogicalDPI)
 	} else {
