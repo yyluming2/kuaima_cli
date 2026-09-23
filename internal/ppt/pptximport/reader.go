@@ -616,6 +616,9 @@ func structuredText(st map[string]any) *ppt.TextStyle {
 	if v, ok := st["lineHeight"].(float64); ok {
 		t.LineHeight = v
 	}
+	if v, ok := st["lineSpacingPoints"].(float64); ok {
+		t.LineSpacingPoints = v
+	}
 	return t
 }
 
@@ -798,7 +801,9 @@ func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any,
 					fontPt := paragraphFontSizePoints(p)
 					if fontPt > 0 {
 						st["lineHeight"] = num(pts.attr("val")) / 100 / fontPt
+						st["lineSpacingPoints"] = num(pts.attr("val")) / 100
 						para.LineHeight = st["lineHeight"].(float64)
+						para.LineSpacingPoints = st["lineSpacingPoints"].(float64)
 					}
 				}
 			}

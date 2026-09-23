@@ -107,9 +107,10 @@ type TextRun struct {
 }
 
 type TextParagraph struct {
-	Runs       []int   `json:"runs,omitempty"`
-	Align      string  `json:"align,omitempty"`
-	LineHeight float64 `json:"lineHeight,omitempty"`
+	Runs              []int   `json:"runs,omitempty"`
+	Align             string  `json:"align,omitempty"`
+	LineHeight        float64 `json:"lineHeight,omitempty"`
+	LineSpacingPoints float64 `json:"lineSpacingPoints,omitempty"`
 }
 
 type Geometry struct {
@@ -170,18 +171,19 @@ type Effects struct {
 	Reflection  bool    `json:"reflection,omitempty"`
 }
 type TextStyle struct {
-	FontFamily    string  `json:"fontFamily,omitempty"`
-	FontSize      float64 `json:"fontSize,omitempty"`
-	Bold          bool    `json:"bold,omitempty"`
-	Italic        bool    `json:"italic,omitempty"`
-	Underline     bool    `json:"underline,omitempty"`
-	Align         string  `json:"align,omitempty"`
-	VerticalAlign string  `json:"verticalAlign,omitempty"`
-	MarginLeft    float64 `json:"marginLeft,omitempty"`
-	MarginRight   float64 `json:"marginRight,omitempty"`
-	MarginTop     float64 `json:"marginTop,omitempty"`
-	MarginBottom  float64 `json:"marginBottom,omitempty"`
-	LineHeight    float64 `json:"lineHeight,omitempty"`
+	FontFamily        string  `json:"fontFamily,omitempty"`
+	FontSize          float64 `json:"fontSize,omitempty"`
+	Bold              bool    `json:"bold,omitempty"`
+	Italic            bool    `json:"italic,omitempty"`
+	Underline         bool    `json:"underline,omitempty"`
+	Align             string  `json:"align,omitempty"`
+	VerticalAlign     string  `json:"verticalAlign,omitempty"`
+	MarginLeft        float64 `json:"marginLeft,omitempty"`
+	MarginRight       float64 `json:"marginRight,omitempty"`
+	MarginTop         float64 `json:"marginTop,omitempty"`
+	MarginBottom      float64 `json:"marginBottom,omitempty"`
+	LineHeight        float64 `json:"lineHeight,omitempty"`
+	LineSpacingPoints float64 `json:"lineSpacingPoints,omitempty"`
 }
 
 func (p *Presentation) Validate() error {

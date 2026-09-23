@@ -1318,6 +1318,9 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 					if o.LineSpacing == 0 {
 						o.LineSpacing = e.Text.LineHeight
 					}
+					if e.Text.LineSpacingPoints > 0 {
+						o.LineSpacingPoints = e.Text.LineSpacingPoints
+					}
 				}
 				if v := styleString(e.Style, "background"); v != "" && v != "transparent" && !strings.HasPrefix(strings.ToLower(v), "data:image/") {
 					o.Fill, _ = cssColor(v)
@@ -1343,6 +1346,9 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 						}
 						if paraLine[run.Paragraph] > 0 {
 							r.Options.LineSpacing = paraLine[run.Paragraph]
+						}
+						if run.Paragraph >= 0 && run.Paragraph < len(e.TextParagraphs) {
+							r.Options.LineSpacingPoints = e.TextParagraphs[run.Paragraph].LineSpacingPoints
 						}
 						if v, ok := styleFloat(run.Style, "fontSize"); ok {
 							r.Options.FontSize = v * 72 / ppt.LogicalDPI
