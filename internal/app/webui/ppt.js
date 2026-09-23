@@ -103,6 +103,7 @@
       selection.removeAllRanges();
       selection.addRange(range);
     }, [editing]);
+    useEffect(() => { const onEditable = async ev => { const index=Number(ev.detail); if (!deck || !Number.isInteger(index)) return; setBusy(true); try { const r=await api("/api/ppt/image-to-editable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({presentation:deck,slideIndex:index})}); const out=await r.json(); if(!r.ok) throw new Error(out.error||"转换失败"); setDeck(normalizeDeck(out.presentation)); setSlide(index); } catch(e) { alert("转换失败："+e.message); } finally { setBusy(false); } }; addEventListener("ppt:image-editable",onEditable); return () => removeEventListener("ppt:image-editable",onEditable); }, [deck]);
     const generate = async () => {
       const hasContent = !!deck?.slides?.some(s => (s.elements || []).length > 0);
       if (hasContent && !window.confirm("新建 PPT 将清空当前内容，且当前编辑无法恢复。确定继续吗？")) return;

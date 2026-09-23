@@ -53,6 +53,57 @@ type pptPlan struct {
 	BackgroundColor   string        `json:"backgroundColor,omitempty"`
 	UnifiedBackground bool          `json:"unifiedBackground,omitempty"`
 	StyleReference    string        `json:"styleReference,omitempty"`
+	MasterImage       string        `json:"masterImage,omitempty"`
+	ImageOnly         bool          `json:"imageOnly,omitempty"`
+}
+
+// handlePPTMaster generates one visual master image. It is deliberately
+// separate from outline generation so the user can approve the visual
+// language before any slide images are created.
+func (s *webUIServer) handlePPTMaster(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct{ Title, Style, Brief, ImageModel, StyleReference string }
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	model := strings.TrimSpace(in.ImageModel)
+	if model == "" && s.clientOpts.imageModel != nil {
+		model = strings.TrimSpace(*s.clientOpts.imageModel)
+	}
+	if model == "" {
+		writeError(w, 400, "imageModel is required")
+		return
+	}
+	c, err := s.clientOpts.newClient()
+	if err != nil {
+		writeError(w, 502, err.Error())
+		return
+	}
+	defer c.Close()
+	prompt := fmt.Sprintf("PPT视觉母版，主题：%s。内容方向：%s。统一视觉风格：%s。生成一张16:9的高质感演示文稿母版示例图，包含清晰的版式、配色、字体层级和装饰元素，不要出现可读文字，不要水印。", strings.TrimSpace(in.Title), strings.TrimSpace(in.Brief), strings.TrimSpace(in.Style))
+	resp, err := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: model, Prompt: prompt, N: 1, Size: "1536x864"})
+	if err != nil {
+		writeError(w, 502, err.Error())
+		return
+	}
+	saved, err := saveImagesFromResponse(r.Context(), c.httpClient, resp, s.saveDirectory(), false, "")
+	if err != nil || len(saved) == 0 {
+		if err == nil {
+			err = fmt.Errorf("empty image response")
+		}
+		writeError(w, 502, err.Error())
+		return
+	}
+	urls := s.publicImageURLs(saved, s.saveDirectory())
+	if len(urls) == 0 {
+		writeError(w, 502, "saved image is not publicly accessible")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"image": urls[0], "prompt": prompt})
 }
 
 // pptPlanDSL is intentionally small: the text model only needs to describe
@@ -221,6 +272,9 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 	p := ppt.New16x9(plan.Title)
 	p.AIModel = plan.TextModel
 	p.AIImageModel = plan.ImageModel
+	if plan.MasterImage != "" {
+		p.Master = &ppt.Master{Background: plan.MasterImage, Elements: []ppt.Element{{ID: "master-image", Type: "image", X: 0, Y: 0, Width: p.Width, Height: p.Height, AssetURL: plan.MasterImage, Style: map[string]any{"objectFit": "cover"}}}}
+	}
 	p.Theme.Name = plan.Style
 	if strings.Contains(strings.ToLower(plan.Style), "深") {
 		p.Theme.Background = "#0F172A"
@@ -262,6 +316,11 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 					elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-block-%d", i+1, bi+1), Type: "image", X: x, Y: y, Width: w, Height: h, Content: block.ImagePrompt, AssetURL: illustrationDataURL(block.ImagePrompt), Style: map[string]any{"background": "transparent", "objectFit": "contain"}})
 				}
 			}
+		}
+		if plan.ImageOnly {
+			// The generated raster is the slide itself. Keep outline text in
+			// metadata/content for the optional editable conversion step.
+			elems = []ppt.Element{{ID: fmt.Sprintf("slide-%d-image", i+1), Type: "image", X: 0, Y: 0, Width: p.Width, Height: p.Height, Content: page.Title + "\n" + strings.Join(page.Bullets, "\n"), Style: map[string]any{"objectFit": "cover"}}}
 		}
 		if len(elems) == 0 {
 			elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-title", i+1), Type: "text", X: 72, Y: 56, Width: 1136, Height: 72, Content: page.Title, Style: map[string]any{"fontSize": 48, "fontWeight": 700, "color": p.Theme.Accent}})
@@ -348,7 +407,11 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		if target == nil || strings.TrimSpace(target.Content) == "" {
 			continue
 		}
-		resp, genErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: target.Content, N: 1, Size: "1024x1024"})
+		prompt := target.Content
+		if in.Presentation.Master != nil && in.Presentation.Master.Background != "" {
+			prompt += "\n保持与统一母版视觉风格一致，严格使用相同配色、字体层级、留白和装饰语言；生成16:9完整演示文稿页面，不要水印。母版参考图URL：" + in.Presentation.Master.Background
+		}
+		resp, genErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: prompt, N: 1, Size: "1536x864"})
 		if genErr != nil {
 			errs = append(errs, fmt.Sprintf("slide %d: %v", i+1, genErr))
 			continue
@@ -369,6 +432,48 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "errors": errs})
+}
+
+// handlePPTImageToEditable wraps one generated page image in the normal editor
+// model and restores the outline copy as editable text layers.
+func (s *webUIServer) handlePPTImageToEditable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	var in struct {
+		Presentation ppt.Presentation `json:"presentation"`
+		SlideIndex   int              `json:"slideIndex"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	if in.SlideIndex < 0 || in.SlideIndex >= len(in.Presentation.Slides) {
+		writeError(w, 400, "slideIndex out of range")
+		return
+	}
+	sl := &in.Presentation.Slides[in.SlideIndex]
+	var img *ppt.Element
+	for i := range sl.Elements {
+		if sl.Elements[i].Type == "image" {
+			img = &sl.Elements[i]
+			break
+		}
+	}
+	if img == nil || img.AssetURL == "" {
+		writeError(w, 400, "slide has no generated image")
+		return
+	}
+	parts := strings.Split(img.Content, "\n")
+	title := strings.TrimSpace(parts[0])
+	body := strings.TrimSpace(strings.Join(parts[1:], "\n"))
+	if title == "" {
+		title = fmt.Sprintf("第 %d 页", in.SlideIndex+1)
+	}
+	sl.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 0, Y: 0, Width: in.Presentation.Width, Height: in.Presentation.Height, AssetURL: img.AssetURL, Style: map[string]any{"objectFit": "cover"}}, {ID: fmt.Sprintf("slide-%d-title", in.SlideIndex+1), Type: "text", X: 72, Y: 52, Width: 1136, Height: 80, Content: title, Style: map[string]any{"fontSize": 44.0, "fontWeight": 700, "color": "#ffffff", "background": "transparent"}}, {ID: fmt.Sprintf("slide-%d-body", in.SlideIndex+1), Type: "text", X: 88, Y: 150, Width: 620, Height: 280, Content: body, Style: map[string]any{"fontSize": 28.0, "color": "#ffffff", "background": "transparent"}}}
+	in.Presentation.Slides[in.SlideIndex] = *sl
+	writeJSON(w, 200, map[string]any{"presentation": in.Presentation})
 }
 
 func adjustImageElementAspect(e *ppt.Element, path string) {
