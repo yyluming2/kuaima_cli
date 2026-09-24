@@ -13,6 +13,7 @@ import (
 	"io"
 	"kuaima_cli/internal/ppt"
 	"kuaima_cli/internal/ppt/pptximport"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -430,10 +431,42 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(in.Presentation.UnifiedPrompt) != "" {
 			prompt += "\n统一提示词：" + in.Presentation.UnifiedPrompt
 		}
-		if in.Presentation.Master != nil && in.Presentation.Master.Background != "" {
-			prompt += "\n保持与统一母版视觉风格一致，严格使用相同配色、字体层级、留白和装饰语言；生成16:9完整演示文稿页面，不要水印。母版参考图URL：" + in.Presentation.Master.Background
+		var resp *responsePayload
+		var genErr error
+		if in.Presentation.Master != nil && strings.TrimSpace(in.Presentation.Master.Background) != "" {
+			// Keep the reference image out of the text prompt. Besides wasting context,
+			// embedding a data URL there can exceed the model's prompt limit. The image
+			// edit endpoint accepts it as a proper visual reference instead.
+			prompt += "\n保持与统一母版视觉风格一致，严格使用相同配色、字体层级、留白和装饰语言；生成16:9完整演示文稿页面，不要水印。"
+			reference := strings.TrimSpace(in.Presentation.Master.Background)
+			if strings.HasPrefix(reference, "/outputs/") {
+				rel := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(reference, "/outputs/")))
+				if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					genErr = fmt.Errorf("invalid master image path")
+				} else if data, readErr := os.ReadFile(filepath.Join(s.saveDirectory(), rel)); readErr != nil {
+					genErr = fmt.Errorf("read master image: %w", readErr)
+				} else {
+					mediaType := mime.TypeByExtension(filepath.Ext(rel))
+					if mediaType == "" {
+						mediaType = http.DetectContentType(data)
+					}
+					reference = "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data)
+				}
+			}
+			if genErr != nil {
+				errs = append(errs, fmt.Sprintf("slide %d: %v", i+1, genErr))
+				continue
+			}
+			resp, genErr = c.createImageEdit(r.Context(), imageEditRequest{
+				Model:  imageModel,
+				Prompt: prompt,
+				Images: []imageRef{{ImageURL: reference}},
+				N:      1,
+				Size:   "1536x864",
+			})
+		} else {
+			resp, genErr = c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: prompt, N: 1, Size: "1536x864"})
 		}
-		resp, genErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: prompt, N: 1, Size: "1536x864"})
 		if genErr != nil {
 			errs = append(errs, fmt.Sprintf("slide %d: %v", i+1, genErr))
 			continue

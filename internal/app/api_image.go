@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -276,10 +277,21 @@ func (c *client) loadImageMultipartSource(ctx context.Context, ref imageRef) ([]
 		if !ok {
 			return nil, "", "", fmt.Errorf("invalid data URL image: %q", value)
 		}
+		base64Encoded := strings.HasSuffix(strings.ToLower(meta), ";base64")
 		mediaType := strings.TrimPrefix(strings.TrimSuffix(meta, ";base64"), "data:")
-		bytes, err := base64.StdEncoding.DecodeString(cleanBase64(data))
-		if err != nil {
-			return nil, "", "", err
+		var bytes []byte
+		if base64Encoded {
+			var err error
+			bytes, err = base64.StdEncoding.DecodeString(cleanBase64(data))
+			if err != nil {
+				return nil, "", "", err
+			}
+		} else {
+			decoded, err := url.PathUnescape(data)
+			if err != nil {
+				return nil, "", "", fmt.Errorf("decode image data URL: %w", err)
+			}
+			bytes = []byte(decoded)
 		}
 		return bytes, mediaType, filenameForImageSource("image", mediaType, value), nil
 	}
