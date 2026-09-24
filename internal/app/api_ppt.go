@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -20,9 +21,71 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	genppt "github.com/CoolBanHub/genppt"
 )
+
+func cropPPTOCRImage(ctx context.Context, asset string, x, y, w, h, canvasW, canvasH float64) (string, error) {
+	var data []byte
+	if strings.HasPrefix(asset, "data:image/") {
+		comma := strings.IndexByte(asset, ',')
+		if comma < 0 {
+			return "", fmt.Errorf("invalid data URL")
+		}
+		var err error
+		data, err = base64.StdEncoding.DecodeString(asset[comma+1:])
+		if err != nil {
+			return "", err
+		}
+	} else {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset, nil)
+		if err != nil {
+			return "", err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return "", fmt.Errorf("image download failed: %s", resp.Status)
+		}
+		data, err = io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+		if err != nil {
+			return "", err
+		}
+	}
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	if canvasW <= 0 || canvasH <= 0 {
+		return "", fmt.Errorf("invalid canvas size")
+	}
+	left := int(x * float64(src.Bounds().Dx()) / canvasW)
+	top := int(y * float64(src.Bounds().Dy()) / canvasH)
+	right := int((x + w) * float64(src.Bounds().Dx()) / canvasW)
+	bottom := int((y + h) * float64(src.Bounds().Dy()) / canvasH)
+	left = maxOCRInt(0, minInt(left, src.Bounds().Dx()-1))
+	top = maxOCRInt(0, minInt(top, src.Bounds().Dy()-1))
+	right = maxOCRInt(left+1, minInt(right, src.Bounds().Dx()))
+	bottom = maxOCRInt(top+1, minInt(bottom, src.Bounds().Dy()))
+	out := image.NewRGBA(image.Rect(0, 0, right-left, bottom-top))
+	draw.Draw(out, out.Bounds(), src, image.Point{X: left + src.Bounds().Min.X, Y: top + src.Bounds().Min.Y}, draw.Src)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, out); err != nil {
+		return "", err
+	}
+	return imageDataURL("image/png", buf.Bytes()), nil
+}
+
+func maxOCRInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
 
 type pptPlanPage struct {
 	Title       string         `json:"title"`
@@ -529,6 +592,159 @@ func (s *webUIServer) handlePPTImageToEditable(w http.ResponseWriter, r *http.Re
 	sl.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 0, Y: 0, Width: in.Presentation.Width, Height: in.Presentation.Height, AssetURL: img.AssetURL, Style: map[string]any{"objectFit": "cover"}}, {ID: fmt.Sprintf("slide-%d-title", in.SlideIndex+1), Type: "text", X: 72, Y: 52, Width: 1136, Height: 80, Content: title, Style: map[string]any{"fontSize": 44.0, "fontWeight": 700, "color": "#ffffff", "background": "transparent"}}, {ID: fmt.Sprintf("slide-%d-body", in.SlideIndex+1), Type: "text", X: 88, Y: 150, Width: 620, Height: 280, Content: body, Style: map[string]any{"fontSize": 28.0, "color": "#ffffff", "background": "transparent"}}}
 	in.Presentation.Slides[in.SlideIndex] = *sl
 	writeJSON(w, 200, map[string]any{"presentation": in.Presentation})
+}
+
+// handlePPTOCR recognizes one user-selected region of a slide image.  The
+// returned element is deliberately small and editable; the original raster
+// remains as the slide background so users can manually repair the patch.
+func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		Presentation        ppt.Presentation `json:"presentation"`
+		SlideIndex          int              `json:"slideIndex"`
+		Provider            string           `json:"provider"`
+		X, Y, Width, Height float64
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	if in.SlideIndex < 0 || in.SlideIndex >= len(in.Presentation.Slides) {
+		writeError(w, 400, "slideIndex out of range")
+		return
+	}
+	if in.Width <= 1 || in.Height <= 1 {
+		writeError(w, 400, "OCR region is empty")
+		return
+	}
+	if strings.TrimSpace(in.Provider) != "" && strings.TrimSpace(in.Provider) != "remote" {
+		writeError(w, http.StatusNotImplemented, "本地 PaddleOCR 模型已找到，但 ONNX OCR 推理运行时尚未接入；请选择远程 OCR，或稍后启用本地推理")
+		return
+	}
+	var asset string
+	for _, e := range in.Presentation.Slides[in.SlideIndex].Elements {
+		if e.Type == "image" && e.AssetURL != "" {
+			asset = e.AssetURL
+			break
+		}
+	}
+	if asset == "" {
+		writeError(w, 400, "slide has no image")
+		return
+	}
+	// Crop before OCR so the provider only receives the selected pixels.
+	cropped, cropErr := cropPPTOCRImage(r.Context(), asset, in.X, in.Y, in.Width, in.Height, in.Presentation.Width, in.Presentation.Height)
+	if cropErr != nil {
+		writeError(w, http.StatusBadRequest, "无法裁剪 OCR 区域："+cropErr.Error())
+		return
+	}
+	model := strings.TrimSpace(in.Presentation.AIModel)
+	if model == "" && s.clientOpts.model != nil {
+		model = strings.TrimSpace(*s.clientOpts.model)
+	}
+	if model == "" {
+		writeError(w, 400, "text model is not configured")
+		return
+	}
+	c, err := s.clientOpts.newClient()
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	prompt := `You are an OCR engine. The supplied image is exactly the selected region. Return JSON only, no markdown: {"text":"...","color":"#RRGGBB","fontSize":24,"fontFamily":"Arial","bold":false,"italic":false,"align":"left","backgroundColor":"#RRGGBB"}. Preserve line breaks. Estimate the dominant text color and size in logical pixels. If the region has no text, return {"text":""}.`
+	input := []inputMessage{{Role: "user", Content: []inputContent{{Type: "input_text", Text: prompt}, {Type: "input_image", ImageURL: cropped}}}}
+	resp, err := c.createResponse(r.Context(), responseRequest{Model: model, Input: input})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	text := strings.TrimSpace(resp.text())
+	if a, b := strings.Index(text, "{"), strings.LastIndex(text, "}"); a >= 0 && b > a {
+		text = text[a : b+1]
+	}
+	var out struct {
+		Text, Color, FontFamily, Align, BackgroundColor string
+		FontSize                                        float64
+		Bold, Italic                                    bool
+	}
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		writeError(w, http.StatusBadGateway, "OCR 返回格式无效")
+		return
+	}
+	out.Text = strings.TrimSpace(out.Text)
+	if out.Text == "" {
+		writeJSON(w, 200, map[string]any{"text": ""})
+		return
+	}
+	if out.Color == "" {
+		out.Color = "#111827"
+	}
+	if out.FontSize <= 0 {
+		out.FontSize = 24
+	}
+	if out.FontFamily == "" {
+		out.FontFamily = "Arial"
+	}
+	if out.Align == "" {
+		out.Align = "left"
+	}
+	style := map[string]any{"fontSize": out.FontSize, "fontFamily": out.FontFamily, "color": out.Color, "fontWeight": func() any {
+		if out.Bold {
+			return 700
+		}
+		return 400
+	}(), "italic": out.Italic, "align": out.Align, "background": "transparent"}
+	// A solid patch hides the old raster text when the OCR model can estimate
+	// the local background. Users can remove or recolor this patch manually.
+	if out.BackgroundColor != "" {
+		sl := &in.Presentation.Slides[in.SlideIndex]
+		sl.Elements = append(sl.Elements, ppt.Element{ID: fmt.Sprintf("ocr-patch-%d", time.Now().UnixNano()), Type: "shape", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Style: map[string]any{"shape": "rect", "background": out.BackgroundColor, "border": "none"}})
+	}
+	e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Content: out.Text, Style: style, TextRuns: []ppt.TextRun{{Content: out.Text, Style: style}}}
+	sl := &in.Presentation.Slides[in.SlideIndex]
+	sl.Elements = append(sl.Elements, e)
+	writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "text": out.Text, "style": style})
+}
+
+func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	models := []map[string]any{}
+	dirs := []string{filepath.Join("models", "paddleocr")}
+	if s.rembgPath != "" {
+		dirs = append(dirs, filepath.Join(filepath.Dir(s.rembgPath), "models", "paddleocr"))
+	}
+	seen := map[string]bool{}
+	for _, dir := range dirs {
+		err := filepath.WalkDir(dir, func(path string, e os.DirEntry, walkErr error) error {
+			if walkErr != nil || e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".onnx") {
+				return nil
+			}
+			info, _ := e.Info()
+			rel, _ := filepath.Rel(dir, path)
+			key := filepath.Clean(rel)
+			if seen[key] {
+				return nil
+			}
+			seen[key] = true
+			size := int64(0)
+			if info != nil {
+				size = info.Size()
+			}
+			models = append(models, map[string]any{"id": rel, "name": rel, "size": size})
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			writeError(w, 500, err.Error())
+			return
+		}
+	}
+	writeJSON(w, 200, map[string]any{"models": models, "remote": map[string]any{"id": "remote", "name": "远程视觉模型", "paid": true}})
 }
 
 func adjustImageElementAspect(e *ppt.Element, path string) {

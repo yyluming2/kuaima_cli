@@ -1054,3 +1054,4 @@ main.inspector-collapsed {
     }
 }
 .ppt-master-mode{position:fixed;top:12px;right:140px;z-index:20;background:#2563eb;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer}.ppt-master-mode.active{background:#059669}.master-banner{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;background:#fef3c7;color:#92400e;padding:6px;font-size:13px}.ppt-master-editing .canvas-wrap{outline:3px solid #f59e0b;outline-offset:6px}.ppt-master-editing #slides{opacity:.55}
+.ocr-selection{position:absolute;z-index:9999;box-sizing:border-box;border:2px solid #2563eb;background:rgba(37,99,235,.14);pointer-events:none}
