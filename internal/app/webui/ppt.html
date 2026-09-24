@@ -15,42 +15,74 @@
       <div class="ppt-ai-head">
         <div>
           <h2>AI 制作 PPT</h2>
-          <p>先生成母版图，再确认大纲，最后生成每页完整画面</p>
+          <p>告诉 AI 你要做什么，确认方案后即可按页生成</p>
         </div><button id="pptAiClose" class="ppt-ai-close">×</button>
       </div>
+      <div class="ppt-ai-steps" aria-label="生成步骤">
+        <div class="active" data-step="1"><b>1</b><span>确认需求</span></div>
+        <i></i>
+        <div data-step="2"><b>2</b><span>确认方案</span></div>
+        <i></i>
+        <div data-step="3"><b>3</b><span>生成页面</span></div>
+      </div>
       <div id="pptAiForm">
-        <input id="pptAiTitle" type="hidden" value="未命名主题">
-        <label>主题和内容要求<textarea id="pptAiBrief" rows="4" placeholder="例如：2026 年产品发布会，面向企业客户，介绍新产品、核心优势、案例和行动计划"></textarea></label>
-        <label>统一提示词（AI 生成，可修改）<textarea id="pptAiUnifiedPrompt" rows="2" placeholder="点击生成后由 AI 提供建议"></textarea></label>
-        <label>大纲提示词（AI 生成，可修改）<textarea id="pptAiOutlinePrompt" rows="2" placeholder="点击生成后由 AI 提供建议"></textarea></label>
-        <div class="ppt-ai-grid"><label>页数（3–50）<input id="pptAiPages" type="number" min="3" max="50" value="5"
-              placeholder="例如：8"></label><label>视觉风格<input id="pptAiStyle" value="现代商务"
-              placeholder="例如：科技感、极简留白"></label></div>
-        <label>大纲生成模型<select id="pptAiTextModel">
-            <option value="">正在加载模型…</option>
-          </select><small id="pptAiTextModelHint">可选择用于生成大纲的文本模型</small></label>
-        <label>图片生成模型<select id="pptAiImageModel"><option value="">正在加载模型…</option></select><small>用于母版图和每页画面</small></label>
-        <div class="ppt-ai-grid"><label>参考主色<input id="pptAiAccent" type="color" value="#2563eb"></label><label>参考背景色<input id="pptAiBackground" type="color" value="#ffffff"></label></div>
-        <label class="ppt-file">参考母版（可上传，也可由 AI 生成）<input id="pptAiMasterImage" type="file" accept="image/*"><small id="pptAiMasterHint">未选择，将由 AI 生成</small></label>
-        <div class="ppt-ai-actions"><button id="pptAiPlan" class="ppt-ai-primary">生成提示词和母版</button><button
-            id="pptAiCancel">取消</button></div>
+        <section class="ppt-ai-section">
+          <div class="ppt-ai-section-title"><b>内容需求</b><span>输入主题，或直接上传参考 PPT</span></div>
+          <label>主题和内容<textarea id="pptAiBrief" rows="4" placeholder="例如：面向企业客户的 2026 产品发布会，介绍新产品、核心优势和行动计划"></textarea></label>
+          <div class="ppt-ai-or"><span>或</span></div>
+          <label class="ppt-file ppt-file-compact">参考 PPT 文件<input id="pptAiDeck" type="file" accept=".pptx,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json，AI 会参考其内容和页数</small></label>
+          <div class="ppt-ai-grid"><label>页数 <small>选填</small><input id="pptAiPages" type="number" min="3" max="50" placeholder="AI 自动决定"></label><label>风格描述 <small>选填</small><input id="pptAiStyle" placeholder="例如：现代商务、科技感"></label></div>
+        </section>
+        <section class="ppt-ai-section">
+          <div class="ppt-ai-section-title"><b>视觉风格</b><span>选一种方式即可</span></div>
+          <div class="ppt-visual-modes">
+            <label class="selected"><input type="radio" name="pptVisualMode" value="auto" checked><b>✦ AI 自动决定</b><span>根据内容自动设计</span></label>
+            <label><input type="radio" name="pptVisualMode" value="color"><b>选择主题色</b><span>指定整套配色</span></label>
+            <label><input type="radio" name="pptVisualMode" value="image"><b>参考图片</b><span>沿用图片视觉语言</span></label>
+          </div>
+          <div id="pptAiColorPanel" class="ppt-visual-panel" hidden>
+            <div class="ppt-color-palettes">
+              <button type="button" class="selected" data-accent="#2563eb" data-background="#f8fafc" title="商务蓝"><i style="--c1:#2563eb;--c2:#60a5fa;--c3:#f8fafc"></i><span>商务蓝</span></button>
+              <button type="button" data-accent="#7c3aed" data-background="#faf5ff" title="创意紫"><i style="--c1:#7c3aed;--c2:#c084fc;--c3:#faf5ff"></i><span>创意紫</span></button>
+              <button type="button" data-accent="#059669" data-background="#f0fdf4" title="生态绿"><i style="--c1:#059669;--c2:#6ee7b7;--c3:#f0fdf4"></i><span>生态绿</span></button>
+              <button type="button" data-accent="#ea580c" data-background="#fff7ed" title="活力橙"><i style="--c1:#ea580c;--c2:#fdba74;--c3:#fff7ed"></i><span>活力橙</span></button>
+              <button type="button" data-accent="#e2e8f0" data-background="#0f172a" title="黑金深色"><i style="--c1:#0f172a;--c2:#475569;--c3:#e2e8f0"></i><span>黑金深色</span></button>
+            </div>
+            <input id="pptAiAccent" type="hidden" value="#2563eb"><input id="pptAiBackground" type="hidden" value="#f8fafc">
+          </div>
+          <div id="pptAiImagePanel" class="ppt-visual-panel" hidden>
+            <label class="ppt-file ppt-file-compact">上传参考图片<input id="pptAiStyleImage" type="file" accept="image/*"><small id="pptAiStyleHint">支持 JPG、PNG、WebP</small></label>
+          </div>
+        </section>
+        <details class="ppt-ai-advanced"><summary>高级设置：选择模型</summary>
+          <div class="ppt-ai-grid"><label>大纲生成模型<select id="pptAiTextModel"><option value="">正在加载模型…</option></select></label><label>图片生成模型<select id="pptAiImageModel"><option value="">正在加载模型…</option></select></label></div>
+        </details>
+        <div class="ppt-ai-actions"><button id="pptAiCancel">取消</button><button id="pptAiPlan" class="ppt-ai-primary">生成方案 <span>→</span></button></div>
       </div>
       <div id="pptAiOutline" hidden>
-        <h3>第二步：编辑并确认大纲</h3>
-        <p class="ppt-ai-help">有参考 PPT 时可直接使用其内容，不再调用 AI 生成大纲；没有则由 AI 生成。标题和要点都可以直接修改。</p>
-        <label class="ppt-file">参考 PPT（可选）<input id="pptAiDeck" type="file" accept=".pptx,.json"><small id="pptAiDeckHint">没有参考 PPT 时使用 AI 大纲</small></label>
-        <div id="pptAiOutlineList"></div>
-        <div class="ppt-ai-actions"><button id="pptAiStyleNext" class="ppt-ai-primary">下一步：生成大纲</button></div>
+        <div class="ppt-ai-confirm-head"><div><h3>确认生成方案</h3><p>提示词和每页内容都可以修改</p></div><span id="pptAiPlanSummary"></span></div>
+        <div class="ppt-ai-confirm-grid">
+          <div class="ppt-ai-confirm-main">
+            <label>统一提示词<textarea id="pptAiUnifiedPrompt" rows="3"></textarea></label>
+            <label>内容结构提示词<textarea id="pptAiOutlinePrompt" rows="2"></textarea></label>
+            <div class="ppt-ai-outline-head"><b>每页大纲</b><span>共 <em id="pptAiOutlineCount">0</em> 页</span></div>
+            <div id="pptAiOutlineList"></div>
+          </div>
+          <aside class="ppt-ai-master-card">
+            <div class="ppt-ai-master-head"><b>参考母版</b><button id="pptAiRegenerate" type="button">重新生成</button></div>
+            <div id="pptAiSample" class="ppt-ai-sample"><div class="sample-title">正在生成参考母版…</div></div>
+            <p>后续每页都会遵循这套配色和版式。</p>
+          </aside>
+        </div>
+        <div class="ppt-ai-actions ppt-ai-sticky-actions"><button id="pptAiStyleBack">← 返回修改</button><button id="pptAiGenerate" class="ppt-ai-primary">确认并生成 <span>→</span></button></div>
       </div>
-      <div id="pptAiStyleStep" hidden>
-        <h3>第一步：确认母版图片</h3>
-        <p class="ppt-ai-help">这张图片决定所有页面的统一视觉风格。满意后进入大纲确认。</p>
-        <label class="check"><input id="pptAiUnified" type="checkbox" checked>所有页面统一背景模板</label>
-        <label class="ppt-file">上传风格参考图（可选）<input id="pptAiStyleImage" type="file" accept="image/*"><small id="pptAiStyleHint">未选择</small></label>
-        <div id="pptAiSample" class="ppt-ai-sample"><div class="sample-kicker">MASTER IMAGE</div><div class="sample-title">正在生成视觉母版…</div><div class="sample-line"></div><div class="sample-body">确认后将用于生成每一页完整图片</div></div>
-        <div class="ppt-ai-actions"><button id="pptAiStyleBack">返回主题</button><button id="pptAiRegenerate" type="button">重新生成母版</button><button id="pptAiGenerate" class="ppt-ai-primary">确认母版，进入大纲</button></div>
+      <div id="pptAiProgress" class="ppt-ai-progress" hidden><div class="ppt-ai-progress-icon">✦</div><div class="ppt-ai-progress-title">AI 正在准备方案…</div><div class="ppt-ai-progress-track"><i></i></div><div id="pptAiProgressText">正在连接模型</div><pre id="pptAiStreamText"></pre></div>
+      <div id="pptAiGenerating" hidden>
+        <div class="ppt-ai-generating-head"><div><h3 id="pptAiGeneratingTitle">正在按页生成</h3><p id="pptAiGeneratingText">请稍候，生成完成的页面会立即显示</p></div><b id="pptAiGeneratingCount">0 / 0</b></div>
+        <div class="ppt-ai-page-progress"><i id="pptAiPageProgressBar"></i></div>
+        <div id="pptAiPageList" class="ppt-ai-page-list"></div>
+        <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiDone" class="ppt-ai-primary">进入编辑器</button></div>
       </div>
-      <div id="pptAiProgress" class="ppt-ai-progress" hidden><div class="ppt-ai-progress-title">AI 正在工作…</div><div class="ppt-ai-progress-track"><i></i></div><div id="pptAiProgressText">正在连接模型</div><pre id="pptAiStreamText"></pre></div>
     </div>
   </div>
   <div class="ppt-toolbar-actions"><button id="pptMasterMode" type="button">进入母版画布</button></div>
