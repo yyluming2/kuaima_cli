@@ -54,6 +54,8 @@ type pptPlan struct {
 	UnifiedBackground bool          `json:"unifiedBackground,omitempty"`
 	StyleReference    string        `json:"styleReference,omitempty"`
 	MasterImage       string        `json:"masterImage,omitempty"`
+	UnifiedPrompt     string        `json:"unifiedPrompt,omitempty"`
+	OutlinePrompt     string        `json:"outlinePrompt,omitempty"`
 	ImageOnly         bool          `json:"imageOnly,omitempty"`
 }
 
@@ -65,7 +67,7 @@ func (s *webUIServer) handlePPTMaster(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	var in struct{ Title, Style, Brief, ImageModel, StyleReference string }
+	var in struct{ Title, Style, Brief, ImageModel, StyleReference, UnifiedPrompt string }
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
 		return
@@ -84,7 +86,7 @@ func (s *webUIServer) handlePPTMaster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	prompt := fmt.Sprintf("PPT视觉母版，主题：%s。内容方向：%s。统一视觉风格：%s。生成一张16:9的高质感演示文稿母版示例图，包含清晰的版式、配色、字体层级和装饰元素，不要出现可读文字，不要水印。", strings.TrimSpace(in.Title), strings.TrimSpace(in.Brief), strings.TrimSpace(in.Style))
+	prompt := fmt.Sprintf("PPT视觉母版，主题：%s。内容方向：%s。统一视觉风格：%s。统一提示词：%s。生成一张16:9的高质感演示文稿母版示例图，包含清晰的版式、配色、字体层级和装饰元素，不要出现可读文字，不要水印。", strings.TrimSpace(in.Title), strings.TrimSpace(in.Brief), strings.TrimSpace(in.Style), strings.TrimSpace(in.UnifiedPrompt))
 	resp, err := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: model, Prompt: prompt, N: 1, Size: "1536x864"})
 	if err != nil {
 		writeError(w, 502, err.Error())
@@ -104,6 +106,20 @@ func (s *webUIServer) handlePPTMaster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"image": urls[0], "prompt": prompt})
+}
+
+func (s *webUIServer) handlePPTPrompts(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Brief, Style string }
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	brief := strings.TrimSpace(in.Brief)
+	style := strings.TrimSpace(in.Style)
+	writeJSON(w, 200, map[string]string{
+		"unifiedPrompt": fmt.Sprintf("保持%s风格统一，所有页面使用一致的配色、字体层级、留白和装饰语言；画面清晰、信息层级明确、适合演示文稿。主题内容：%s", style, brief),
+		"outlinePrompt": "按背景/问题、核心方案、关键数据或案例、行动计划的逻辑组织内容；每页只表达一个重点，标题简洁，要点具体。",
+	})
 }
 
 // pptPlanDSL is intentionally small: the text model only needs to describe
@@ -126,6 +142,7 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		References, Images                           []string
 		PageCount                                    int `json:"pageCount"`
 		AccentColor, BackgroundColor, StyleReference string
+		UnifiedPrompt, OutlinePrompt                 string
 		UnifiedBackground                            bool `json:"unifiedBackground"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&in); err != nil {
@@ -155,9 +172,9 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	prompt := fmt.Sprintf(`请为“%s”生成一份单页/多页演示文稿的 PPT DSL 草案。内容要求：%s。目标受众：%s。页数：%d 页。视觉风格：%s。
+	prompt := fmt.Sprintf(`请为“%s”生成一份单页/多页演示文稿的 PPT DSL 草案。内容要求：%s。大纲提示词：%s。目标受众：%s。页数：%d 页。视觉风格：%s。统一提示词：%s。
 %s
-文字与图片提示词分离，先保证文字内容完整。必须恰好返回 %d 页，第一页 layout 必须为 title。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.Audience), n, style, pptPlanDSL, n)
+文字与图片提示词分离，先保证文字内容完整。必须恰好返回 %d 页，第一页 layout 必须为 title。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.OutlinePrompt), strings.TrimSpace(in.Audience), n, style, strings.TrimSpace(in.UnifiedPrompt), pptPlanDSL, n)
 	streamMode := r.URL.Query().Get("stream") == "1" || strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
 	var resp *responsePayload
 	var stream *webUIEventStream
@@ -240,7 +257,7 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pages := generated.Pages
-	result := pptPlan{Title: title, Style: style, TextModel: model, ImageModel: strings.TrimSpace(in.ImageModel), Audience: strings.TrimSpace(in.Audience), References: in.References, Images: in.Images, Pages: pages, AccentColor: strings.TrimSpace(in.AccentColor), BackgroundColor: strings.TrimSpace(in.BackgroundColor), UnifiedBackground: in.UnifiedBackground, StyleReference: strings.TrimSpace(in.StyleReference)}
+	result := pptPlan{Title: title, Style: style, TextModel: model, ImageModel: strings.TrimSpace(in.ImageModel), Audience: strings.TrimSpace(in.Audience), References: in.References, Images: in.Images, Pages: pages, AccentColor: strings.TrimSpace(in.AccentColor), BackgroundColor: strings.TrimSpace(in.BackgroundColor), UnifiedBackground: in.UnifiedBackground, StyleReference: strings.TrimSpace(in.StyleReference), UnifiedPrompt: strings.TrimSpace(in.UnifiedPrompt), OutlinePrompt: strings.TrimSpace(in.OutlinePrompt)}
 	if streamMode {
 		stream.send("done", result)
 		return
@@ -272,6 +289,8 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 	p := ppt.New16x9(plan.Title)
 	p.AIModel = plan.TextModel
 	p.AIImageModel = plan.ImageModel
+	p.UnifiedPrompt = plan.UnifiedPrompt
+	p.OutlinePrompt = plan.OutlinePrompt
 	if plan.MasterImage != "" {
 		p.Master = &ppt.Master{Background: plan.MasterImage, Elements: []ppt.Element{{ID: "master-image", Type: "image", X: 0, Y: 0, Width: p.Width, Height: p.Height, AssetURL: plan.MasterImage, Style: map[string]any{"objectFit": "cover"}}}}
 	}
@@ -408,6 +427,9 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		prompt := target.Content
+		if strings.TrimSpace(in.Presentation.UnifiedPrompt) != "" {
+			prompt += "\n统一提示词：" + in.Presentation.UnifiedPrompt
+		}
 		if in.Presentation.Master != nil && in.Presentation.Master.Background != "" {
 			prompt += "\n保持与统一母版视觉风格一致，严格使用相同配色、字体层级、留白和装饰语言；生成16:9完整演示文稿页面，不要水印。母版参考图URL：" + in.Presentation.Master.Background
 		}

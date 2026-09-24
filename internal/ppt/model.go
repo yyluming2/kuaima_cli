@@ -19,10 +19,12 @@ type Presentation struct {
 	Theme  Theme   `json:"theme"`
 	// Master contains optional presentation-wide styling and elements. Clients
 	// may materialize these into slides when editing or exporting.
-	Master       *Master `json:"master,omitempty"`
-	Slides       []Slide `json:"slides"`
-	AIModel      string  `json:"aiModel,omitempty"`
-	AIImageModel string  `json:"aiImageModel,omitempty"`
+	Master        *Master `json:"master,omitempty"`
+	Slides        []Slide `json:"slides"`
+	AIModel       string  `json:"aiModel,omitempty"`
+	AIImageModel  string  `json:"aiImageModel,omitempty"`
+	UnifiedPrompt string  `json:"unifiedPrompt,omitempty"`
+	OutlinePrompt string  `json:"outlinePrompt,omitempty"`
 	// FontAssets contains fonts physically embedded in an imported PPTX. Some
 	// Office fonts are license-obfuscated; those are preserved but not exposed
 	// as browser-loadable data until they can be decoded safely.
