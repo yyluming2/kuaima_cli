@@ -88,6 +88,25 @@ func maxOCRInt(a, b int) int {
 	return b
 }
 
+func nextPPTOCRZ(elements []ppt.Element) int {
+	max := -1
+	for _, e := range elements {
+		if e.ZIndex > max {
+			max = e.ZIndex
+		}
+	}
+	return max + 1
+}
+
+func ocrFontSize(height float64, text string, detected float64) float64 {
+	lines := float64(strings.Count(text, "\n") + 1)
+	minSize := height / lines * 0.62
+	if detected <= 0 || detected < minSize*0.75 {
+		detected = minSize
+	}
+	return detected
+}
+
 type pptPlanPage struct {
 	Title       string         `json:"title"`
 	Bullets     []string       `json:"bullets,omitempty"`
@@ -608,11 +627,28 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		Presentation        ppt.Presentation `json:"presentation"`
 		SlideIndex          int              `json:"slideIndex"`
 		Provider            string           `json:"provider"`
+		Asset               string           `json:"asset"`
+		CropWidth           float64          `json:"cropWidth"`
+		CropHeight          float64          `json:"cropHeight"`
 		X, Y, Width, Height float64
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
 		return
+	}
+	// New clients upload only the selected crop. Keep the old presentation
+	// path for compatibility with older web clients and API callers.
+	compactX, compactY := in.X, in.Y
+	if in.Asset != "" {
+		if in.CropWidth <= 0 {
+			in.CropWidth = in.Width
+		}
+		if in.CropHeight <= 0 {
+			in.CropHeight = in.Height
+		}
+		in.Presentation.Width, in.Presentation.Height = in.CropWidth, in.CropHeight
+		in.Presentation.Slides = []ppt.Slide{{Elements: []ppt.Element{{Type: "image", AssetURL: in.Asset, X: 0, Y: 0, Width: in.CropWidth, Height: in.CropHeight}}}}
+		in.SlideIndex, in.X, in.Y, in.Width, in.Height = 0, 0, 0, in.CropWidth, in.CropHeight
 	}
 	if in.SlideIndex < 0 || in.SlideIndex >= len(in.Presentation.Slides) {
 		writeError(w, 400, "slideIndex out of range")
@@ -673,15 +709,24 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, map[string]any{"text": "", "provider": provider, "recognized": false, "cropWidth": img.Bounds().Dx(), "cropHeight": img.Bounds().Dy()})
 			return
 		}
-		style := map[string]any{"fontSize": 24.0, "fontFamily": "Arial", "color": "#111827", "fontWeight": 400, "italic": false, "align": "left", "background": "transparent"}
+		fontSize := ocrFontSize(in.Height, text, 24)
+		background := paddleOCRBackground(img)
+		style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": "#111827", "fontWeight": 400, "bold": false, "italic": false, "align": "left", "background": background}
 		sl := &in.Presentation.Slides[in.SlideIndex]
+		z := nextPPTOCRZ(sl.Elements)
 		// Cover the raster glyphs before adding the editable OCR text. The
 		// border-derived color works well for flat slide backgrounds and keeps
 		// the operation fully offline.
-		sl.Elements = append(sl.Elements, ppt.Element{ID: fmt.Sprintf("ocr-patch-%d", time.Now().UnixNano()), Type: "shape", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Style: map[string]any{"shape": "rect", "background": paddleOCRBackground(img), "border": "none"}})
-		e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Content: text, Style: style, TextRuns: []ppt.TextRun{{Content: text, Style: style}}}
+		e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, ZIndex: z + 1, Content: text, Style: style, TextRuns: []ppt.TextRun{{Content: text, Style: style}}}
 		sl.Elements = append(sl.Elements, e)
-		writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "text": text, "style": style, "provider": provider})
+		if compactX != 0 || compactY != 0 {
+			for i := range sl.Elements {
+				sl.Elements[i].X += compactX
+				sl.Elements[i].Y += compactY
+			}
+			e.X, e.Y = compactX, compactY
+		}
+		writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "element": e, "elements": []ppt.Element{e}, "text": text, "style": style, "provider": provider})
 		return
 	}
 	model := strings.TrimSpace(in.Presentation.AIModel)
@@ -728,13 +773,14 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	if out.FontSize <= 0 {
 		out.FontSize = 24
 	}
+	out.FontSize = ocrFontSize(in.Height, out.Text, out.FontSize)
 	if out.FontFamily == "" {
 		out.FontFamily = "Arial"
 	}
 	if out.Align == "" {
 		out.Align = "left"
 	}
-	style := map[string]any{"fontSize": out.FontSize, "fontFamily": out.FontFamily, "color": out.Color, "fontWeight": func() any {
+	style := map[string]any{"fontSize": out.FontSize, "fontFamily": out.FontFamily, "color": out.Color, "bold": out.Bold, "fontWeight": func() any {
 		if out.Bold {
 			return 700
 		}
@@ -742,14 +788,31 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	}(), "italic": out.Italic, "align": out.Align, "background": "transparent"}
 	// A solid patch hides the old raster text when the OCR model can estimate
 	// the local background. Users can remove or recolor this patch manually.
-	if out.BackgroundColor != "" {
-		sl := &in.Presentation.Slides[in.SlideIndex]
-		sl.Elements = append(sl.Elements, ppt.Element{ID: fmt.Sprintf("ocr-patch-%d", time.Now().UnixNano()), Type: "shape", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Style: map[string]any{"shape": "rect", "background": out.BackgroundColor, "border": "none"}})
+	if out.BackgroundColor == "" || strings.EqualFold(strings.TrimSpace(out.BackgroundColor), strings.TrimSpace(out.Color)) {
+		out.BackgroundColor = ""
+		if comma := strings.IndexByte(cropped, ','); comma >= 0 {
+			if data, err := base64.StdEncoding.DecodeString(cropped[comma+1:]); err == nil {
+				if img, _, err := image.Decode(bytes.NewReader(data)); err == nil {
+					out.BackgroundColor = paddleOCRBackground(img)
+				}
+			}
+		}
 	}
-	e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Content: out.Text, Style: style, TextRuns: []ppt.TextRun{{Content: out.Text, Style: style}}}
+	if out.BackgroundColor == "" {
+		out.BackgroundColor = "#ffffff"
+	}
 	sl := &in.Presentation.Slides[in.SlideIndex]
+	style["background"] = out.BackgroundColor
+	e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, ZIndex: nextPPTOCRZ(sl.Elements), Content: out.Text, Style: style, TextRuns: []ppt.TextRun{{Content: out.Text, Style: style}}}
 	sl.Elements = append(sl.Elements, e)
-	writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "text": out.Text, "style": style})
+	if compactX != 0 || compactY != 0 {
+		for i := range sl.Elements {
+			sl.Elements[i].X += compactX
+			sl.Elements[i].Y += compactY
+		}
+		e.X, e.Y = compactX, compactY
+	}
+	writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "element": e, "elements": []ppt.Element{e}, "text": out.Text, "style": style})
 }
 
 func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request) {

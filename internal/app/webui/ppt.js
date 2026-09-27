@@ -69,14 +69,22 @@
       if (!deck || !rect || rect.width < 2 || rect.height < 2) return;
       setBusy(true); setOcrMode(false); setOcrRect(null);
       try {
-        const payload = { presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect };
+        const image = document.querySelector('.canvas img');
+        let crop = null;
+        if (image && image.complete && image.naturalWidth) {
+          const c = document.createElement('canvas'), q = image.getBoundingClientRect(), scaleX = image.naturalWidth / q.width, scaleY = image.naturalHeight / q.height;
+          c.width = Math.max(1, Math.round(rect.width * scaleX)); c.height = Math.max(1, Math.round(rect.height * scaleY));
+          try { c.getContext('2d').drawImage(image, (rect.x - (q.left - document.querySelector('.canvas').getBoundingClientRect().left)) * scaleX, (rect.y - (q.top - document.querySelector('.canvas').getBoundingClientRect().top)) * scaleY, c.width, c.height, 0, 0, c.width, c.height); crop = c.toDataURL('image/png'); } catch (_) {}
+        }
+        const payload = crop ? { presentation: { width: W, height: H, aiModel: deck.aiModel, slides: [{ elements: [] }] }, slideIndex: 0, provider: ocrProvider, asset: crop, cropWidth: rect.width, cropHeight: rect.height, ...rect } : { presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect };
         console.info("[ppt-ocr] request", { provider: ocrProvider, slideIndex: slide, rect, bytes: new Blob([JSON.stringify(payload)]).size });
         const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const out = await r.json().catch(() => ({}));
         console.info("[ppt-ocr] response", { status: r.status, ok: r.ok, body: out });
         if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`);
         if (!out.text) { alert(`框选区域没有识别到文字（裁剪图像 ${out.cropWidth || "?"}×${out.cropHeight || "?"}）`); return; }
-        setDeck(normalizeDeck(out.presentation)); setSelected(out.presentation.slides[slide]?.elements?.at(-1)?.id || null);
+        if (out.element && crop) { const added = Array.isArray(out.elements) && out.elements.length ? out.elements : [out.element]; setDeck(d => { const n = structuredClone(d); n.slides[slide].elements = [...(n.slides[slide].elements || []), ...added]; return n; }); setSelected(out.element.id); }
+        else if (out.presentation) { setDeck(normalizeDeck(out.presentation)); setSelected(out.presentation.slides[slide]?.elements?.at(-1)?.id || null); }
       } catch (e) { alert("OCR 失败：" + e.message); } finally { setBusy(false); }
     };
     useEffect(() => {
