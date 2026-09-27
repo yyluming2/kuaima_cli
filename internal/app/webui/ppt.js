@@ -21,7 +21,7 @@
   function App() {
     const [masterMode, setMasterMode] = useState(false);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("remote"), drag = useRef(null), resize = useRef(null), ocrDrag = useRef(null), ocrRectRef = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
     useEffect(() => {
       let cancelled = false;
       if (typeof window.queryLocalFonts !== "function") return undefined;
@@ -66,35 +66,40 @@
       return n
     });
     const runOCR = async rect => {
-      if (!deck || !rect || rect.width < 2 || rect.height < 2) return;
+      // width/height of zero means: let the server detect the text bounds
+      // dynamically from the clicked slide pixels.
+      if (!deck || !rect || rect.width < 0 || rect.height < 0) return;
       setBusy(true); setOcrMode(false); setOcrRect(null);
       try {
-        const image = document.querySelector('.canvas img');
-        let crop = null;
-        if (image && image.complete && image.naturalWidth) {
-          const c = document.createElement('canvas'), q = image.getBoundingClientRect(), scaleX = image.naturalWidth / q.width, scaleY = image.naturalHeight / q.height;
-          c.width = Math.max(1, Math.round(rect.width * scaleX)); c.height = Math.max(1, Math.round(rect.height * scaleY));
-          try { c.getContext('2d').drawImage(image, (rect.x - (q.left - document.querySelector('.canvas').getBoundingClientRect().left)) * scaleX, (rect.y - (q.top - document.querySelector('.canvas').getBoundingClientRect().top)) * scaleY, c.width, c.height, 0, 0, c.width, c.height); crop = c.toDataURL('image/png'); } catch (_) {}
-        }
-        const payload = crop ? { presentation: { width: W, height: H, aiModel: deck.aiModel, slides: [{ elements: [] }] }, slideIndex: 0, provider: ocrProvider, asset: crop, cropWidth: rect.width, cropHeight: rect.height, ...rect } : { presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect };
+        const payload = { presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect };
         console.info("[ppt-ocr] request", { provider: ocrProvider, slideIndex: slide, rect, bytes: new Blob([JSON.stringify(payload)]).size });
         const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const out = await r.json().catch(() => ({}));
         console.info("[ppt-ocr] response", { status: r.status, ok: r.ok, body: out });
         if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`);
-        if (!out.text) { alert(`框选区域没有识别到文字（裁剪图像 ${out.cropWidth || "?"}×${out.cropHeight || "?"}）`); return; }
-        if (out.element && crop) { const added = Array.isArray(out.elements) && out.elements.length ? out.elements : [out.element]; setDeck(d => { const n = structuredClone(d); n.slides[slide].elements = [...(n.slides[slide].elements || []), ...added]; return n; }); setSelected(out.element.id); }
+        if (!out.text) { alert(`点击位置附近没有识别到文字（检测区域 ${out.cropWidth || "?"}×${out.cropHeight || "?"}）`); return; }
+        if (out.element && !out.presentation) { const added = Array.isArray(out.elements) && out.elements.length ? out.elements : [out.element]; setDeck(d => { const n = structuredClone(d); n.slides[slide].elements = [...(n.slides[slide].elements || []), ...added]; return n; }); setSelected(out.element.id); }
         else if (out.presentation) { setDeck(normalizeDeck(out.presentation)); setSelected(out.presentation.slides[slide]?.elements?.at(-1)?.id || null); }
       } catch (e) { alert("OCR 失败：" + e.message); } finally { setBusy(false); }
     };
+    const ocrAtPoint = ev => {
+      const c = ev.target?.closest?.('.canvas'); if (!c) return false;
+      ev.preventDefault(); ev.stopPropagation();
+      const q = c.getBoundingClientRect();
+      const x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
+      runOCR({ x, y, width: 0, height: 0 });
+      return true;
+    };
     useEffect(() => {
-      if (!ocrMode) return;
-      const down = ev => { const c = ev.target?.closest?.('.canvas'); if (!c || ev.button !== 0) return; ev.preventDefault(); ev.stopPropagation(); const q = c.getBoundingClientRect(); ocrRectRef.current = null; setOcrRect(null); ocrDrag.current = { canvas: c, x: (ev.clientX - q.left) * W / q.width, y: (ev.clientY - q.top) * H / q.height }; };
-      const moveOCR = ev => { const d = ocrDrag.current; if (!d) return; const q = d.canvas.getBoundingClientRect(); const x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height; const rect = { x: Math.min(d.x, x), y: Math.min(d.y, y), width: Math.abs(x - d.x), height: Math.abs(y - d.y) }; ocrRectRef.current = rect; setOcrRect(rect); };
-      const up = () => { if (ocrDrag.current) { const rect = ocrRectRef.current; ocrDrag.current = null; ocrRectRef.current = null; if (rect?.width > 2 && rect?.height > 2) runOCR(rect); } };
-      document.addEventListener('mousedown', down, true); document.addEventListener('mousemove', moveOCR); document.addEventListener('mouseup', up);
-      return () => { document.removeEventListener('mousedown', down, true); document.removeEventListener('mousemove', moveOCR); document.removeEventListener('mouseup', up); };
-    }, [ocrMode, deck, slide, ocrProvider]);
+      if (!deck) return;
+      const pick = ev => {
+        // Region detection is performed from the slide pixels by the local
+        // OCR endpoint; the client only sends the click location.
+        ocrAtPoint(ev);
+      };
+      document.addEventListener('dblclick', pick, true);
+      return () => document.removeEventListener('dblclick', pick, true);
+    }, [deck, slide, ocrProvider]);
     useEffect(() => {
       document.querySelectorAll('.ocr-selection').forEach(n => n.remove());
       if (!ocrMode || !ocrRect) return;
@@ -118,9 +123,10 @@
         });
         // Keep the paid/remote provider as the final option in the list.
         const remote = document.createElement('option'); remote.value = 'remote'; remote.textContent = '远程 OCR（可能收费）'; select.appendChild(remote);
-        select.value = ocrProvider;
-        if (select.value !== ocrProvider) { select.value = 'remote'; setOcrProvider('remote'); }
-      }).catch(() => { select.innerHTML = '<option value="remote">远程 OCR（可能收费）</option>'; });
+        const local = [...select.options].find(option => option.value.startsWith('local:') && !option.disabled);
+        select.value = local ? local.value : 'local:PaddleOCR';
+        if (local) setOcrProvider(local.value);
+      }).catch(() => { select.innerHTML = '<option value="local:PaddleOCR">本地 PaddleOCR（未检测到模型）</option><option value="remote">远程 OCR（可能收费）</option>'; select.value = 'local:PaddleOCR'; });
       select.onchange = () => setOcrProvider(select.value);
       return () => wrap.remove();
     }, []);
@@ -308,7 +314,7 @@
         a.click()
       } catch (e) { alert("导出失败：" + e.message) }
     };
-    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"], ["ocr", "scan-text", "框选 OCR"]];
+    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"], ["ocr", "scan-text", "双击 OCR"]];
     return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "新建 PPT")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), h("button", { onClick: () => setInspectorOpen(v => !v) }, icon(inspectorOpen ? "panel-right-close" : "panel-right-open"), h("span", null, inspectorOpen ? "收起属性" : "展开属性")), h("button", {
       className: "danger", disabled: !current, onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
@@ -330,7 +336,8 @@
           setSelected(e.id)
         }, onDoubleClick: ev => {
           ev.stopPropagation();
-          if (e.type === "image") { imageTarget.current = e.id; fileInput.current?.click() }
+          if (e.type === "image") { ocrAtPoint(ev); }
+          else if (ocrMode && e.type === "text") { ocrAtPoint(ev); }
           else if (e.type === "text") setEditing(e.id)
         }, onMouseDown: ev => {
           if (ev.button === 0 && !e.locked && !isEditing) {

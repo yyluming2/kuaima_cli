@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -14,6 +15,7 @@ import (
 	"io"
 	"kuaima_cli/internal/ppt"
 	"kuaima_cli/internal/ppt/pptximport"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -64,6 +66,9 @@ func cropPPTOCRImage(ctx context.Context, asset string, x, y, w, h, canvasW, can
 	if canvasW <= 0 || canvasH <= 0 {
 		return "", fmt.Errorf("invalid canvas size")
 	}
+	if w <= 1 || h <= 1 {
+		x, y, w, h = autoPPTOCRRegion(src, x, y, canvasW, canvasH)
+	}
 	left := int(x * float64(src.Bounds().Dx()) / canvasW)
 	top := int(y * float64(src.Bounds().Dy()) / canvasH)
 	right := int((x + w) * float64(src.Bounds().Dx()) / canvasW)
@@ -79,6 +84,111 @@ func cropPPTOCRImage(ctx context.Context, asset string, x, y, w, h, canvasW, can
 		return "", err
 	}
 	return imageDataURL("image/png", buf.Bytes()), nil
+}
+
+// autoPPTOCRRegion finds the text line nearest the click using the image's
+// edge density. It deliberately has no fixed crop size: the returned box is
+// derived from the actual glyph pixels in the slide image.
+func autoPPTOCRRegion(src image.Image, x, y, canvasW, canvasH float64) (float64, float64, float64, float64) {
+	b := src.Bounds()
+	if b.Dx() < 2 || b.Dy() < 2 || canvasW <= 0 || canvasH <= 0 {
+		return 0, 0, canvasW, canvasH
+	}
+	px := int(float64(b.Dx()) * x / canvasW)
+	py := int(float64(b.Dy()) * y / canvasH)
+	px = maxOCRInt(0, minInt(px, b.Dx()-1))
+	py = maxOCRInt(0, minInt(py, b.Dy()-1))
+	w, h := b.Dx(), b.Dy()
+	gray := make([]uint8, w*h)
+	for yy := 0; yy < h; yy++ {
+		for xx := 0; xx < w; xx++ {
+			r, g, bl, _ := src.At(b.Min.X+xx, b.Min.Y+yy).RGBA()
+			gray[yy*w+xx] = color.GrayModel.Convert(color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(bl >> 8), 255}).(color.Gray).Y
+		}
+	}
+	edge := make([]uint8, w*h)
+	bestDist, seedX, seedY := int(^uint(0)>>1), px, py
+	maxGradient := 0
+	gradients := make([]int, w*h)
+	for yy := 1; yy < h-1; yy++ {
+		for xx := 1; xx < w-1; xx++ {
+			a := int(gray[(yy-1)*w+xx-1]) + 2*int(gray[(yy-1)*w+xx]) + int(gray[(yy-1)*w+xx+1])
+			c := int(gray[(yy+1)*w+xx-1]) + 2*int(gray[(yy+1)*w+xx]) + int(gray[(yy+1)*w+xx+1])
+			l := int(gray[(yy-1)*w+xx-1]) + 2*int(gray[yy*w+xx-1]) + int(gray[(yy+1)*w+xx-1])
+			r := int(gray[(yy-1)*w+xx+1]) + 2*int(gray[yy*w+xx+1]) + int(gray[(yy+1)*w+xx+1])
+			v := absInt(a-c) + absInt(l-r)
+			gradients[yy*w+xx] = v
+			if v > maxGradient {
+				maxGradient = v
+			}
+		}
+	}
+	gradientThreshold := maxOCRInt(24, maxGradient/8)
+	for yy := 1; yy < h-1; yy++ {
+		for xx := 1; xx < w-1; xx++ {
+			v := gradients[yy*w+xx]
+			if v >= gradientThreshold {
+				edge[yy*w+xx] = 1
+				d := (xx-px)*(xx-px) + (yy-py)*(yy-py)
+				if d < bestDist {
+					bestDist, seedX, seedY = d, xx, yy
+				}
+			}
+		}
+	}
+	if bestDist == int(^uint(0)>>1) {
+		return 0, 0, canvasW, canvasH
+	}
+	row := make([]int, h)
+	col := make([]int, w)
+	for yy := 0; yy < h; yy++ {
+		for xx := 0; xx < w; xx++ {
+			if edge[yy*w+xx] != 0 {
+				row[yy]++
+				col[xx]++
+			}
+		}
+	}
+	peak := row[seedY]
+	if peak < 1 {
+		peak = 1
+	}
+	threshold := maxOCRInt(3, peak/3)
+	top, bottom := seedY, seedY
+	for top > 1 && row[top-1] >= threshold {
+		top--
+	}
+	for bottom < h-2 && row[bottom+1] >= threshold {
+		bottom++
+	}
+	left, right := seedX, seedX
+	for xx := 0; xx < w; xx++ {
+		n := 0
+		for yy := top; yy <= bottom; yy++ {
+			n += int(edge[yy*w+xx])
+		}
+		if n > 0 {
+			if xx < left {
+				left = xx
+			}
+			if xx > right {
+				right = xx
+			}
+		}
+	}
+	padX, padY := maxOCRInt(2, (right-left+1)/8), maxOCRInt(2, (bottom-top+1)/4)
+	left = maxOCRInt(0, left-padX)
+	right = minInt(w-1, right+padX)
+	top = maxOCRInt(0, top-padY)
+	bottom = minInt(h-1, bottom+padY)
+	return float64(left) * canvasW / float64(w), float64(top) * canvasH / float64(h), float64(right-left+1) * canvasW / float64(w), float64(bottom-top+1) * canvasH / float64(h)
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func maxOCRInt(a, b int) int {
@@ -654,12 +764,12 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "slideIndex out of range")
 		return
 	}
-	if in.Width <= 1 || in.Height <= 1 {
-		writeError(w, 400, "OCR region is empty")
-		return
-	}
 	w.Header().Set("X-PPT-OCR-Selection", fmt.Sprintf("%.0fx%.0f+%.0f+%.0f", in.Width, in.Height, in.X, in.Y))
 	provider := strings.TrimSpace(in.Provider)
+	if provider == "" {
+		provider = "local:PaddleOCR"
+	}
+	clickX, clickY := in.X, in.Y
 	var asset string
 	for _, e := range in.Presentation.Slides[in.SlideIndex].Elements {
 		if e.Type == "image" && e.AssetURL != "" {
@@ -670,6 +780,29 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	if asset == "" {
 		writeError(w, 400, "slide has no image")
 		return
+	}
+	if in.Width <= 1 || in.Height <= 1 {
+		full, err := cropPPTOCRImage(r.Context(), asset, 0, 0, in.Presentation.Width, in.Presentation.Height, in.Presentation.Width, in.Presentation.Height)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "无法读取 OCR 图片："+err.Error())
+			return
+		}
+		comma := strings.IndexByte(full, ',')
+		data, err := base64.StdEncoding.DecodeString(full[comma+1:])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR 图片编码无效")
+			return
+		}
+		img, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR 图片无法读取")
+			return
+		}
+		in.X, in.Y, in.Width, in.Height = autoPPTOCRRegion(img, in.X, in.Y, in.Presentation.Width, in.Presentation.Height)
+		if in.Width <= 1 || in.Height <= 1 {
+			writeError(w, 400, "未找到点击位置附近的文字")
+			return
+		}
 	}
 	// Crop before OCR so the provider only receives the selected pixels.
 	cropped, cropErr := cropPPTOCRImage(r.Context(), asset, in.X, in.Y, in.Width, in.Height, in.Presentation.Width, in.Presentation.Height)
@@ -704,6 +837,50 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
+		}
+		// A click can land between glyphs, so the edge-based estimate may be
+		// empty even though the nearby text is clear. Retry progressively sized
+		// regions around the click, using slide-relative dimensions rather than
+		// one hard-coded crop size.
+		if text == "" {
+			bestCandidateDistance := math.MaxFloat64
+			var bestCandidate [4]float64
+			var bestCandidateCrop string
+			var bestCandidateImg image.Image
+			var bestCandidateText string
+			for _, candidate := range adaptivePPTOCRRegions(clickX, clickY, in.Presentation.Width, in.Presentation.Height) {
+				candidateCrop, cropErr := cropPPTOCRImage(r.Context(), asset, candidate[0], candidate[1], candidate[2], candidate[3], in.Presentation.Width, in.Presentation.Height)
+				if cropErr != nil {
+					continue
+				}
+				comma := strings.IndexByte(candidateCrop, ',')
+				if comma < 0 {
+					continue
+				}
+				candidateData, decodeErr := base64.StdEncoding.DecodeString(candidateCrop[comma+1:])
+				if decodeErr != nil {
+					continue
+				}
+				candidateImg, _, decodeErr := image.Decode(bytes.NewReader(candidateData))
+				if decodeErr != nil {
+					continue
+				}
+				candidateText, recognizeErr := paddleOCRRecognize(candidateImg, modelDir)
+				if recognizeErr != nil {
+					continue
+				}
+				if candidateText != "" {
+					cx, cy := candidate[0]+candidate[2]/2, candidate[1]+candidate[3]/2
+					distance := (cx-clickX)*(cx-clickX) + (cy-clickY)*(cy-clickY)
+					if distance < bestCandidateDistance {
+						bestCandidateDistance, bestCandidate = distance, candidate
+						bestCandidateCrop, bestCandidateImg, bestCandidateText = candidateCrop, candidateImg, candidateText
+					}
+				}
+			}
+			if bestCandidateText != "" {
+				in.X, in.Y, in.Width, in.Height, cropped, img, text = bestCandidate[0], bestCandidate[1], bestCandidate[2], bestCandidate[3], bestCandidateCrop, bestCandidateImg, bestCandidateText
+			}
 		}
 		if text == "" {
 			writeJSON(w, 200, map[string]any{"text": "", "provider": provider, "recognized": false, "cropWidth": img.Bounds().Dx(), "cropHeight": img.Bounds().Dy()})
@@ -813,6 +990,43 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		e.X, e.Y = compactX, compactY
 	}
 	writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "element": e, "elements": []ppt.Element{e}, "text": out.Text, "style": style})
+}
+
+func adaptivePPTOCRRegions(x, y, w, h float64) [][4]float64 {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	var out [][4]float64
+	for _, scale := range []float64{0.12, 0.22, 0.38, 0.58} {
+		rw, rh := w*scale, h*scale*.42
+		left, top := maxFloat(0, minFloat(w-rw, x-rw/2)), maxFloat(0, minFloat(h-rh, y-rh/2))
+		out = append(out, [4]float64{left, top, rw, rh})
+	}
+	// If the click landed in a gap between glyphs, scan the whole slide with
+	// overlapping, slide-relative tiles and let recognition identify the tile
+	// containing text. The chosen tile is still returned as the editable box.
+	for _, scale := range []float64{0.38, 0.58} {
+		rw, rh := w*scale, h*scale*.42
+		for _, fx := range []float64{0, .5, 1} {
+			for _, fy := range []float64{0, .5, 1} {
+				out = append(out, [4]float64{(w - rw) * fx, (h - rh) * fy, rw, rh})
+			}
+		}
+	}
+	return out
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request) {
