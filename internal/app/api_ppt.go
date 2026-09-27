@@ -210,6 +210,7 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		UnifiedPrompt, OutlinePrompt                 string
 		UnifiedBackground                            bool `json:"unifiedBackground"`
 	}
+	w.Header().Set("X-PPT-OCR-Debug", "request-received")
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
 		return
@@ -621,10 +622,8 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "OCR region is empty")
 		return
 	}
-	if strings.TrimSpace(in.Provider) != "" && strings.TrimSpace(in.Provider) != "remote" {
-		writeError(w, http.StatusNotImplemented, "本地 PaddleOCR 模型已找到，但 ONNX OCR 推理运行时尚未接入；请选择远程 OCR，或稍后启用本地推理")
-		return
-	}
+	w.Header().Set("X-PPT-OCR-Selection", fmt.Sprintf("%.0fx%.0f+%.0f+%.0f", in.Width, in.Height, in.X, in.Y))
+	provider := strings.TrimSpace(in.Provider)
 	var asset string
 	for _, e := range in.Presentation.Slides[in.SlideIndex].Elements {
 		if e.Type == "image" && e.AssetURL != "" {
@@ -640,6 +639,49 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	cropped, cropErr := cropPPTOCRImage(r.Context(), asset, in.X, in.Y, in.Width, in.Height, in.Presentation.Width, in.Presentation.Height)
 	if cropErr != nil {
 		writeError(w, http.StatusBadRequest, "无法裁剪 OCR 区域："+cropErr.Error())
+		return
+	}
+	// Local PaddleOCR recognition operates directly on the selected crop and
+	// does not require a text/vision API key.
+	if provider != "" && provider != "remote" {
+		modelDir := paddleOCRModelDir(provider, s.rembgPath)
+		if modelDir == "" {
+			writeError(w, http.StatusNotFound, "PaddleOCR 模型不存在或缺少 rec.onnx")
+			return
+		}
+		comma := strings.IndexByte(cropped, ',')
+		if comma < 0 {
+			writeError(w, http.StatusBadRequest, "OCR 图片格式无效")
+			return
+		}
+		data, err := base64.StdEncoding.DecodeString(cropped[comma+1:])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR 图片编码无效")
+			return
+		}
+		img, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR 图片无法读取")
+			return
+		}
+		text, err := paddleOCRRecognize(img, modelDir)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		if text == "" {
+			writeJSON(w, 200, map[string]any{"text": "", "provider": provider, "recognized": false, "cropWidth": img.Bounds().Dx(), "cropHeight": img.Bounds().Dy()})
+			return
+		}
+		style := map[string]any{"fontSize": 24.0, "fontFamily": "Arial", "color": "#111827", "fontWeight": 400, "italic": false, "align": "left", "background": "transparent"}
+		sl := &in.Presentation.Slides[in.SlideIndex]
+		// Cover the raster glyphs before adding the editable OCR text. The
+		// border-derived color works well for flat slide backgrounds and keeps
+		// the operation fully offline.
+		sl.Elements = append(sl.Elements, ppt.Element{ID: fmt.Sprintf("ocr-patch-%d", time.Now().UnixNano()), Type: "shape", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Style: map[string]any{"shape": "rect", "background": paddleOCRBackground(img), "border": "none"}})
+		e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, Content: text, Style: style, TextRuns: []ppt.TextRun{{Content: text, Style: style}}}
+		sl.Elements = append(sl.Elements, e)
+		writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "text": text, "style": style, "provider": provider})
 		return
 	}
 	model := strings.TrimSpace(in.Presentation.AIModel)
@@ -730,7 +772,11 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 	bundles := map[string]*modelBundle{}
 	for _, dir := range dirs {
 		err := filepath.WalkDir(dir, func(path string, e os.DirEntry, walkErr error) error {
-			if walkErr != nil || e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".onnx") {
+			if walkErr != nil || e.IsDir() {
+				return nil
+			}
+			lowerName := strings.ToLower(e.Name())
+			if !strings.HasSuffix(lowerName, ".onnx") && lowerName != "ppocr_keys_v1.txt" && lowerName != "keys.txt" {
 				return nil
 			}
 			info, _ := e.Info()
@@ -745,7 +791,7 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 				bundle = &modelBundle{dir: parent, files: map[string]bool{}}
 				bundles[key] = bundle
 			}
-			fileName := strings.ToLower(e.Name())
+			fileName := lowerName
 			if bundle.files[fileName] {
 				return nil
 			}
@@ -760,12 +806,10 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	// The current Go build has no PaddleOCR ONNX inference pipeline yet. Keep
-	// complete bundles in the response for diagnostics/future enablement, but
-	// mark them unavailable so the UI cannot select a provider that will fail.
+	// A bundle is usable when its recognition model and dictionary are present.
 	keys := make([]string, 0, len(bundles))
 	for key, bundle := range bundles {
-		if bundle.files["det.onnx"] && bundle.files["rec.onnx"] {
+		if bundle.files["rec.onnx"] && (bundle.files["ppocr_keys_v1.txt"] || bundle.files["keys.txt"]) {
 			keys = append(keys, key)
 		}
 	}
@@ -777,7 +821,7 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 		if name == "" {
 			name = "PaddleOCR"
 		}
-		models = append(models, map[string]any{"id": bundle.dir, "name": name, "size": bundle.size, "available": false})
+		models = append(models, map[string]any{"id": bundle.dir, "name": name, "size": bundle.size, "available": true, "local": true})
 	}
 	writeJSON(w, 200, map[string]any{"models": models, "remote": map[string]any{"id": "remote", "name": "远程视觉模型", "paid": true}})
 }

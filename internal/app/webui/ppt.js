@@ -21,7 +21,7 @@
   function App() {
     const [masterMode, setMasterMode] = useState(false);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("remote"), drag = useRef(null), resize = useRef(null), ocrDrag = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("remote"), drag = useRef(null), resize = useRef(null), ocrDrag = useRef(null), ocrRectRef = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
     useEffect(() => {
       let cancelled = false;
       if (typeof window.queryLocalFonts !== "function") return undefined;
@@ -69,21 +69,24 @@
       if (!deck || !rect || rect.width < 2 || rect.height < 2) return;
       setBusy(true); setOcrMode(false); setOcrRect(null);
       try {
-        if (ocrProvider !== "remote") { throw new Error("本地 PaddleOCR 推理暂未启用，请选择列表末尾的远程 OCR"); }
-        const r = await api("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect }) });
-        const out = await r.json(); if (!r.ok) throw new Error(out.error || "OCR 失败");
-        if (!out.text) { alert("框选区域没有识别到文字"); return; }
+        const payload = { presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect };
+        console.info("[ppt-ocr] request", { provider: ocrProvider, slideIndex: slide, rect, bytes: new Blob([JSON.stringify(payload)]).size });
+        const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const out = await r.json().catch(() => ({}));
+        console.info("[ppt-ocr] response", { status: r.status, ok: r.ok, body: out });
+        if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`);
+        if (!out.text) { alert(`框选区域没有识别到文字（裁剪图像 ${out.cropWidth || "?"}×${out.cropHeight || "?"}）`); return; }
         setDeck(normalizeDeck(out.presentation)); setSelected(out.presentation.slides[slide]?.elements?.at(-1)?.id || null);
       } catch (e) { alert("OCR 失败：" + e.message); } finally { setBusy(false); }
     };
     useEffect(() => {
       if (!ocrMode) return;
-      const down = ev => { const c = ev.target?.closest?.('.canvas'); if (!c || ev.button !== 0) return; ev.preventDefault(); ev.stopPropagation(); const q = c.getBoundingClientRect(); ocrDrag.current = { canvas: c, x: (ev.clientX - q.left) * W / q.width, y: (ev.clientY - q.top) * H / q.height }; };
-      const moveOCR = ev => { const d = ocrDrag.current; if (!d) return; const q = d.canvas.getBoundingClientRect(); const x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height; setOcrRect({ x: Math.min(d.x, x), y: Math.min(d.y, y), width: Math.abs(x - d.x), height: Math.abs(y - d.y) }); };
-      const up = () => { if (ocrDrag.current) { const rect = ocrRect; ocrDrag.current = null; if (rect?.width > 2 && rect?.height > 2) runOCR(rect); } };
+      const down = ev => { const c = ev.target?.closest?.('.canvas'); if (!c || ev.button !== 0) return; ev.preventDefault(); ev.stopPropagation(); const q = c.getBoundingClientRect(); ocrRectRef.current = null; setOcrRect(null); ocrDrag.current = { canvas: c, x: (ev.clientX - q.left) * W / q.width, y: (ev.clientY - q.top) * H / q.height }; };
+      const moveOCR = ev => { const d = ocrDrag.current; if (!d) return; const q = d.canvas.getBoundingClientRect(); const x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height; const rect = { x: Math.min(d.x, x), y: Math.min(d.y, y), width: Math.abs(x - d.x), height: Math.abs(y - d.y) }; ocrRectRef.current = rect; setOcrRect(rect); };
+      const up = () => { if (ocrDrag.current) { const rect = ocrRectRef.current; ocrDrag.current = null; ocrRectRef.current = null; if (rect?.width > 2 && rect?.height > 2) runOCR(rect); } };
       document.addEventListener('mousedown', down, true); document.addEventListener('mousemove', moveOCR); document.addEventListener('mouseup', up);
       return () => { document.removeEventListener('mousedown', down, true); document.removeEventListener('mousemove', moveOCR); document.removeEventListener('mouseup', up); };
-    }, [ocrMode, ocrRect, deck, slide]);
+    }, [ocrMode, deck, slide, ocrProvider]);
     useEffect(() => {
       document.querySelectorAll('.ocr-selection').forEach(n => n.remove());
       if (!ocrMode || !ocrRect) return;
