@@ -15,7 +15,6 @@ import (
 	"io"
 	"kuaima_cli/internal/ppt"
 	"kuaima_cli/internal/ppt/pptximport"
-	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -578,7 +577,7 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		Presentation ppt.Presentation `json:"presentation"`
 		SlideIndex   *int             `json:"slideIndex,omitempty"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
@@ -738,6 +737,9 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		SlideIndex          int              `json:"slideIndex"`
 		Provider            string           `json:"provider"`
 		Asset               string           `json:"asset"`
+		ImageData           string           `json:"imageData"`
+		ImageOffsetX        float64          `json:"imageOffsetX"`
+		ImageOffsetY        float64          `json:"imageOffsetY"`
 		CropWidth           float64          `json:"cropWidth"`
 		CropHeight          float64          `json:"cropHeight"`
 		X, Y, Width, Height float64
@@ -750,6 +752,8 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	// path for compatibility with older web clients and API callers.
 	compactX, compactY := in.X, in.Y
 	if in.Asset != "" {
+		localX, localY := compactX, compactY
+		compactX, compactY = 0, 0
 		if in.CropWidth <= 0 {
 			in.CropWidth = in.Width
 		}
@@ -758,7 +762,9 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Presentation.Width, in.Presentation.Height = in.CropWidth, in.CropHeight
 		in.Presentation.Slides = []ppt.Slide{{Elements: []ppt.Element{{Type: "image", AssetURL: in.Asset, X: 0, Y: 0, Width: in.CropWidth, Height: in.CropHeight}}}}
-		in.SlideIndex, in.X, in.Y, in.Width, in.Height = 0, 0, 0, in.CropWidth, in.CropHeight
+		// Keep a zero selection so the normal auto-region detector runs against
+		// the supplied image; CropWidth/CropHeight provide its canvas size.
+		in.SlideIndex, in.X, in.Y = 0, localX, localY
 	}
 	if in.SlideIndex < 0 || in.SlideIndex >= len(in.Presentation.Slides) {
 		writeError(w, 400, "slideIndex out of range")
@@ -769,7 +775,12 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	if provider == "" {
 		provider = "local:PaddleOCR"
 	}
-	clickX, clickY := in.X, in.Y
+	// The browser sends the full image on the first OCR request. This avoids
+	// silently recognizing a tiny placeholder URL and makes the request self
+	// contained; keep Asset as a compatibility fallback for older clients.
+	if strings.HasPrefix(in.ImageData, "data:image/") {
+		in.Asset = in.ImageData
+	}
 	var asset string
 	for _, e := range in.Presentation.Slides[in.SlideIndex].Elements {
 		if e.Type == "image" && e.AssetURL != "" {
@@ -838,50 +849,9 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
 		}
-		// A click can land between glyphs, so the edge-based estimate may be
-		// empty even though the nearby text is clear. Retry progressively sized
-		// regions around the click, using slide-relative dimensions rather than
-		// one hard-coded crop size.
-		if text == "" {
-			bestCandidateDistance := math.MaxFloat64
-			var bestCandidate [4]float64
-			var bestCandidateCrop string
-			var bestCandidateImg image.Image
-			var bestCandidateText string
-			for _, candidate := range adaptivePPTOCRRegions(clickX, clickY, in.Presentation.Width, in.Presentation.Height) {
-				candidateCrop, cropErr := cropPPTOCRImage(r.Context(), asset, candidate[0], candidate[1], candidate[2], candidate[3], in.Presentation.Width, in.Presentation.Height)
-				if cropErr != nil {
-					continue
-				}
-				comma := strings.IndexByte(candidateCrop, ',')
-				if comma < 0 {
-					continue
-				}
-				candidateData, decodeErr := base64.StdEncoding.DecodeString(candidateCrop[comma+1:])
-				if decodeErr != nil {
-					continue
-				}
-				candidateImg, _, decodeErr := image.Decode(bytes.NewReader(candidateData))
-				if decodeErr != nil {
-					continue
-				}
-				candidateText, recognizeErr := paddleOCRRecognize(candidateImg, modelDir)
-				if recognizeErr != nil {
-					continue
-				}
-				if candidateText != "" {
-					cx, cy := candidate[0]+candidate[2]/2, candidate[1]+candidate[3]/2
-					distance := (cx-clickX)*(cx-clickX) + (cy-clickY)*(cy-clickY)
-					if distance < bestCandidateDistance {
-						bestCandidateDistance, bestCandidate = distance, candidate
-						bestCandidateCrop, bestCandidateImg, bestCandidateText = candidateCrop, candidateImg, candidateText
-					}
-				}
-			}
-			if bestCandidateText != "" {
-				in.X, in.Y, in.Width, in.Height, cropped, img, text = bestCandidate[0], bestCandidate[1], bestCandidate[2], bestCandidate[3], bestCandidateCrop, bestCandidateImg, bestCandidateText
-			}
-		}
+		// Recognition is intentionally performed exactly once per request. The
+		// browser caches the resulting editable box, so later double-clicks do
+		// not invoke OCR again.
 		if text == "" {
 			writeJSON(w, 200, map[string]any{"text": "", "provider": provider, "recognized": false, "cropWidth": img.Bounds().Dx(), "cropHeight": img.Bounds().Dy()})
 			return
@@ -895,6 +865,8 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		// border-derived color works well for flat slide backgrounds and keeps
 		// the operation fully offline.
 		e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, ZIndex: z + 1, Content: text, Style: style, TextRuns: []ppt.TextRun{{Content: text, Style: style}}}
+		e.X += in.ImageOffsetX
+		e.Y += in.ImageOffsetY
 		sl.Elements = append(sl.Elements, e)
 		if compactX != 0 || compactY != 0 {
 			for i := range sl.Elements {
@@ -981,6 +953,8 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	sl := &in.Presentation.Slides[in.SlideIndex]
 	style["background"] = out.BackgroundColor
 	e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, ZIndex: nextPPTOCRZ(sl.Elements), Content: out.Text, Style: style, TextRuns: []ppt.TextRun{{Content: out.Text, Style: style}}}
+	e.X += in.ImageOffsetX
+	e.Y += in.ImageOffsetY
 	sl.Elements = append(sl.Elements, e)
 	if compactX != 0 || compactY != 0 {
 		for i := range sl.Elements {

@@ -65,21 +65,51 @@
       if (e && (masterMode || !e.locked)) fn(e);
       return n
     });
+    const ocrCache = useRef(new Map());
+    const cachedOCRAtPoint = (x, y) => {
+      const list = ocrCache.current.get(slideKey(deck, slide)) || [];
+      // Prefer the smallest matching box; this keeps nested/overlapping OCR
+      // patches deterministic when a slide has been edited repeatedly.
+      return list.filter(e => x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height)
+        .sort((a, b) => (a.width * a.height) - (b.width * b.height))[0] || null;
+    };
+    const rememberOCR = (items, index = slide, value = deck) => {
+      const key = slideKey(value, index), prior = ocrCache.current.get(key) || [], merged = new Map(prior.map(e => [e.id, e]));
+      (items || []).filter(e => e?.type === "text" && String(e.id || "").startsWith("ocr-")).forEach(e => merged.set(e.id, e));
+      ocrCache.current.set(key, [...merged.values()]);
+    };
+    useEffect(() => {
+      (deck?.slides || []).forEach((s, i) => rememberOCR(s.elements, i, deck));
+    }, [deck]);
     const runOCR = async rect => {
       // width/height of zero means: let the server detect the text bounds
       // dynamically from the clicked slide pixels.
       if (!deck || !rect || rect.width < 0 || rect.height < 0) return;
       setBusy(true); setOcrMode(false); setOcrRect(null);
       try {
-        const payload = { presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect };
+        const image = (deck.slides?.[slide]?.elements || []).find(e => e.type === "image" && e.assetUrl);
+        let imageData = image?.assetUrl || "";
+        // Data URLs are already inline. Generated images may be served from a
+        // short URL, so materialize the actual bytes before sending OCR.
+        if (imageData && !imageData.startsWith("data:image/")) {
+          const response = await fetch(imageData);
+          if (!response.ok) throw new Error(`图片读取失败（HTTP ${response.status}）`);
+          const blob = await response.blob();
+          imageData = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); });
+        }
+        const onImage = image && image.width > 0 && image.height > 0;
+        const localRect = onImage ? { ...rect, x: rect.x - Number(image.x || 0), y: rect.y - Number(image.y || 0), asset: imageData, cropWidth: image.width, cropHeight: image.height, imageOffsetX: image.x || 0, imageOffsetY: image.y || 0 } : rect;
+        const deckForOCR = structuredClone(deck);
+        if (imageData.startsWith("data:image/")) (deckForOCR.slides || []).forEach(s => (s.elements || []).forEach(e => { if (e.type === "image") e.assetUrl = ""; }));
+        const payload = { presentation: deckForOCR, slideIndex: slide, provider: ocrProvider, imageData, ...localRect };
         console.info("[ppt-ocr] request", { provider: ocrProvider, slideIndex: slide, rect, bytes: new Blob([JSON.stringify(payload)]).size });
         const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const out = await r.json().catch(() => ({}));
         console.info("[ppt-ocr] response", { status: r.status, ok: r.ok, body: out });
         if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`);
         if (!out.text) { alert(`点击位置附近没有识别到文字（检测区域 ${out.cropWidth || "?"}×${out.cropHeight || "?"}）`); return; }
-        if (out.element && !out.presentation) { const added = Array.isArray(out.elements) && out.elements.length ? out.elements : [out.element]; setDeck(d => { const n = structuredClone(d); n.slides[slide].elements = [...(n.slides[slide].elements || []), ...added]; return n; }); setSelected(out.element.id); }
-        else if (out.presentation) { setDeck(normalizeDeck(out.presentation)); setSelected(out.presentation.slides[slide]?.elements?.at(-1)?.id || null); }
+        if (out.element) { const added = Array.isArray(out.elements) && out.elements.length ? out.elements : [out.element]; rememberOCR(added); setDeck(d => { const n = structuredClone(d); n.slides[slide].elements = [...(n.slides[slide].elements || []), ...added]; return n; }); setSelected(out.element.id); }
+        else if (out.presentation) { const normalized = normalizeDeck(out.presentation); rememberOCR(normalized.slides[slide]?.elements, slide, normalized); setDeck(normalized); setSelected(normalized.slides[slide]?.elements?.at(-1)?.id || null); }
       } catch (e) { alert("OCR 失败：" + e.message); } finally { setBusy(false); }
     };
     const ocrAtPoint = ev => {
@@ -93,13 +123,19 @@
     useEffect(() => {
       if (!deck) return;
       const pick = ev => {
-        // Region detection is performed from the slide pixels by the local
-        // OCR endpoint; the client only sends the click location.
+        const el = ev.target?.closest?.('.el');
+        // Existing editable text keeps the normal double-click editor. OCR is
+        // only relevant for raster images (or explicit OCR mode).
+        if (el && !el.classList.contains('image-el') && !ocrMode) return;
+        const c = ev.target?.closest?.('.canvas'); if (!c) return;
+        const q = c.getBoundingClientRect(), x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
+        const cached = cachedOCRAtPoint(x, y);
+        if (cached) { ev.preventDefault(); ev.stopPropagation(); setSelected(cached.id); setEditing(cached.id); return; }
         ocrAtPoint(ev);
       };
       document.addEventListener('dblclick', pick, true);
       return () => document.removeEventListener('dblclick', pick, true);
-    }, [deck, slide, ocrProvider]);
+    }, [deck, slide, ocrProvider, ocrMode]);
     useEffect(() => {
       document.querySelectorAll('.ocr-selection').forEach(n => n.remove());
       if (!ocrMode || !ocrRect) return;
