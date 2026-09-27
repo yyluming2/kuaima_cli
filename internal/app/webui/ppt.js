@@ -69,7 +69,7 @@
       if (!deck || !rect || rect.width < 2 || rect.height < 2) return;
       setBusy(true); setOcrMode(false); setOcrRect(null);
       try {
-        if (ocrProvider !== "remote") { throw new Error("本地 PaddleOCR 模型已选择，但当前版本尚未安装可用 ONNX 模型"); }
+        if (ocrProvider !== "remote") { throw new Error("本地 PaddleOCR 推理暂未启用，请选择列表末尾的远程 OCR"); }
         const r = await api("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ presentation: deck, slideIndex: slide, provider: ocrProvider, ...rect }) });
         const out = await r.json(); if (!r.ok) throw new Error(out.error || "OCR 失败");
         if (!out.text) { alert("框选区域没有识别到文字"); return; }
@@ -95,9 +95,21 @@
       const tools = document.querySelector('.tools'); if (!tools) return;
       const wrap = document.createElement('label'); wrap.className = 'ocr-engine-picker'; wrap.title = 'OCR 引擎';
       const select = document.createElement('select'); select.setAttribute('aria-label', 'OCR 引擎');
-      select.innerHTML = '<option value="remote">远程 OCR（可能收费）</option><option disabled>正在读取本地模型…</option>';
+      select.innerHTML = '<option disabled>正在读取本地模型…</option>';
       wrap.appendChild(select); tools.insertBefore(wrap, tools.firstChild);
-      fetch('/api/ppt/ocr/models').then(r => r.json()).then(out => { select.innerHTML = '<option value="remote">远程 OCR（可能收费）</option>'; (out.models || []).forEach(m => { const o = document.createElement('option'); o.value = 'local:' + m.id; o.textContent = '本地 PaddleOCR · ' + m.name; select.appendChild(o); }); select.value = ocrProvider; }).catch(() => {});
+      fetch('/api/ppt/ocr/models').then(r => r.json()).then(out => {
+        select.innerHTML = '';
+        (out.models || []).forEach(m => {
+          const o = document.createElement('option'); o.value = 'local:' + m.id;
+          o.textContent = '本地 PaddleOCR · ' + m.name;
+          if (m.available === false) { o.disabled = true; o.textContent += '（本地推理暂不可用）'; }
+          select.appendChild(o);
+        });
+        // Keep the paid/remote provider as the final option in the list.
+        const remote = document.createElement('option'); remote.value = 'remote'; remote.textContent = '远程 OCR（可能收费）'; select.appendChild(remote);
+        select.value = ocrProvider;
+        if (select.value !== ocrProvider) { select.value = 'remote'; setOcrProvider('remote'); }
+      }).catch(() => { select.innerHTML = '<option value="remote">远程 OCR（可能收费）</option>'; });
       select.onchange = () => setOcrProvider(select.value);
       return () => wrap.remove();
     }, []);

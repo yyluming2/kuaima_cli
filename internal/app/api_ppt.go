@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -714,12 +715,19 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	models := []map[string]any{}
+	// A PaddleOCR model is a bundle (det + rec, with an optional cls model),
+	// not each individual ONNX file.  Listing every file made the picker show
+	// several entries that could not be used on their own.
+	type modelBundle struct {
+		dir   string
+		files map[string]bool
+		size  int64
+	}
 	dirs := []string{filepath.Join("models", "paddleocr")}
 	if s.rembgPath != "" {
 		dirs = append(dirs, filepath.Join(filepath.Dir(s.rembgPath), "models", "paddleocr"))
 	}
-	seen := map[string]bool{}
+	bundles := map[string]*modelBundle{}
 	for _, dir := range dirs {
 		err := filepath.WalkDir(dir, func(path string, e os.DirEntry, walkErr error) error {
 			if walkErr != nil || e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".onnx") {
@@ -727,22 +735,49 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 			}
 			info, _ := e.Info()
 			rel, _ := filepath.Rel(dir, path)
-			key := filepath.Clean(rel)
-			if seen[key] {
+			parent := filepath.Clean(filepath.Dir(rel))
+			if parent == "." {
+				parent = ""
+			}
+			key := parent
+			bundle := bundles[key]
+			if bundle == nil {
+				bundle = &modelBundle{dir: parent, files: map[string]bool{}}
+				bundles[key] = bundle
+			}
+			fileName := strings.ToLower(e.Name())
+			if bundle.files[fileName] {
 				return nil
 			}
-			seen[key] = true
-			size := int64(0)
+			bundle.files[fileName] = true
 			if info != nil {
-				size = info.Size()
+				bundle.size += info.Size()
 			}
-			models = append(models, map[string]any{"id": rel, "name": rel, "size": size})
 			return nil
 		})
 		if err != nil && !os.IsNotExist(err) {
 			writeError(w, 500, err.Error())
 			return
 		}
+	}
+	// The current Go build has no PaddleOCR ONNX inference pipeline yet. Keep
+	// complete bundles in the response for diagnostics/future enablement, but
+	// mark them unavailable so the UI cannot select a provider that will fail.
+	keys := make([]string, 0, len(bundles))
+	for key, bundle := range bundles {
+		if bundle.files["det.onnx"] && bundle.files["rec.onnx"] {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	models := make([]map[string]any, 0, len(keys))
+	for _, key := range keys {
+		bundle := bundles[key]
+		name := bundle.dir
+		if name == "" {
+			name = "PaddleOCR"
+		}
+		models = append(models, map[string]any{"id": bundle.dir, "name": name, "size": bundle.size, "available": false})
 	}
 	writeJSON(w, 200, map[string]any{"models": models, "remote": map[string]any{"id": "remote", "name": "远程视觉模型", "paid": true}})
 }
