@@ -15,6 +15,7 @@ import (
 	"io"
 	"kuaima_cli/internal/ppt"
 	"kuaima_cli/internal/ppt/pptximport"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -742,6 +743,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		ImageOffsetY        float64          `json:"imageOffsetY"`
 		CropWidth           float64          `json:"cropWidth"`
 		CropHeight          float64          `json:"cropHeight"`
+		ScanAll             bool             `json:"scanAll"`
 		X, Y, Width, Height float64
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
@@ -790,6 +792,96 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	}
 	if asset == "" {
 		writeError(w, 400, "slide has no image")
+		return
+	}
+	// The first double-click scans the complete raster once. Return every text
+	// region without inserting it into the presentation: the browser keeps
+	// these candidates and materializes only the region the user clicks.
+	if in.ScanAll && provider != "remote" {
+		modelDir := paddleOCRModelDir(provider, s.rembgPath)
+		if modelDir == "" {
+			writeError(w, http.StatusNotFound, "PaddleOCR 模型不存在或缺少 rec.onnx")
+			return
+		}
+		full, err := cropPPTOCRImage(r.Context(), asset, 0, 0, in.Presentation.Width, in.Presentation.Height, in.Presentation.Width, in.Presentation.Height)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "无法读取 OCR 图片："+err.Error())
+			return
+		}
+		comma := strings.IndexByte(full, ',')
+		if comma < 0 {
+			writeError(w, http.StatusBadRequest, "OCR 图片格式无效")
+			return
+		}
+		data, err := base64.StdEncoding.DecodeString(full[comma+1:])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR 图片编码无效")
+			return
+		}
+		img, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "OCR 图片无法读取")
+			return
+		}
+		polys, err := paddleOCRDetectPolygons(img, modelDir)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		canvasW, canvasH := in.Presentation.Width, in.Presentation.Height
+		if canvasW <= 0 || canvasH <= 0 {
+			canvasW, canvasH = float64(img.Bounds().Dx()), float64(img.Bounds().Dy())
+		}
+		z := nextPPTOCRZ(in.Presentation.Slides[in.SlideIndex].Elements)
+		elements := make([]ppt.Element, 0, len(polys))
+		for i, poly := range polys {
+			box := polygonBounds(poly.Points)
+			rawCrop := image.NewRGBA(image.Rect(0, 0, box.Dx(), box.Dy()))
+			draw.Draw(rawCrop, rawCrop.Bounds(), img, box.Min.Add(img.Bounds().Min), draw.Src)
+			rel := poly.Points
+			for j := range rel {
+				rel[j].X -= box.Min.X
+				rel[j].Y -= box.Min.Y
+			}
+			cropImg := cropPPTOCRPolygon(rawCrop, rel)
+			// Keep the detector's original box. PaddleOCR's DB detector already
+			// applies its unclip ratio; trimming by raster contrast here makes
+			// large Chinese glyph boxes too short and shifts them downward.
+			text, recognizeErr := paddleOCRRecognizeOriented(cropImg, modelDir)
+			if recognizeErr != nil {
+				writeError(w, http.StatusBadGateway, recognizeErr.Error())
+				return
+			}
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			x := float64(box.Min.X) * canvasW / float64(img.Bounds().Dx())
+			y := float64(box.Min.Y) * canvasH / float64(img.Bounds().Dy())
+			width := float64(box.Dx()) * canvasW / float64(img.Bounds().Dx())
+			height := float64(box.Dy()) * canvasH / float64(img.Bounds().Dy())
+			fontSize := ocrFontSize(height, text, height)
+			if n := len([]rune(strings.ReplaceAll(text, "\n", ""))); n > 0 {
+				// Reserve one extra pixel of effective width so the browser's
+				// fractional glyph metrics do not wrap the final character.
+				// Keep a tiny safety margin for browser glyph rounding; the
+				// rendered box itself remains tied to the detector polygon.
+				fontSize = math.Min(fontSize, math.Max(1, (math.Round(width)-2))/float64(n))
+			}
+			style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": paddleOCRTextColor(cropImg), "fontWeight": 400, "bold": false, "italic": false, "align": "left", "lineHeight": 1.0, "whiteSpace": "nowrap", "background": paddleOCRBackground(cropImg)}
+			dx1, dy1 := float64(poly.Points[1].X-poly.Points[0].X), float64(poly.Points[1].Y-poly.Points[0].Y)
+			dx2, dy2 := float64(poly.Points[2].X-poly.Points[1].X), float64(poly.Points[2].Y-poly.Points[1].Y)
+			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
+				dx1, dy1 = dx2, dy2
+			}
+			rotation := math.Atan2(dy1, dx1) * 180 / math.Pi
+			e := ppt.Element{ID: fmt.Sprintf("ocr-%d-%d", time.Now().UnixNano(), i), Type: "text", X: x + in.ImageOffsetX, Y: y + in.ImageOffsetY, Width: width, Height: height, Rotation: rotation, ZIndex: z + i, Content: text, Style: style, TextRuns: []ppt.TextRun{{Content: text, Style: style}}}
+			if e.Style == nil {
+				e.Style = map[string]any{}
+			}
+			e.Style["ocrPolygon"] = poly.Points
+			elements = append(elements, e)
+		}
+		writeJSON(w, 200, map[string]any{"elements": elements, "regions": len(elements), "polygons": polys, "provider": provider, "scanned": true})
 		return
 	}
 	if in.Width <= 1 || in.Height <= 1 {
@@ -844,7 +936,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "OCR 图片无法读取")
 			return
 		}
-		text, err := paddleOCRRecognize(img, modelDir)
+		text, err := paddleOCRRecognizeOriented(img, modelDir)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
@@ -1064,13 +1156,31 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 			keys = append(keys, key)
 		}
 	}
-	sort.Strings(keys)
+	sort.SliceStable(keys, func(i, j int) bool {
+		// Present the bundled PP-OCRv6 package first.
+		vi := strings.EqualFold(keys[i], "ppocrv6")
+		vj := strings.EqualFold(keys[j], "ppocrv6")
+		if vi != vj {
+			return vi
+		}
+		return keys[i] < keys[j]
+	})
 	models := make([]map[string]any, 0, len(keys))
 	for _, key := range keys {
 		bundle := bundles[key]
 		name := bundle.dir
 		if name == "" {
 			name = "PaddleOCR"
+		}
+		if strings.EqualFold(bundle.dir, "ppocrv6") {
+			name = "PP-OCRv6 检测 + 识别"
+		} else {
+			for _, dir := range dirs {
+				if st, err := os.Stat(filepath.Join(dir, "PP-OCRv6_det_small.onnx")); err == nil && !st.IsDir() {
+					name = "PP-OCRv6 检测 + " + name + " 识别"
+					break
+				}
+			}
 		}
 		models = append(models, map[string]any{"id": bundle.dir, "name": name, "size": bundle.size, "available": true, "local": true})
 	}

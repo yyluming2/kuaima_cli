@@ -21,7 +21,8 @@
   function App() {
     const [masterMode, setMasterMode] = useState(false);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
     useEffect(() => {
       let cancelled = false;
       if (typeof window.queryLocalFonts !== "function") return undefined;
@@ -66,28 +67,31 @@
       return n
     });
     const ocrCache = useRef(new Map());
-    const cachedOCRAtPoint = (x, y) => {
-      const list = ocrCache.current.get(slideKey(deck, slide)) || [];
-      // Prefer the smallest matching box; this keeps nested/overlapping OCR
-      // patches deterministic when a slide has been edited repeatedly.
-      return list.filter(e => x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height)
+    const imageAtPoint = (x, y) => (deck?.slides?.[slide]?.elements || []).filter(e => e.type === "image" && e.assetUrl && x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height).sort((a, b) => (Number(b.zIndex) || 0) - (Number(a.zIndex) || 0))[0] || null;
+    const ocrKey = image => {
+      const src = String(image?.assetUrl || "");
+      return `${slideKey(deck, slide)}|${image?.id || "image"}|${ocrProvider}|${src.length}:${src.slice(0, 24)}:${src.slice(-24)}`;
+    };
+    const cachedOCRAtPoint = (image, x, y) => {
+      const entry = image ? ocrCache.current.get(ocrKey(image)) : null;
+      const item = (entry?.items || []).filter(e => x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height)
         .sort((a, b) => (a.width * a.height) - (b.width * b.height))[0] || null;
+      return { scanned: !!entry?.scanned, item };
     };
-    const rememberOCR = (items, index = slide, value = deck) => {
-      const key = slideKey(value, index), prior = ocrCache.current.get(key) || [], merged = new Map(prior.map(e => [e.id, e]));
-      (items || []).filter(e => e?.type === "text" && String(e.id || "").startsWith("ocr-")).forEach(e => merged.set(e.id, e));
-      ocrCache.current.set(key, [...merged.values()]);
+    const materializeOCR = item => {
+      if (!item) return false;
+      setDeck(d => {
+        const n = structuredClone(d), list = n.slides[slide].elements || (n.slides[slide].elements = []);
+        if (!list.some(e => e.id === item.id)) list.push(structuredClone(item));
+        return n;
+      });
+      setSelected(item.id); setEditing(item.id);
+      return true;
     };
-    useEffect(() => {
-      (deck?.slides || []).forEach((s, i) => rememberOCR(s.elements, i, deck));
-    }, [deck]);
-    const runOCR = async rect => {
-      // width/height of zero means: let the server detect the text bounds
-      // dynamically from the clicked slide pixels.
-      if (!deck || !rect || rect.width < 0 || rect.height < 0) return;
-      setBusy(true); setOcrMode(false); setOcrRect(null);
+    const runOCR = async (rect, image) => {
+      if (!deck || !rect || !image) return;
+      setBusy(true); setOcrBusy(true); setOcrMode(false); setOcrRect(null);
       try {
-        const image = (deck.slides?.[slide]?.elements || []).find(e => e.type === "image" && e.assetUrl);
         let imageData = image?.assetUrl || "";
         // Data URLs are already inline. Generated images may be served from a
         // short URL, so materialize the actual bytes before sending OCR.
@@ -97,8 +101,7 @@
           const blob = await response.blob();
           imageData = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); });
         }
-        const onImage = image && image.width > 0 && image.height > 0;
-        const localRect = onImage ? { ...rect, x: rect.x - Number(image.x || 0), y: rect.y - Number(image.y || 0), asset: imageData, cropWidth: image.width, cropHeight: image.height, imageOffsetX: image.x || 0, imageOffsetY: image.y || 0 } : rect;
+        const localRect = { ...rect, x: rect.x - Number(image.x || 0), y: rect.y - Number(image.y || 0), asset: imageData, cropWidth: image.width, cropHeight: image.height, imageOffsetX: image.x || 0, imageOffsetY: image.y || 0, scanAll: true };
         const deckForOCR = structuredClone(deck);
         if (imageData.startsWith("data:image/")) (deckForOCR.slides || []).forEach(s => (s.elements || []).forEach(e => { if (e.type === "image") e.assetUrl = ""; }));
         const payload = { presentation: deckForOCR, slideIndex: slide, provider: ocrProvider, imageData, ...localRect };
@@ -107,17 +110,22 @@
         const out = await r.json().catch(() => ({}));
         console.info("[ppt-ocr] response", { status: r.status, ok: r.ok, body: out });
         if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`);
-        if (!out.text) { alert(`点击位置附近没有识别到文字（检测区域 ${out.cropWidth || "?"}×${out.cropHeight || "?"}）`); return; }
-        if (out.element) { const added = Array.isArray(out.elements) && out.elements.length ? out.elements : [out.element]; rememberOCR(added); setDeck(d => { const n = structuredClone(d); n.slides[slide].elements = [...(n.slides[slide].elements || []), ...added]; return n; }); setSelected(out.element.id); }
-        else if (out.presentation) { const normalized = normalizeDeck(out.presentation); rememberOCR(normalized.slides[slide]?.elements, slide, normalized); setDeck(normalized); setSelected(normalized.slides[slide]?.elements?.at(-1)?.id || null); }
-      } catch (e) { alert("OCR 失败：" + e.message); } finally { setBusy(false); }
+        const items = (out.elements || []).filter(e => e?.type === "text");
+        ocrCache.current.set(ocrKey(image), { scanned: true, items });
+        const hit = items.filter(e => rect.x >= e.x && rect.x <= e.x + e.width && rect.y >= e.y && rect.y <= e.y + e.height).sort((a, b) => (a.width * a.height) - (b.width * b.height))[0];
+        materializeOCR(hit);
+      } catch (e) { alert("OCR 失败：" + e.message); } finally { setOcrBusy(false); setBusy(false); }
     };
     const ocrAtPoint = ev => {
       const c = ev.target?.closest?.('.canvas'); if (!c) return false;
       ev.preventDefault(); ev.stopPropagation();
       const q = c.getBoundingClientRect();
       const x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
-      runOCR({ x, y, width: 0, height: 0 });
+      const image = imageAtPoint(x, y); if (!image) return false;
+      const cached = cachedOCRAtPoint(image, x, y);
+      if (cached.scanned) {
+        materializeOCR(cached.item);
+      } else runOCR({ x, y, width: 0, height: 0 }, image);
       return true;
     };
     useEffect(() => {
@@ -129,8 +137,6 @@
         if (el && !el.classList.contains('image-el') && !ocrMode) return;
         const c = ev.target?.closest?.('.canvas'); if (!c) return;
         const q = c.getBoundingClientRect(), x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
-        const cached = cachedOCRAtPoint(x, y);
-        if (cached) { ev.preventDefault(); ev.stopPropagation(); setSelected(cached.id); setEditing(cached.id); return; }
         ocrAtPoint(ev);
       };
       document.addEventListener('dblclick', pick, true);
@@ -367,7 +373,7 @@
       const st = { ...defaults, ...e.style, ...visualStyle(e, e.style || {}) }, bold = st.bold || Number(st.fontWeight) >= 600, isEditing = editing === e.id;
       const geometryOnly = e.geometry?.type === "custom" || e.geometry?.type === "line";
       return h("div", {
-        key: e.id, "data-ppt-id": e.id, className: "el " + (e.type === "image" ? "image-el " : "") + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
+         key: e.id, "data-ppt-id": e.id, className: "el " + (e.type === "image" ? "image-el " : "") + (String(e.id).startsWith("ocr-") ? "ocr-el " : "") + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
           ev.stopPropagation();
           setSelected(e.id)
         }, onDoubleClick: ev => {
@@ -380,14 +386,14 @@
             setSelected(e.id);
             drag.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } }
           }
-        }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, textAlign: textAlign(st.align), lineHeight: st.lineHeight || undefined, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center" }
+      }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, textAlign: textAlign(st.align), lineHeight: st.lineHeight || undefined, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, paddingTop: st.paddingTop != null ? Number(st.paddingTop) : undefined, paddingLeft: st.paddingLeft != null ? Number(st.paddingLeft) : undefined, zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center" }
       }, h("div", { className: "el-content", style: { ...(geometryOnly ? {} : fillStyle(st.background || e.fill?.image?.assetUrl)), ...shapeStyle(st.shape, st, e.width, e.height), ...(geometryOnly ? {} : boxStyle(st)) } }, geometryOnly ? null : imageFill(st.background || e.fill?.image?.assetUrl), customPath(e, st), e.type === "image" && e.assetUrl ? h(ImageBlock, { src: e.assetUrl, alt: "图片", style: st }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const runs = readEditableRuns(node); update(x => { x.textRuns = runs.length ? runs : [{ content: node?.textContent || "", style: { ...x.style } }]; x.content = runs.map((r, i) => (i && r.paragraph !== runs[i - 1].paragraph ? "\n" : "") + r.content).join(""); }, e.id); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); setEditing(null) } } }, textRuns(e, st)) : textRuns(e, st)), e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
         key: dir, className: "handle " + dir, onMouseDown: ev => {
           ev.stopPropagation();
           resize.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } }
         }
       })))
-    }))), h("input", {
+    }))), ocrBusy && h("div", { className: "ocr-scan-overlay", role: "status" }, h("div", { className: "ocr-scan-line" }), h("span", null, "正在扫描图片文字…")), h("input", {
       ref: fileInput, type: "file", accept: "image/*", style: { display: "none" }, onChange: ev => {
         const f = ev.target.files?.[0];
         if (f) {

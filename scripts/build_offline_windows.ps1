@@ -53,6 +53,13 @@ if ($LASTEXITCODE -ne 0) { throw "Application build failed." }
 Copy-Item -LiteralPath $runtimeDLL -Destination (Join-Path $engine "onnxruntime.dll") -Force
 $modelFiles = Get-ChildItem -LiteralPath $modelCache -Filter "*.onnx" -File -ErrorAction SilentlyContinue
 if ($modelFiles) { $modelFiles | Copy-Item -Destination $models -Force }
+# Bundle the repository's PaddleOCR packages (including the nested PP-OCRv6
+# det/rec bundle) so offline builds use the same models as development runs.
+$paddleModels = Join-Path $root "models\paddleocr"
+if (Test-Path -LiteralPath $paddleModels) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $models "paddleocr") | Out-Null
+    Copy-Item -LiteralPath $paddleModels -Destination (Join-Path $models "paddleocr") -Recurse -Force
+}
 Copy-Item -LiteralPath $usageGuide -Destination $stage -Force
 
 $archive = Join-Path $dist "kuaima-cli-v$Version-windows-amd64-offline.zip"
