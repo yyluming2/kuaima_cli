@@ -21,7 +21,7 @@
   function App() {
     const [masterMode, setMasterMode] = useState(false);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
     useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
     useEffect(() => {
       let cancelled = false;
@@ -90,7 +90,7 @@
     };
     const runOCR = async (rect, image) => {
       if (!deck || !rect || !image) return;
-      setBusy(true); setOcrBusy(true); setOcrMode(false); setOcrRect(null);
+      setBusy(true); setOcrBusy(true); setOcrTarget({ x: image.x, y: image.y, width: image.width, height: image.height, rotation: image.rotation || 0 }); setOcrMode(false); setOcrRect(null);
       try {
         let imageData = image?.assetUrl || "";
         // Data URLs are already inline. Generated images may be served from a
@@ -114,7 +114,7 @@
         ocrCache.current.set(ocrKey(image), { scanned: true, items });
         const hit = items.filter(e => rect.x >= e.x && rect.x <= e.x + e.width && rect.y >= e.y && rect.y <= e.y + e.height).sort((a, b) => (a.width * a.height) - (b.width * b.height))[0];
         materializeOCR(hit);
-      } catch (e) { alert("OCR 失败：" + e.message); } finally { setOcrBusy(false); setBusy(false); }
+      } catch (e) { alert("OCR 失败：" + e.message); } finally { setOcrBusy(false); setOcrTarget(null); setBusy(false); }
     };
     const ocrAtPoint = ev => {
       const c = ev.target?.closest?.('.canvas'); if (!c) return false;
@@ -393,7 +393,7 @@
           resize.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } }
         }
       })))
-    }))), ocrBusy && h("div", { className: "ocr-scan-overlay", role: "status" }, h("div", { className: "ocr-scan-line" }), h("span", null, "正在扫描图片文字…")), h("input", {
+    })), ocrBusy && ocrTarget && h("div", { className: "ocr-scan-overlay", role: "status", "aria-label": "正在扫描图片文字", style: { left: ocrTarget.x + "px", top: ocrTarget.y + "px", width: ocrTarget.width + "px", height: ocrTarget.height + "px", transform: `rotate(${ocrTarget.rotation}deg)`, transformOrigin: "center" } }, h("div", { className: "ocr-scan-line" }))), h("input", {
       ref: fileInput, type: "file", accept: "image/*", style: { display: "none" }, onChange: ev => {
         const f = ev.target.files?.[0];
         if (f) {

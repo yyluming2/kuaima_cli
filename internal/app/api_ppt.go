@@ -867,7 +867,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 				// rendered box itself remains tied to the detector polygon.
 				fontSize = math.Min(fontSize, math.Max(1, (math.Round(width)-2))/float64(n))
 			}
-			style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": paddleOCRTextColor(cropImg), "fontWeight": 400, "bold": false, "italic": false, "align": "left", "lineHeight": 1.0, "whiteSpace": "nowrap", "background": paddleOCRBackground(cropImg)}
+			style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": paddleOCRTextColor(cropImg), "fontWeight": 400, "bold": false, "italic": false, "align": "left", "verticalAlign": "middle", "lineHeight": 1.0, "whiteSpace": "nowrap", "background": paddleOCRBackground(cropImg)}
 			dx1, dy1 := float64(poly.Points[1].X-poly.Points[0].X), float64(poly.Points[1].Y-poly.Points[0].Y)
 			dx2, dy2 := float64(poly.Points[2].X-poly.Points[1].X), float64(poly.Points[2].Y-poly.Points[1].Y)
 			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
@@ -950,7 +950,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		}
 		fontSize := ocrFontSize(in.Height, text, 24)
 		background := paddleOCRBackground(img)
-		style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": "#111827", "fontWeight": 400, "bold": false, "italic": false, "align": "left", "background": background}
+		style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": "#111827", "fontWeight": 400, "bold": false, "italic": false, "align": "left", "verticalAlign": "middle", "background": background}
 		sl := &in.Presentation.Slides[in.SlideIndex]
 		z := nextPPTOCRZ(sl.Elements)
 		// Cover the raster glyphs before adding the editable OCR text. The
@@ -1026,7 +1026,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			return 700
 		}
 		return 400
-	}(), "italic": out.Italic, "align": out.Align, "background": "transparent"}
+	}(), "italic": out.Italic, "align": out.Align, "verticalAlign": "middle", "background": "transparent"}
 	// A solid patch hides the old raster text when the OCR model can estimate
 	// the local background. Users can remove or recolor this patch manually.
 	if out.BackgroundColor == "" || strings.EqualFold(strings.TrimSpace(out.BackgroundColor), strings.TrimSpace(out.Color)) {

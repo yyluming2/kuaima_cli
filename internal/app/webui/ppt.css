@@ -1058,9 +1058,9 @@ main.inspector-collapsed {
 .ocr-el { padding: 0; }
 .ppt-ocr-mode .canvas, .ppt-ocr-mode .canvas * { cursor: crosshair !important; }
 .ppt-ocr-busy .canvas, .ppt-ocr-busy .canvas * { cursor: wait !important; }
-.ocr-scan-overlay { position:absolute; inset:0; z-index:10000; pointer-events:none; display:flex; align-items:center; justify-content:center; overflow:hidden; background:rgba(15,23,42,.12); color:#fff; text-shadow:0 1px 3px #0f172a; font-size:15px; font-weight:600; }
-.ocr-scan-overlay:before { content:""; position:absolute; inset:0; background:repeating-linear-gradient(0deg, transparent 0 18px, rgba(59,130,246,.08) 19px 20px); }
-.ocr-scan-line { animation-name: ocr-scan-position; }
+.ocr-scan-overlay { position:absolute; z-index:10000; pointer-events:none; overflow:hidden; border-radius:10px; background:transparent; }
+.ocr-scan-overlay:before { content:none; }
+.ocr-scan-line { position:absolute; left:0; right:0; top:0; height:3px; background:#38bdf8; box-shadow:0 0 16px 5px #38bdf899; animation:ocr-scan-position 1.35s ease-in-out infinite; }
 @keyframes ocr-scan-position { 0%,100% { top:0; opacity:.45; } 50% { top:calc(100% - 3px); opacity:1; } }
-.ocr-scan-line { position:absolute; left:0; right:0; top:0; height:3px; background:#38bdf8; box-shadow:0 0 16px 5px #38bdf899; animation:ocr-scan 1.35s ease-in-out infinite; }
+.ocr-scan-line { position:absolute; left:0; right:0; top:0; height:3px; background:#38bdf8; box-shadow:0 0 16px 5px #38bdf899; }
 @keyframes ocr-scan { 0%,100% { transform:translateY(0); opacity:.45; } 50% { transform:translateY:calc(100% - 3px); opacity:1; } }
