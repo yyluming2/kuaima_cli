@@ -54,15 +54,18 @@ func paddleOCRDetectPolygons(img image.Image, modelDir string) ([]OCRPolygon, er
 
 func paddleOCRDetectRaw(img image.Image, modelDir string) ([]OCRPolygon, error) {
 	det := filepath.Join(modelDir, "det.onnx")
+	preferSmall := strings.Contains(strings.ToLower(filepath.Base(filepath.Clean(modelDir))), "small")
 	// Prefer the bundled PP-OCRv6 detector when present. Recognition remains
 	// independent because PaddleOCR distributes det/rec as separate models.
-	for _, candidate := range []string{
-		filepath.Join(filepath.Dir(modelDir), "PP-OCRv6_det_small.onnx"),
-		filepath.Join(modelDir, "PP-OCRv6_det_small.onnx"),
-	} {
-		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-			det = candidate
-			break
+	if preferSmall {
+		for _, candidate := range []string{
+			filepath.Join(modelDir, "PP-OCRv6_det_small.onnx"),
+			filepath.Join(modelDir, "PP-OCRv6_det_infer.onnx"),
+		} {
+			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+				det = candidate
+				break
+			}
 		}
 	}
 	if st, err := os.Stat(det); err != nil || st.IsDir() {
@@ -585,19 +588,19 @@ func paddleOCRModelDir(provider, rembgPath string) string {
 		}
 		// Keep the legacy provider id pointed at the bundled v6 model.
 		if provider == "PaddleOCR" || provider == "" {
-			for _, bundle := range []string{"ppocrv6"} {
+			for _, bundle := range []string{"ppocrv6-small", "ppocrv6"} {
 				candidate := filepath.Join(root, bundle)
-				if st, err := os.Stat(filepath.Join(candidate, "rec.onnx")); err == nil && !st.IsDir() {
+				if paddleOCRRecognitionPath(candidate) != "" {
 					return candidate
 				}
 			}
 		}
 		candidate := filepath.Join(root, provider)
-		if st, err := os.Stat(filepath.Join(candidate, "rec.onnx")); err == nil && !st.IsDir() {
+		if paddleOCRRecognitionPath(candidate) != "" {
 			return candidate
 		}
 		if provider == "PaddleOCR" || provider == "" {
-			if st, err := os.Stat(filepath.Join(root, "rec.onnx")); err == nil && !st.IsDir() {
+			if paddleOCRRecognitionPath(root) != "" {
 				return root
 			}
 		}
@@ -605,8 +608,29 @@ func paddleOCRModelDir(provider, rembgPath string) string {
 	return ""
 }
 
+// paddleOCRRecognitionPath accepts both the legacy rec.onnx name and the
+// filenames published in RapidAI's PP-OCRv6 ModelScope bundle.  Small/mobile
+// exports are tried first so a lightweight model is used automatically when
+// it is installed next to a larger fallback model.
+func paddleOCRRecognitionPath(modelDir string) string {
+	names := []string{"rec.onnx"}
+	if strings.Contains(strings.ToLower(filepath.Base(filepath.Clean(modelDir))), "small") {
+		names = []string{"PP-OCRv6_rec_small.onnx", "PP-OCRv6_rec_infer_small.onnx", "PP-OCRv6_rec_infer.onnx", "rec_small.onnx", "rec.onnx"}
+	}
+	for _, name := range names {
+		path := filepath.Join(modelDir, name)
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			return path
+		}
+	}
+	return ""
+}
+
 func paddleOCRRecognize(img image.Image, modelDir string) (string, error) {
-	rec := filepath.Join(modelDir, "rec.onnx")
+	rec := paddleOCRRecognitionPath(modelDir)
+	if rec == "" {
+		return "", fmt.Errorf("PaddleOCR 模型缺少识别模型（rec.onnx/PP-OCRv6_rec_infer.onnx）")
+	}
 	keys, err := os.ReadFile(filepath.Join(modelDir, "ppocr_keys_v1.txt"))
 	if err != nil {
 		keys, err = os.ReadFile(filepath.Join(modelDir, "keys.txt"))

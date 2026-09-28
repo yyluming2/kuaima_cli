@@ -800,7 +800,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	if in.ScanAll && provider != "remote" {
 		modelDir := paddleOCRModelDir(provider, s.rembgPath)
 		if modelDir == "" {
-			writeError(w, http.StatusNotFound, "PaddleOCR 模型不存在或缺少 rec.onnx")
+			writeError(w, http.StatusNotFound, "PaddleOCR 模型不存在或缺少识别模型")
 			return
 		}
 		full, err := cropPPTOCRImage(r.Context(), asset, 0, 0, in.Presentation.Width, in.Presentation.Height, in.Presentation.Width, in.Presentation.Height)
@@ -918,7 +918,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 	if provider != "" && provider != "remote" {
 		modelDir := paddleOCRModelDir(provider, s.rembgPath)
 		if modelDir == "" {
-			writeError(w, http.StatusNotFound, "PaddleOCR 模型不存在或缺少 rec.onnx")
+			writeError(w, http.StatusNotFound, "PaddleOCR 模型不存在或缺少识别模型")
 			return
 		}
 		comma := strings.IndexByte(cropped, ',')
@@ -1152,14 +1152,14 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 	// A bundle is usable when its recognition model and dictionary are present.
 	keys := make([]string, 0, len(bundles))
 	for key, bundle := range bundles {
-		if bundle.files["rec.onnx"] && (bundle.files["ppocr_keys_v1.txt"] || bundle.files["keys.txt"]) {
+		if (bundle.files["rec.onnx"] || bundle.files["pp-ocrv6_rec_small.onnx"] || bundle.files["pp-ocrv6_rec_infer_small.onnx"] || bundle.files["pp-ocrv6_rec_infer.onnx"] || bundle.files["rec_small.onnx"]) && (bundle.files["ppocr_keys_v1.txt"] || bundle.files["keys.txt"]) {
 			keys = append(keys, key)
 		}
 	}
 	sort.SliceStable(keys, func(i, j int) bool {
 		// Present the bundled PP-OCRv6 package first.
-		vi := strings.EqualFold(keys[i], "ppocrv6")
-		vj := strings.EqualFold(keys[j], "ppocrv6")
+		vi := strings.EqualFold(keys[i], "ppocrv6-small")
+		vj := strings.EqualFold(keys[j], "ppocrv6-small")
 		if vi != vj {
 			return vi
 		}
@@ -1172,8 +1172,10 @@ func (s *webUIServer) handlePPTOCRModels(w http.ResponseWriter, r *http.Request)
 		if name == "" {
 			name = "PaddleOCR"
 		}
-		if strings.EqualFold(bundle.dir, "ppocrv6") {
-			name = "PP-OCRv6 检测 + 识别"
+		if strings.EqualFold(bundle.dir, "ppocrv6-small") {
+			name = "PP-OCRv6 Small（轻量）"
+		} else if strings.EqualFold(bundle.dir, "ppocrv6") {
+			name = "PP-OCRv6 Medium（标准）"
 		} else {
 			for _, dir := range dirs {
 				if st, err := os.Stat(filepath.Join(dir, "PP-OCRv6_det_small.onnx")); err == nil && !st.IsDir() {
