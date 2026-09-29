@@ -19,7 +19,10 @@
   document.querySelector("#pptReferenceDeck")?.addEventListener("change", referenceStatus);
   setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
   function App() {
+    useEffect(() => { const button = document.querySelector("#pptAiOpen"), bar = document.querySelector(".bar"), entry = document.querySelector(".ppt-ai-entry"); if (button && bar) { bar.appendChild(button); if (entry) entry.remove(); [...bar.querySelectorAll("button")].forEach(node => { if (node !== button && node.textContent.includes("AI 制作 PPT")) { const text = node.querySelector("span"); if (text) text.textContent = "新建 PPT"; } }); } }, []);
     const [masterMode, setMasterMode] = useState(false);
+    useEffect(() => { const button = document.querySelector("#pptInspectorReopen"), panel = document.querySelector(".side"); if (!button) return; button.hidden = false; button.onclick = () => setInspectorOpen(v => !v); const place = () => { const rect = panel?.getBoundingClientRect(); if (rect) { button.style.left = `${Math.max(4, rect.left - button.offsetWidth)}px`; button.style.top = `${rect.top + 10}px`; button.style.right = "auto"; } }; place(); addEventListener("resize", place); window.lucide && window.lucide.createIcons(); return () => removeEventListener("resize", place); }, [inspectorOpen]);
+    useEffect(() => { const toggle = () => setInspectorOpen(v => !v); addEventListener("ppt-toggle-inspector", toggle); return () => removeEventListener("ppt-toggle-inspector", toggle); }, []);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
     const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [inspectorOpen, setInspectorOpen] = useState(true), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
     useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
@@ -30,7 +33,7 @@
         if (!cancelled) setLocalFonts([...new Set([...fallbackFonts, ...fonts.map(font => font.family).filter(Boolean)])]);
       }).catch(() => {});
       return () => { cancelled = true; };
-    }, []);
+    }, [ocrBusy, ocrMode]);
     const fontFamilies = [...new Set([...localFonts, ...presentationFonts(deck)])].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     // PPTX object ids are often reused on every slide. Clear stale selection
     // state when changing pages so old SVG connectors and resize handles are
@@ -154,7 +157,7 @@
       const wrap = document.createElement('label'); wrap.className = 'ocr-engine-picker'; wrap.title = 'OCR 引擎';
       const select = document.createElement('select'); select.setAttribute('aria-label', 'OCR 引擎');
       select.innerHTML = '<option disabled>正在读取本地模型…</option>';
-      wrap.appendChild(select); tools.insertBefore(wrap, tools.firstChild);
+      wrap.appendChild(select); wrap.hidden = true; const ocrButton = tools.querySelector('.ocr-tool-button'); if (ocrButton) { ocrButton.insertAdjacentElement('afterend', wrap); wrap.style.left = `${ocrButton.offsetLeft}px`; ocrButton.addEventListener('click', () => { wrap.hidden = !wrap.hidden; }); } else tools.insertBefore(wrap, tools.firstChild);
       fetch('/api/ppt/ocr/models').then(r => r.json()).then(out => {
         select.innerHTML = '';
         (out.models || []).forEach(m => {
@@ -171,7 +174,7 @@
       }).catch(() => { select.innerHTML = '<option value="local:PaddleOCR">本地 PaddleOCR（未检测到模型）</option><option value="remote">远程 OCR（可能收费）</option>'; select.value = 'local:PaddleOCR'; });
       select.onchange = () => setOcrProvider(select.value);
       return () => wrap.remove();
-    }, []);
+    }, [current?.type]);
     const changeLayer = direction => {
       if (!selected) return;
       trackedSetDeck(d => {
@@ -356,9 +359,10 @@
         a.click()
       } catch (e) { alert("导出失败：" + e.message) }
     };
-    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["table", "table-2", "表格"], ["chart", "chart-column", "图表"], ["image", "image-plus", "图片"], ["ocr", "scan-text", "双击 OCR"]];
-    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("input", { value: topic, onChange: e => setTopic(e.target.value), placeholder: "主题" }), h("input", { value: theme, onChange: e => setTheme(e.target.value), placeholder: "风格" }), h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "新建 PPT")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, onClick: () => add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), h("button", { onClick: () => setInspectorOpen(v => !v) }, icon(inspectorOpen ? "panel-right-close" : "panel-right-open"), h("span", null, inspectorOpen ? "收起属性" : "展开属性")), h("button", {
-      className: "danger", disabled: !current, onClick: removeSelected
+    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["image", "image-plus", "图片"]];
+    if (current?.type === "image") tools.push(["ocr", "scan-text", "双击 OCR"]);
+    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, busy ? "生成中…" : "AI 制作 PPT")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: t === "ocr" ? "ocr-tool-button" : "", onClick: () => add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), current && h("button", {
+      className: "danger", onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
       key: s.id || i, className: "thumb " + (i === slide ? "active" : ""), draggable: true,
       onDragStart: ev => { slideDrag.current = i; ev.dataTransfer.effectAllowed = "move"; ev.currentTarget.classList.add("dragging"); },

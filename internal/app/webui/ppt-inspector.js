@@ -38,7 +38,7 @@
 
   const primaryTab = element => element?.type === "text" ? "text" : element?.type === "image" ? "image" : element?.type === "shape" ? "shape" : element ? "content" : "layout";
 
-  function Inspector({ element, onChange, onReplaceImage, onPickBackground, onPickElementBackground, onLayer, master, onMasterChange, themeColors = [], fontFamilies = [] }) {
+  function Inspector({ element, onChange, onReplaceImage, onPickBackground, onPickElementBackground, onLayer, onToggle, master, onMasterChange, themeColors = [], fontFamilies = [] }) {
     const [activeTab, setActiveTab] = useState(primaryTab(element));
     useEffect(() => setActiveTab(primaryTab(element)), [element?.id, !!master]);
     useEffect(() => { window.lucide && window.lucide.createIcons(); }, [activeTab, element?.id]);
@@ -103,7 +103,7 @@
     const shownTab = tabs.some(tab => tab.id === activeTab) ? activeTab : tabs[0].id;
 
     return h("aside", { className: "side" },
-      h("div", { className: "inspector-heading" }, h("b", null, "元素属性"), h("div", { className: "type-hint" }, names[element.type] || element.type, style.shapeName ? ` · ${style.shapeName}` : "")),
+      h("div", { className: "inspector-heading" }, h("div", { className: "inspector-title-row" }, h("b", null, "元素属性"), h("button", { type: "button", className: "inspector-toggle", onClick: () => onToggle?.() || window.dispatchEvent(new Event("ppt-toggle-inspector")), title: "收起属性" }, icon("panel-right-close"))), h("div", { className: "type-hint" }, names[element.type] || element.type, style.shapeName ? ` · ${style.shapeName}` : "")),
       h("div", { className: "inspector-tabs", role: "tablist" }, tabs.map(tab => h(TabButton, { key: tab.id, ...tab, active: shownTab, onClick: setActiveTab }))),
 
       shownTab === "layout" && h("div", { className: "inspector-tab" },

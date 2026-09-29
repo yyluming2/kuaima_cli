@@ -125,12 +125,28 @@ main {
     padding: 24px;
     min-width: 0;
     align-items: start;
-    overflow: auto
+    overflow-x: auto;
+    overflow-y: auto
 }
 
 main.inspector-collapsed {
-    grid-template-columns: 150px minmax(0, 1fr)
+    grid-template-columns: 150px minmax(0, 1fr) 42px
 }
+
+.inspector-title-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.inspector-toggle { display:none; }
+.inspector-reopen { border:1px solid #d6dce8; border-radius:7px; background:#fff; color:#64748b; cursor:pointer; }
+.inspector-reopen { align-self:start; padding:8px 6px; writing-mode:vertical-rl; }
+.ocr-tool-button { position:relative; }
+.ocr-engine-picker { position:absolute; z-index:30; margin-top:42px; margin-left:-8px; padding:6px; background:#fff; border:1px solid #d6dce8; border-radius:7px; box-shadow:0 4px 14px #26344d22; }
+.ocr-engine-picker select { max-width:220px; padding:5px; border:0; background:#fff; color:#334155; }
+#pptInspectorReopen { position:fixed; right:324px; top:174px; z-index:40; width:30px; height:54px; padding:14px 5px; box-sizing:border-box; border:1px solid #d9e1ee; border-right:0; border-radius:10px 0 0 10px; background:#fff; color:#64748b; cursor:pointer; box-shadow:-3px 2px 10px #26344d18; }
+#pptInspectorReopen:hover { border-color:#3478f6; color:#3478f6; }
+#pptInspectorReopen[hidden] { display:none; }
+.bar { position:relative; }
+.tools { position:relative; }
+.ocr-engine-picker { top:42px; margin-top:0; margin-left:0; }
+.canvas-wrap { width:100% !important; max-width:100%; overflow-x:auto; overflow-y:visible; }
 
 #slides {
     width: auto;
@@ -271,8 +287,8 @@ main.inspector-collapsed {
     border-radius: 10px;
     box-shadow: 0 4px 16px #26344d0c;
     scrollbar-width: thin;
-    position: sticky;
-    top: 16px;
+    position: static;
+    top: auto;
     z-index: 20
 }
 
