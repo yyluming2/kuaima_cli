@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"kuaima_cli/internal/ppt"
 	genppt "github.com/CoolBanHub/genppt"
+	"kuaima_cli/internal/ppt"
 )
 
 func TestCustomGeometrySVGEmbedsImageFill(t *testing.T) {
@@ -24,6 +24,14 @@ func TestCustomGeometrySVGEmbedsImageFill(t *testing.T) {
 	}
 	if !strings.Contains(s, "clip-path=\"url(#ppt-image-clip)\"") {
 		t.Fatalf("custom geometry does not clip image to path: %s", s)
+	}
+}
+
+func TestExportFontFamilyStripsSurroundingQuotes(t *testing.T) {
+	for _, input := range []string{`"Arial"`, `'Microsoft YaHei'`, "  \"思源黑体\"  "} {
+		if got := exportFontFamily(input, nil); got == input || strings.ContainsAny(got, "\"'") {
+			t.Fatalf("exportFontFamily(%q) = %q, want an unquoted family", input, got)
+		}
 	}
 }
 

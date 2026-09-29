@@ -1462,7 +1462,7 @@ func styleLineHeight(m map[string]any, key string, fontSizePx float64) (float64,
 }
 
 func exportFontFamily(family string, embedded []ppt.FontAsset) string {
-	family = strings.TrimSpace(family)
+	family = normalizeFontFamily(family)
 	if family == "" {
 		return ""
 	}
@@ -1471,7 +1471,7 @@ func exportFontFamily(family string, embedded []ppt.FontAsset) string {
 	// missing font even though the source editor rendered it successfully.
 	found, usable := false, false
 	for _, asset := range embedded {
-		if !strings.EqualFold(strings.TrimSpace(asset.Family), family) {
+		if !strings.EqualFold(normalizeFontFamily(asset.Family), family) {
 			continue
 		}
 		found = true
@@ -1482,6 +1482,20 @@ func exportFontFamily(family string, embedded []ppt.FontAsset) string {
 	}
 	if found && !usable {
 		return "Arial"
+	}
+	return family
+}
+
+// normalizeFontFamily removes presentation quotes that can be introduced when
+// a CSS font-family value is serialized through JSON. DrawingML's typeface
+// attribute expects the font name itself, not the surrounding CSS quotes.
+func normalizeFontFamily(family string) string {
+	family = strings.TrimSpace(family)
+	if len(family) >= 2 {
+		first, last := family[0], family[len(family)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			family = strings.TrimSpace(family[1 : len(family)-1])
+		}
 	}
 	return family
 }
