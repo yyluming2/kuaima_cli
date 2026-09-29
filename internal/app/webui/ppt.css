@@ -126,11 +126,28 @@ main {
     min-width: 0;
     align-items: start;
     overflow-x: auto;
-    overflow-y: auto
+    overflow-y: auto;
+    transition: grid-template-columns .28s ease
 }
 
 main.inspector-collapsed {
-    grid-template-columns: 150px minmax(0, 1fr) 42px
+    grid-template-columns: 150px minmax(0, 1fr) 0px
+}
+
+main > .side {
+    width: 300px;
+    overflow-x: hidden;
+    transition: width .28s ease, padding .28s ease, border-width .28s ease, opacity .2s ease;
+}
+
+main.inspector-collapsed > .side {
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    border-left-width: 0;
+    border-right-width: 0;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .inspector-title-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
@@ -604,6 +621,8 @@ main.inspector-collapsed {
         grid-column: auto;
         width: 280px
     }
+
+    main > .side { width: 280px; }
 
     #slides {
         width: auto
