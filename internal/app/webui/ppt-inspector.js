@@ -11,6 +11,28 @@
     ["pentagon", "五边形"], ["hexagon", "六边形"]
   ];
 
+  // Browsers generally expose the canonical (usually English) family name.
+  // Keep the value in the document unchanged, but use localized names in the
+  // picker so Chinese users can recognize the common system fonts quickly.
+  const fontDisplayNames = {
+    "Microsoft YaHei": "微软雅黑", "Microsoft YaHei UI": "微软雅黑 UI",
+    "SimSun": "宋体", "NSimSun": "新宋体", "SimHei": "黑体", "KaiTi": "楷体",
+    "FangSong": "仿宋", "DengXian": "等线", "YouYuan": "幼圆", "LiSu": "隶书",
+    "Microsoft JhengHei": "微软正黑", "PMingLiU": "新细明体", "MingLiU": "细明体",
+    "STHeiti": "华文黑体", "STSong": "华文宋体", "STKaiti": "华文楷体",
+    "STFangsong": "华文仿宋", "STZhongsong": "华文中宋", "STXihei": "华文细黑",
+    "Arial": "阿里亚尔", "Calibri": "卡利布里", "Cambria": "坎布里亚",
+    "Times New Roman": "新罗马", "Courier New": "新等宽", "Segoe UI": "Segoe UI",
+    "Aptos": "Aptos", "Helvetica": "赫尔维提卡", "Georgia": "乔治亚"
+  };
+  const fontLabel = font => {
+    const family = String(font || "").trim();
+    const localized = fontDisplayNames[family] || fontDisplayNames[family.replace(/^['"]|['"]$/g, "")];
+    return localized && localized !== family ? `${localized} · ${family}` : family;
+  };
+  const isChineseFont = font => /[\u3400-\u9fff]/.test(fontLabel(font)) || /(?:YaHei|JhengHei|SimSun|NSimSun|SimHei|KaiTi|FangSong|DengXian|YouYuan|LiSu|MingLiU|PMingLiU|STHeiti|STSong|STKaiti|STFangsong|STZhongsong|STXihei)/i.test(String(font || ""));
+  const fontPreview = font => isChineseFont(font) ? "你好 AaBb 123" : "AaBb 123";
+
   function ColorField({ label, value, onChange, allowTransparent = false, themeColors = [] }) {
     const pickerValue = /^#[0-9a-f]{6}$/i.test(value || "") ? value : "#ffffff";
     const themed = themeColors.filter(item => item?.value && /^#[0-9a-f]{6}$/i.test(item.value));
@@ -44,8 +66,11 @@
     useEffect(() => { window.lucide && window.lucide.createIcons(); }, [activeTab, element?.id]);
 
     const style = { ...defaults, ...(element?.style || {}) };
-    const fontOptions = Array.from(new Set([...(fontFamilies || []), style?.fontFamily, master?.fontFamily].filter(value => typeof value === "string" && value.trim()))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-    const fontSelect = (value, onSelect) => h("select", { value: value || "", onChange: event => { const next = event.target.value; loadFontFamily?.(next).catch(() => {}); onSelect(next); }, title: "选择字体" }, !value && h("option", { value: "" }, "默认字体"), fontOptions.map(font => h("option", { key: font, value: font }, font)));
+    const textContent = element?.type === "text" ? [element.content || "", ...(element.textRuns || []).map(run => run?.content || run?.text || "")].join(" ") : "";
+    const hasChineseText = /[\u3400-\u9fff]/.test(textContent);
+    const allFontOptions = Array.from(new Set([...(fontFamilies || []), style?.fontFamily, master?.fontFamily].filter(value => typeof value === "string" && value.trim())));
+    const fontOptions = allFontOptions.filter(font => !hasChineseText || isChineseFont(font) || font === style?.fontFamily).sort((a, b) => Number(isChineseFont(b)) - Number(isChineseFont(a)) || a.localeCompare(b, undefined, { sensitivity: "base" }));
+    const fontSelect = (value, onSelect) => h("select", { className: "font-picker", value: value || "", onChange: event => { const next = event.target.value; loadFontFamily?.(next).catch(() => {}); onSelect(next); }, title: "选择字体" }, !value && h("option", { value: "" }, "默认字体"), fontOptions.map(font => h("option", { key: font, value: font, style: { fontFamily: `\"${font.replace(/\"/g, "\\\"")}\", sans-serif` }, title: `${fontLabel(font)} · 示例：${fontPreview(font)}` }, `${fontLabel(font)}  ·  ${fontPreview(font)}`)));
 
     if (!element && master) {
       const set = (key, value) => onMasterChange?.(target => { target[key] = value; });
@@ -81,8 +106,8 @@
       })
     }));
     const cropField = (label, key) => h("label", null, label, h("input", { type: "number", min: 0, max: .99, step: .01, value: Number(style.crop?.[key] || 0), onChange: event => onChange(target => { target.style = { ...target.style, crop: { ...(target.style?.crop || {}), [key]: Number(event.target.value) } }; }) }));
-    const toggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!style[key], onChange: event => onChange(target => setStyle(target, key, event.target.checked)) }), label);
-    const flipToggle = (label, key) => h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!element[key], onChange: event => onChange(target => { target[key] = event.target.checked; }) }), label);
+    const toggle = (label, key, iconName) => h("label", { className: `check icon-toggle${style[key] ? " active" : ""}`, title: label, "aria-label": label }, h("input", { type: "checkbox", checked: !!style[key], onChange: event => onChange(target => setStyle(target, key, event.target.checked)) }), h("span", { className: "icon-toggle-glyph", "aria-hidden": "true" }, icon(iconName)), h("span", { className: "sr-only" }, label));
+    const flipToggle = (label, key, iconName) => h("label", { className: `check icon-toggle${element[key] ? " active" : ""}`, title: label, "aria-label": label }, h("input", { type: "checkbox", checked: !!element[key], onChange: event => onChange(target => { target[key] = event.target.checked; }) }), h("span", { className: "icon-toggle-glyph", "aria-hidden": "true" }, icon(iconName)), h("span", { className: "sr-only" }, label));
     const setColor = (key, value) => onChange(target => setStyle(target, key, value));
     const hasShape = element.type === "shape" || !!style.shape;
     const border = typeof style.border === "object" && style.border ? style.border : (() => { const match = String(style.border || "").match(/([\d.]+)px\s+(solid|dashed|dotted)\s+(#[0-9a-f]{6})/i); return match ? { width: Number(match[1]), style: match[2], color: match[3] } : {}; })();
@@ -110,7 +135,7 @@
         h("h3", null, "位置与大小"),
         h("section", { className: "geometry" }, field("X 位置", "x", "number"), field("Y 位置", "y", "number"), field("宽度", "width", "number", { min: 1 }), field("高度", "height", "number", { min: 1 })),
         h("section", { className: "geometry" }, field("旋转角度", "rotation", "number"), field("透明度", "opacity", "number", { min: 0, max: 1, step: .05 })),
-        h("div", { className: "checks" }, flipToggle("水平翻转", "flipH"), flipToggle("垂直翻转", "flipV")),
+        h("div", { className: "checks" }, flipToggle("水平翻转", "flipH", "flip-horizontal-2"), flipToggle("垂直翻转", "flipV", "flip-vertical-2")),
         h("h3", null, "元素层级"),
         h("div", { className: "layer-actions" },
           h("button", { type: "button", onClick: () => onLayer?.("front"), title: "移到最上层" }, icon("bring-to-front"), h("span", null, "置顶")),
@@ -127,7 +152,7 @@
         h("label", null, "文字对齐", h("select", { value: style.align === "just" ? "l" : (style.align || "l"), onChange: event => onChange(target => setStyle(target, "align", event.target.value)) }, h("option", { value: "l" }, "左对齐"), h("option", { value: "ctr" }, "居中"), h("option", { value: "r" }, "右对齐"))),
         h("label", null, "垂直对齐", h("select", { value: style.verticalAlign || "t", onChange: event => onChange(target => setStyle(target, "verticalAlign", event.target.value)) }, h("option", { value: "t" }, "顶部对齐"), h("option", { value: "ctr" }, "垂直居中"), h("option", { value: "b" }, "底部对齐"))),
         h("section", { className: "geometry" }, field("行间距", "lineHeight", "number"), field("字间距", "letterSpacing", "number")),
-        h("div", { className: "checks" }, toggle("加粗", "bold"), toggle("斜体", "italic"), toggle("下划线", "underline"))
+        h("div", { className: "checks" }, toggle("加粗", "bold", "bold"), toggle("斜体", "italic", "italic"), toggle("下划线", "underline", "underline"))
       ),
 
       shownTab === "content" && h("div", { className: "inspector-tab" },

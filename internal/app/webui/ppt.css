@@ -530,6 +530,62 @@ main.inspector-collapsed > .side {
     color: #53627b !important
 }
 
+.icon-toggle {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 32px;
+    justify-content: center;
+    border: 1px solid #d9e1ee;
+    border-radius: 7px;
+    background: #fff;
+    color: #53627b !important;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.checks .icon-toggle {
+    flex: 0 0 34px;
+    width: 34px;
+}
+
+.icon-toggle input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.icon-toggle-glyph,
+.icon-toggle-glyph svg {
+    width: 17px;
+    height: 17px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-toggle:hover {
+    border-color: #93b4ee;
+    color: #2563eb !important;
+}
+
+.icon-toggle.active {
+    border-color: #2563eb;
+    background: #eaf2ff;
+    color: #2563eb !important;
+}
+
+.sr-only {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
 .thumb-preview {
     height: 72px;
     margin-bottom: 6px;
@@ -1089,6 +1145,7 @@ main.inspector-collapsed > .side {
     }
 }
 .ppt-master-mode{position:fixed;top:12px;right:140px;z-index:20;background:#2563eb;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer}.ppt-master-mode.active{background:#059669}.master-banner{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;background:#fef3c7;color:#92400e;padding:6px;font-size:13px}.ppt-master-editing .canvas-wrap{outline:3px solid #f59e0b;outline-offset:6px}.ppt-master-editing #slides{opacity:.55}
+.font-picker{min-width:0}.font-picker option{font-size:14px;line-height:1.8;padding:4px 6px}
 .ocr-selection{position:absolute;z-index:9999;box-sizing:border-box;border:2px solid #2563eb;background:rgba(37,99,235,.14);pointer-events:none}
 .ocr-el { padding: 0; }
 .ppt-ocr-mode .canvas, .ppt-ocr-mode .canvas * { cursor: crosshair !important; }
