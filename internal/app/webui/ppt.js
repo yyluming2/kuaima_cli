@@ -196,6 +196,31 @@
         return n;
       });
     };
+    // Keyboard and modifier-drag operations share the same element model as
+    // the inspector, so they remain undoable and work on the master canvas.
+    const duplicateSelected = source => {
+      if (!source || source.locked || !deck) return null;
+      const copyId = `${source.id}-copy-${Date.now()}`;
+      const copy = structuredClone(source);
+      copy.id = copyId;
+      copy.x = Number(copy.x) + 10;
+      copy.y = Number(copy.y) + 10;
+      trackedSetDeck(d => {
+        const n = structuredClone(d);
+        const list = masterMode ? ((n.master || (n.master = {})).elements || (n.master.elements = [])) : (n.slides?.[slide]?.elements || []);
+        const maxZ = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1);
+        copy.zIndex = maxZ + 1;
+        list.push(structuredClone(copy));
+        if (masterMode) {
+          (n.slides || []).forEach(page => {
+            page.elements = [...(page.elements || []).filter(item => item.id !== copy.id), { ...structuredClone(copy), locked: true }];
+          });
+        }
+        return n;
+      });
+      setSelected(copyId);
+      return copyId;
+    };
     const W = Number(deck?.width) || 1280, H = Number(deck?.height) || 720;
     const jsonSnapshot = current ? structuredClone(current) : null;
     const pageJsonSnapshot = deck ? { ...deck, slides: (deck.slides || []).slice(slide, slide + 1) } : null;
@@ -280,6 +305,47 @@
         if (editing || tag === "input" || tag === "textarea" || target?.isContentEditable) return;
         if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
         if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === "y" || (ev.key.toLowerCase() === "z" && ev.shiftKey))) { ev.preventDefault(); redo(); return; }
+        if (!editing) {
+          const key = ev.key;
+          if (key === "Tab") {
+            const ordered = [...elements].filter(item => masterMode || !item.locked).sort((a, b) => (Number(a.zIndex) || 0) - (Number(b.zIndex) || 0));
+            if (ordered.length) {
+              ev.preventDefault();
+              const at = ordered.findIndex(item => item.id === selected);
+              const next = at < 0 ? (ev.shiftKey ? ordered.length - 1 : 0) : (at + (ev.shiftKey ? -1 : 1) + ordered.length) % ordered.length;
+              setSelected(ordered[next].id);
+            }
+            return;
+          }
+        }
+        if (selected && !editing) {
+          const key = ev.key;
+          if (key === "PageUp" || key === "PageDown") {
+            ev.preventDefault();
+            if (key === "PageUp") changeLayer("up");
+            else changeLayer("down");
+            return;
+          }
+          if ((ev.ctrlKey || ev.metaKey) && (key === "ArrowUp" || key === "ArrowDown")) {
+            ev.preventDefault();
+            changeLayer(ev.shiftKey ? (key === "ArrowUp" ? "front" : "back") : (key === "ArrowUp" ? "up" : "down"));
+            return;
+          }
+          // Ctrl/Cmd+Shift+[ / ] sends to back/front, respectively.
+          if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && (key === "[" || key === "]" || key === "{" || key === "}")) {
+            ev.preventDefault();
+            changeLayer(key === "]" || key === "}" ? "front" : "back");
+            return;
+          }
+          if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key)) {
+            ev.preventDefault();
+            const step = ev.shiftKey ? 10 : 1;
+            const dx = key === "ArrowLeft" ? -step : key === "ArrowRight" ? step : 0;
+            const dy = key === "ArrowUp" ? -step : key === "ArrowDown" ? step : 0;
+            update(item => { item.x = Number(item.x || 0) + dx; item.y = Number(item.y || 0) + dy; });
+            return;
+          }
+        }
         if ((ev.key === "Delete" || ev.key === "Backspace") && selected) {
           ev.preventDefault();
           removeSelected();
@@ -287,7 +353,7 @@
       };
       addEventListener("keydown", onKeyDown);
       return () => removeEventListener("keydown", onKeyDown)
-    }, [selected, editing, slide, deck]);
+    }, [selected, editing, slide, deck, elements, masterMode]);
     useEffect(() => {
       const paste = ev => {
         const i = [...(ev.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
@@ -330,13 +396,20 @@
       const up = () => {
         const operation = drag.current || resize.current;
         if (operation?.before && operation.current) setDeck(d => {
-          const n = structuredClone(d), target = (n.slides?.[slide]?.elements || []).find(e => e.id === operation.id);
+          const n = structuredClone(d), target = (masterMode ? (n.master?.elements || []) : (n.slides?.[slide]?.elements || [])).find(e => e.id === operation.id);
           if (!target) return d;
           Object.assign(target, operation.current);
-          const bucket = historyBucket(operation.before, 0);
-          bucket.past.push(structuredClone(operation.before.slides[0]));
-          if (bucket.past.length > 100) bucket.past.shift();
-          bucket.future.length = 0;
+          if (!masterMode) {
+            if (!operation.duplicated) {
+              const bucket = historyBucket(operation.before, 0);
+              bucket.past.push(structuredClone(operation.before.slides[0]));
+              if (bucket.past.length > 100) bucket.past.shift();
+              bucket.future.length = 0;
+            }
+          } else {
+            const moved = (n.master?.elements || []).find(e => e.id === operation.id);
+            (n.slides || []).forEach(page => { const item = (page.elements || []).find(e => e.id === operation.id); if (item && moved) Object.assign(item, moved); });
+          }
           return n;
         });
         drag.current = null;
@@ -387,8 +460,11 @@
           else if (e.type === "text") setEditing(e.id)
         }, onMouseDown: ev => {
           if (ev.button === 0 && !e.locked && !isEditing) {
-            setSelected(e.id);
-            drag.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, canvas: ev.currentTarget.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } }
+            const duplicate = ev.ctrlKey || ev.metaKey;
+            const id = duplicate ? duplicateSelected(e) : e.id;
+            setSelected(id || e.id);
+            drag.current = { id: id || e.id, duplicated: duplicate, x: ev.clientX, y: ev.clientY, ex: Number(e.x) + (duplicate ? 10 : 0), ey: Number(e.y) + (duplicate ? 10 : 0), canvas: ev.currentTarget.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } };
+            if (duplicate) ev.preventDefault();
           }
         }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, textAlign: textAlign(st.align), lineHeight: st.lineHeight || undefined, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, paddingTop: st.paddingTop != null ? Number(st.paddingTop) : undefined, paddingLeft: st.paddingLeft != null ? Number(st.paddingLeft) : undefined, zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center" }
       }, h("div", { className: "el-content", style: { ...(geometryOnly ? {} : fillStyle(st.background || e.fill?.image?.assetUrl)), ...shapeStyle(st.shape, st, e.width, e.height), ...(geometryOnly ? {} : boxStyle(st)) } }, geometryOnly ? null : imageFill(st.background || e.fill?.image?.assetUrl), customPath(e, st), e.type === "image" && e.assetUrl ? h(ImageBlock, { src: e.assetUrl, alt: "图片", style: st }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const runs = readEditableRuns(node); update(x => { x.textRuns = runs.length ? runs : [{ content: node?.textContent || "", style: { ...x.style } }]; x.content = runs.map((r, i) => (i && r.paragraph !== runs[i - 1].paragraph ? "\n" : "") + r.content).join(""); }, e.id); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); setEditing(null) } } }, textRuns(e, st)) : textRuns(e, st)), e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
