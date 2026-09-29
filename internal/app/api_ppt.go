@@ -867,7 +867,10 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 				// rendered box itself remains tied to the detector polygon.
 				fontSize = math.Min(fontSize, math.Max(1, (math.Round(width)-2))/float64(n))
 			}
-			style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": paddleOCRTextColor(cropImg), "fontWeight": 400, "bold": false, "italic": false, "align": "left", "verticalAlign": "middle", "lineHeight": 1.0, "whiteSpace": "nowrap", "background": paddleOCRBackground(cropImg)}
+			// DB recognition boxes often include spacing that the recognizer drops.
+			// Justification lets the editable text occupy the original box width.
+			fontFamily, fontBold, fontWeight := matchOCRFont(cropImg, text, fontSize, in.Presentation.FontAssets)
+			style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(cropImg), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "justify", "verticalAlign": "middle", "lineHeight": 1.0, "background": paddleOCRBackground(cropImg)}
 			dx1, dy1 := float64(poly.Points[1].X-poly.Points[0].X), float64(poly.Points[1].Y-poly.Points[0].Y)
 			dx2, dy2 := float64(poly.Points[2].X-poly.Points[1].X), float64(poly.Points[2].Y-poly.Points[1].Y)
 			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
@@ -950,7 +953,8 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		}
 		fontSize := ocrFontSize(in.Height, text, 24)
 		background := paddleOCRBackground(img)
-		style := map[string]any{"fontSize": fontSize, "fontFamily": "Arial", "color": "#111827", "fontWeight": 400, "bold": false, "italic": false, "align": "left", "verticalAlign": "middle", "background": background}
+		fontFamily, fontBold, fontWeight := matchOCRFont(img, text, fontSize, in.Presentation.FontAssets)
+		style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(img), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "justify", "verticalAlign": "middle", "background": background}
 		sl := &in.Presentation.Slides[in.SlideIndex]
 		z := nextPPTOCRZ(sl.Elements)
 		// Cover the raster glyphs before adding the editable OCR text. The

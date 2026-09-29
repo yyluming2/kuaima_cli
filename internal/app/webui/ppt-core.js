@@ -94,10 +94,10 @@
       }).catch(error => console.warn("[ppt-font] embedded font load failed", { family: font.family, fileName: font.fileName, error: String(error) }));
     });
   };
-  const loadFontFamily = family => {
-    if (!family || !document.fonts?.load) return Promise.resolve([]);
-    return document.fonts.load(`16px "${String(family).replace(/"/g, "\\\"")}"`);
-  };
+  // Font probing is performed by the backend OCR service.  The editor only
+  // applies the selected family and never blocks the main thread on a font
+  // load while an OCR request is in progress.
+  const loadFontFamily = () => Promise.resolve([]);
   const normalizeDeck = value => {
     const next = structuredClone(value);
     registerFontAssets(next.fontAssets);

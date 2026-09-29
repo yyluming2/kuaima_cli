@@ -112,7 +112,7 @@ PPTX 仅支持 DrawingML 原生填充。CSS 渐变在导出时使用首个渐变
 }
 ```
 
-`align` 可用 `left`、`center`、`right`、`justify`（导入 PPT 时也接受 `l`、`ctr`、`r`、`just`）。
+`align` 可用 `left`、`center`、`right`、`justify`（分段对齐；网页预览同时设置 `text-align-last: justify`，导出 PPT 使用 DrawingML 的 `dist`）。导入 PPT 时也接受 `l`、`ctr`、`r`、`just`。
 
 ## 结构化导入字段
 
