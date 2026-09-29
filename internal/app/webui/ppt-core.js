@@ -134,7 +134,8 @@
   const verticalAlign = value => ({ t: "flex-start", top: "flex-start", ctr: "center", center: "center", middle: "center", b: "flex-end", bottom: "flex-end" }[String(value || "").toLowerCase()] || undefined);
   const textRuns = (element, base, scale = 1) => {
     const runs = Array.isArray(element?.textRuns) ? element.textRuns : [];
-    const containerStyle = { display: "flex", flexDirection: "column", justifyContent: verticalAlign(base.verticalAlign) || "flex-start", width: "100%", height: "100%", textAlign: textAlign(base.align) };
+    const alignment = textAlign(base.align);
+    const containerStyle = { display: "flex", flexDirection: "column", justifyContent: verticalAlign(base.verticalAlign) || "flex-start", width: "100%", height: "100%", textAlign: alignment, textAlignLast: alignment === "justify" ? "justify" : undefined };
     if (!runs.length) return h("div", { "data-ppt-text-container": "true", style: containerStyle }, element?.content || "");
     // Some producers keep line breaks only in the compatibility `content`
     // field. Preserve those breaks when there is a single rich-text run.
@@ -152,7 +153,7 @@
       block.nodes.push(item.node);
     });
     const paragraphs = Array.isArray(element?.textParagraphs) ? element.textParagraphs : [];
-    return h("div", { "data-ppt-text-container": "true", style: containerStyle }, blocks.map((block, index) => h("div", { key: "paragraph" + index, style: { display: "block", width: "100%", whiteSpace: "pre-wrap", lineHeight: paragraphs[block.paragraph]?.lineHeight || base.lineHeight || undefined, textAlign: textAlign(paragraphs[block.paragraph]?.align) || textAlign(base.align) } }, block.nodes)));
+    return h("div", { "data-ppt-text-container": "true", style: containerStyle }, blocks.map((block, index) => { const paragraphAlign = textAlign(paragraphs[block.paragraph]?.align) || alignment; return h("div", { key: "paragraph" + index, style: { display: "block", width: "100%", whiteSpace: "pre-wrap", lineHeight: paragraphs[block.paragraph]?.lineHeight || base.lineHeight || undefined, textAlign: paragraphAlign, textAlignLast: paragraphAlign === "justify" ? "justify" : undefined } }, block.nodes); }));
   };
   const rewriteRunContent = (element, content) => {
     const runs = Array.isArray(element.textRuns) ? element.textRuns : [];

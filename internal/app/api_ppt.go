@@ -1565,7 +1565,10 @@ func alignValue(v string) genppt.Align {
 	case "right", "end", "r", "text-align-right":
 		return genppt.AlignRight
 	case "justify", "distributed", "dist", "just", "text-align-justify":
-		return genppt.AlignJustify
+		// DrawingML's distributed alignment (dist) is rendered by WPS as
+		// the paragraph/distributed mode exposed in the editor. Keep accepting
+		// the historical just/justify input, but emit dist on export.
+		return genppt.Align("dist")
 	default:
 		return genppt.AlignLeft
 	}

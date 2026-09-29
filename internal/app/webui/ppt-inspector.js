@@ -149,7 +149,7 @@
         h("label", null, "内容", h("textarea", { value: element.content || "", onChange: event => onChange(target => rewriteRunContent(target, event.target.value)) })),
         h("section", { className: "geometry" }, field("字号（磅）", "fontSize", "number", { min: 1 }), h("label", null, "字体", fontSelect(style.fontFamily || "", value => onChange(target => setStyle(target, "fontFamily", value))))),
         ColorField({ label: "文字颜色", value: style.color, themeColors, onChange: value => setColor("color", value) }),
-        h("label", null, "文字对齐", h("select", { value: style.align === "just" ? "l" : (style.align || "l"), onChange: event => onChange(target => setStyle(target, "align", event.target.value)) }, h("option", { value: "l" }, "左对齐"), h("option", { value: "ctr" }, "居中"), h("option", { value: "r" }, "右对齐"))),
+        h("label", null, "文字对齐", h("select", { value: style.align || "l", onChange: event => onChange(target => setStyle(target, "align", event.target.value)) }, h("option", { value: "l" }, "左对齐"), h("option", { value: "ctr" }, "居中"), h("option", { value: "r" }, "右对齐"), h("option", { value: "just" }, "分段对齐"))),
         h("label", null, "垂直对齐", h("select", { value: style.verticalAlign || "t", onChange: event => onChange(target => setStyle(target, "verticalAlign", event.target.value)) }, h("option", { value: "t" }, "顶部对齐"), h("option", { value: "ctr" }, "垂直居中"), h("option", { value: "b" }, "底部对齐"))),
         h("section", { className: "geometry" }, field("行间距", "lineHeight", "number"), field("字间距", "letterSpacing", "number")),
         h("div", { className: "checks" }, toggle("加粗", "bold", "bold"), toggle("斜体", "italic", "italic"), toggle("下划线", "underline", "underline"))
