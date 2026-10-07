@@ -392,6 +392,9 @@ func matchOCRFont(crop image.Image, text string, size float64, assets []ppt.Font
 	src := sourceMask(crop)
 	candidates := make([]installedFont, 0, len(assets)+64)
 	for _, a := range assets {
+		if isDecorativeOCRFont(a.Family) {
+			continue
+		}
 		if a.Obfuscated || a.AssetURL == "" {
 			continue
 		}
@@ -415,6 +418,9 @@ func matchOCRFont(crop image.Image, text string, size float64, assets []ppt.Font
 		bestF.Family = "Microsoft YaHei"
 	}
 	for _, c := range candidates {
+		if isDecorativeOCRFont(c.Family) {
+			continue
+		}
 		m, ok := renderFontMask(c, text, b.Dx(), b.Dy(), size)
 		if !ok {
 			continue
@@ -431,4 +437,12 @@ func matchOCRFont(crop image.Image, text string, size float64, assets []ppt.Font
 		bestF.Weight = 400
 	}
 	return bestF.Family, bestF.Weight >= 600, bestF.Weight
+}
+
+// Decorative display faces such as 华文琥珀 are poor OCR reconstruction
+// candidates: their dense outlines and unusual glyph metrics frequently win
+// mask matching by accident (often serialized by Windows as STHUPO).
+func isDecorativeOCRFont(family string) bool {
+	s := strings.ToLower(strings.TrimSpace(family))
+	return strings.Contains(s, "sthupo") || strings.Contains(s, "hupo") || strings.Contains(s, "琥珀")
 }

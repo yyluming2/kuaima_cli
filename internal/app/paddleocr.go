@@ -225,7 +225,10 @@ func paddleOCRDetectionPolygons(prob []float32, w, h int, thresh, boxThresh, unc
 		}
 		out = append(out, OCRPolygon{Points: poly, Score: score})
 	}
-	out = mergeOCRPolygons(out)
+	// Keep detector polygons independent.  Merging adjacent components loses
+	// character-level geometry and is especially harmful for differently
+	// colored runs in the same text box; the recognizer can consume each
+	// polygon directly.
 	sort.Slice(out, func(i, j int) bool { return out[i].Points[0].Y < out[j].Points[0].Y })
 	return out
 }

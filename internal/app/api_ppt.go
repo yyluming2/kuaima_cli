@@ -86,10 +86,10 @@ func cropPPTOCRImage(ctx context.Context, asset string, x, y, w, h, canvasW, can
 	return imageDataURL("image/png", buf.Bytes()), nil
 }
 
-// repairPPTOCRBackground removes raster glyphs from detected OCR boxes by
-// painting each box with the dominant colour sampled from its border. It is
-// intentionally conservative: the surrounding image remains untouched and
-// the returned PNG can be used as the replacement slide image.
+// repairPPTOCRBackground removes raster glyphs using a small inpainting pass.
+// Pixels that differ from the local border are treated as text and filled by
+// diffusion from neighbouring background pixels, preserving gradients better
+// than painting the whole OCR box with one sampled colour.
 func repairPPTOCRBackground(src image.Image, polys []OCRPolygon) (string, error) {
 	b := src.Bounds()
 	out := image.NewRGBA(b)
@@ -99,14 +99,71 @@ func repairPPTOCRBackground(src image.Image, polys []OCRPolygon) (string, error)
 		if box.Empty() {
 			continue
 		}
-		br, bgc, bb := paddleOCRBorderColor(cropImageForOCR(out, box))
-		draw.Draw(out, box, &image.Uniform{C: color.RGBA{R: br, G: bgc, B: bb, A: 255}}, image.Point{}, draw.Src)
+		inpaintOCRBox(out, box)
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, out); err != nil {
 		return "", err
 	}
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+func inpaintOCRBox(img *image.RGBA, box image.Rectangle) {
+	if box.Dx() < 3 || box.Dy() < 3 {
+		return
+	}
+	ref := cropImageForOCR(img, box)
+	br, bg, bb := paddleOCRBorderColor(ref)
+	w, h := box.Dx(), box.Dy()
+	mask := make([]bool, w*h)
+	for y := 1; y < h-1; y++ {
+		for x := 1; x < w-1; x++ {
+			r, g, b, _ := img.At(box.Min.X+x, box.Min.Y+y).RGBA()
+			d := absOCRUint(uint64(r>>8), uint64(br)) + absOCRUint(uint64(g>>8), uint64(bg)) + absOCRUint(uint64(b>>8), uint64(bb))
+			// Include antialiased glyph edges as well; the surrounding background is
+			// still protected because the comparison is against the local border.
+			mask[y*w+x] = d > 24
+		}
+	}
+	// Fast marching style diffusion. Newly reconstructed pixels become valid
+	// sources on the next pass, so wide glyphs are filled all the way through.
+	known := make([]bool, w*h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if !mask[y*w+x] {
+				known[y*w+x] = true
+			}
+		}
+	}
+	for pass := 0; pass < w+h+4; pass++ {
+		changed := false
+		for y := 1; y < h-1; y++ {
+			for x := 1; x < w-1; x++ {
+				idx := y*w + x
+				if !mask[idx] || known[idx] {
+					continue
+				}
+				var rr, gg, bb2, n uint32
+				for _, q := range [...]image.Point{{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}} {
+					if known[q.Y*w+q.X] {
+						r, g, b, _ := img.At(box.Min.X+q.X, box.Min.Y+q.Y).RGBA()
+						rr += r >> 8
+						gg += g >> 8
+						bb2 += b >> 8
+						n++
+					}
+				}
+				if n > 0 {
+					img.SetRGBA(box.Min.X+x, box.Min.Y+y, color.RGBA{uint8(rr / n), uint8(gg / n), uint8(bb2 / n), 255})
+					known[idx] = true
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			break
+		}
+	}
 }
 
 func cropImageForOCR(src image.Image, box image.Rectangle) image.Image {
@@ -247,6 +304,60 @@ func ocrFontSize(height float64, text string, detected float64) float64 {
 		detected = minSize
 	}
 	return detected
+}
+
+// ocrTextRuns estimates per-character ink colors from vertical bands. OCR
+// returns one string for a polygon, so this preserves simple mixed-color text
+// without pretending the recognizer knows formatting boundaries.
+func ocrTextRuns(img image.Image, text string, style map[string]any) []ppt.TextRun {
+	runes := []rune(strings.ReplaceAll(text, "\n", ""))
+	if len(runes) < 2 || img == nil {
+		return []ppt.TextRun{{Content: text, Style: style}}
+	}
+	base := img.Bounds()
+	width := base.Dx()
+	if width < len(runes) {
+		return []ppt.TextRun{{Content: text, Style: style}}
+	}
+	band := width / len(runes)
+	sub, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	})
+	if !ok {
+		return []ppt.TextRun{{Content: text, Style: style}}
+	}
+	out := make([]ppt.TextRun, 0, len(runes))
+	start := 0
+	last := ""
+	for i := range runes {
+		x1, x2 := i*band, (i+1)*band
+		if i == len(runes)-1 {
+			x2 = width
+		}
+		c := paddleOCRTextColor(sub.SubImage(image.Rect(base.Min.X+x1, base.Min.Y, base.Min.X+x2, base.Max.Y)))
+		if i == 0 {
+			last = c
+		}
+		if i > 0 && c != last {
+			out = append(out, ppt.TextRun{Content: string(runes[start:i]), Style: cloneOCRStyle(style, last)})
+			start, last = i, c
+		}
+		if i == len(runes)-1 {
+			out = append(out, ppt.TextRun{Content: string(runes[start:]), Style: cloneOCRStyle(style, last)})
+		}
+	}
+	return out
+}
+
+func cloneOCRStyle(style map[string]any, color string) map[string]any {
+	out := map[string]any{}
+	for k, v := range style {
+		out[k] = v
+	}
+	if color != "" {
+		out["color"] = color
+	}
+	return out
 }
 
 type pptPlanPage struct {
@@ -939,7 +1050,13 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 				dx1, dy1 = dx2, dy2
 			}
 			rotation := math.Atan2(dy1, dx1) * 180 / math.Pi
-			e := ppt.Element{ID: fmt.Sprintf("ocr-%d-%d", time.Now().UnixNano(), i), Type: "text", X: x + in.ImageOffsetX, Y: y + in.ImageOffsetY, Width: width, Height: height, Rotation: rotation, ZIndex: z + i, Content: text, Style: style, TextRuns: []ppt.TextRun{{Content: text, Style: style}}}
+			// Polygon winding can report 180° for a perfectly horizontal line;
+			// normalize it and suppress detector noise on ordinary text.
+			rotation = math.Mod(rotation+90, 180) - 90
+			if math.Abs(rotation) < 2 {
+				rotation = 0
+			}
+			e := ppt.Element{ID: fmt.Sprintf("ocr-%d-%d", time.Now().UnixNano(), i), Type: "text", X: x + in.ImageOffsetX, Y: y + in.ImageOffsetY, Width: width, Height: height, Rotation: rotation, ZIndex: z + i, Content: text, Style: style, TextRuns: ocrTextRuns(cropImg, text, style)}
 			if e.Style == nil {
 				e.Style = map[string]any{}
 			}
@@ -1044,7 +1161,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		// Cover the raster glyphs before adding the editable OCR text. The
 		// border-derived color works well for flat slide backgrounds and keeps
 		// the operation fully offline.
-		e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, ZIndex: z + 1, Content: text, Style: style, TextRuns: []ppt.TextRun{{Content: text, Style: style}}}
+		e := ppt.Element{ID: fmt.Sprintf("ocr-%d", time.Now().UnixNano()), Type: "text", X: in.X, Y: in.Y, Width: in.Width, Height: in.Height, ZIndex: z + 1, Content: text, Style: style, TextRuns: ocrTextRuns(img, text, style)}
 		e.X += in.ImageOffsetX
 		e.Y += in.ImageOffsetY
 		sl.Elements = append(sl.Elements, e)
