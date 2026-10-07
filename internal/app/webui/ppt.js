@@ -163,6 +163,9 @@
         // Existing editable text keeps the normal double-click editor. OCR is
         // only relevant for raster images (or explicit OCR mode).
         if (el && !el.classList.contains('image-el') && !ocrMode) return;
+        // Converted slides keep their raster background underneath editable
+        // text. Never treat that background as a fresh OCR target.
+        if (el && el.classList.contains('image-el') && (deck?.slides?.[slide]?.elements || []).some(x => x.type === 'text')) return;
         const c = ev.target?.closest?.('.canvas'); if (!c) return;
         const q = c.getBoundingClientRect(), x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
         ocrAtPoint(ev);
@@ -503,7 +506,7 @@
           setSelected(e.id)
         }, onDoubleClick: ev => {
           ev.stopPropagation();
-          if (e.type === "image") { ocrAtPoint(ev); }
+          if (e.type === "image" && !(deck?.slides?.[slide]?.elements || []).some(x => x.type === "text")) { ocrAtPoint(ev); }
           else if (ocrMode && e.type === "text") { ocrAtPoint(ev); }
           else if (e.type === "text") setEditing(e.id)
         }, onMouseDown: ev => {
@@ -534,4 +537,3 @@
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
-

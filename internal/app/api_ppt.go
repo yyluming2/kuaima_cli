@@ -846,6 +846,14 @@ func (s *webUIServer) handlePPTImageToEditable(w http.ResponseWriter, r *http.Re
 		return
 	}
 	sl := &in.Presentation.Slides[in.SlideIndex]
+	// Conversion is idempotent: once a slide contains editable text layers,
+	// double-clicking the already converted image must not OCR/replace it again.
+	for _, el := range sl.Elements {
+		if el.Type == "text" {
+			writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "alreadyEditable": true})
+			return
+		}
+	}
 	var img *ppt.Element
 	for i := range sl.Elements {
 		if sl.Elements[i].Type == "image" {
@@ -1043,19 +1051,13 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			if in.ConvertAll {
 				background = "transparent"
 			}
-			style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(cropImg), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "justify", "verticalAlign": "middle", "lineHeight": 1.0, "background": background}
+			style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(cropImg), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "center", "verticalAlign": "middle", "lineHeight": 1.0, "background": background}
 			dx1, dy1 := float64(poly.Points[1].X-poly.Points[0].X), float64(poly.Points[1].Y-poly.Points[0].Y)
 			dx2, dy2 := float64(poly.Points[2].X-poly.Points[1].X), float64(poly.Points[2].Y-poly.Points[1].Y)
 			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
 				dx1, dy1 = dx2, dy2
 			}
 			rotation := math.Atan2(dy1, dx1) * 180 / math.Pi
-			// Polygon winding can report 180° for a perfectly horizontal line;
-			// normalize it and suppress detector noise on ordinary text.
-			rotation = math.Mod(rotation+90, 180) - 90
-			if math.Abs(rotation) < 2 {
-				rotation = 0
-			}
 			e := ppt.Element{ID: fmt.Sprintf("ocr-%d-%d", time.Now().UnixNano(), i), Type: "text", X: x + in.ImageOffsetX, Y: y + in.ImageOffsetY, Width: width, Height: height, Rotation: rotation, ZIndex: z + i, Content: text, Style: style, TextRuns: ocrTextRuns(cropImg, text, style)}
 			if e.Style == nil {
 				e.Style = map[string]any{}
@@ -1155,7 +1157,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		fontSize := ocrFontSize(in.Height, text, 24)
 		background := paddleOCRBackground(img)
 		fontFamily, fontBold, fontWeight := matchOCRFont(img, text, fontSize, in.Presentation.FontAssets)
-		style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(img), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "justify", "verticalAlign": "middle", "background": background}
+		style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(img), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "center", "verticalAlign": "middle", "background": background}
 		sl := &in.Presentation.Slides[in.SlideIndex]
 		z := nextPPTOCRZ(sl.Elements)
 		// Cover the raster glyphs before adding the editable OCR text. The
