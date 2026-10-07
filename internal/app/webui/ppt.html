@@ -48,10 +48,11 @@
               <button type="button" data-accent="#ea580c" data-background="#fff7ed" title="活力橙"><i style="--c1:#ea580c;--c2:#fdba74;--c3:#fff7ed"></i><span>活力橙</span></button>
               <button type="button" data-accent="#e2e8f0" data-background="#0f172a" title="黑金深色"><i style="--c1:#0f172a;--c2:#475569;--c3:#e2e8f0"></i><span>黑金深色</span></button>
             </div>
-            <input id="pptAiAccent" type="hidden" value="#2563eb"><input id="pptAiBackground" type="hidden" value="#f8fafc">
+            <div class="ppt-custom-colors"><label>主色 <input id="pptAiAccent" type="color" value="#2563eb"></label><label>辅助色 <input id="pptAiSecondary" type="color" value="#60a5fa"></label><label>背景色 <input id="pptAiBackground" type="color" value="#f8fafc"></label></div>
           </div>
           <div id="pptAiImagePanel" class="ppt-visual-panel" hidden>
             <label class="ppt-file ppt-file-compact">上传参考图片<input id="pptAiStyleImage" type="file" accept="image/*"><small id="pptAiStyleHint">支持 JPG、PNG、WebP</small></label>
+            <div id="pptAiStylePreview" class="ppt-ai-reference-preview" hidden><img alt="参考图预览"><span>参考图预览</span></div>
           </div>
         </section>
         <details class="ppt-ai-advanced"><summary>高级设置：选择模型</summary>
@@ -76,12 +77,12 @@
         </div>
         <div class="ppt-ai-actions ppt-ai-sticky-actions"><button id="pptAiStyleBack">← 返回修改</button><button id="pptAiGenerate" class="ppt-ai-primary">确认并生成 <span>→</span></button></div>
       </div>
-      <div id="pptAiProgress" class="ppt-ai-progress" hidden><div class="ppt-ai-progress-icon">✦</div><div class="ppt-ai-progress-title">AI 正在准备方案…</div><div class="ppt-ai-progress-track"><i></i></div><div id="pptAiProgressText">正在连接模型</div><pre id="pptAiStreamText"></pre></div>
+      <div id="pptAiProgress" class="ppt-ai-progress" hidden><div class="ppt-ai-progress-icon">✦</div><div class="ppt-ai-progress-title">AI 正在准备方案…</div><div class="ppt-ai-progress-track"><i></i></div><div id="pptAiProgressText">正在连接模型</div><div class="ppt-ai-live-preview"><div class="ppt-ai-live-title">实时方案预览</div><div id="pptAiStreamText" class="ppt-ai-live-cards">正在等待大纲内容…</div></div></div>
       <div id="pptAiGenerating" hidden>
         <div class="ppt-ai-generating-head"><div><h3 id="pptAiGeneratingTitle">正在按页生成</h3><p id="pptAiGeneratingText">请稍候，生成完成的页面会立即显示</p></div><b id="pptAiGeneratingCount">0 / 0</b></div>
         <div class="ppt-ai-page-progress"><i id="pptAiPageProgressBar"></i></div>
         <div id="pptAiPageList" class="ppt-ai-page-list"></div>
-        <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiDone" class="ppt-ai-primary">进入编辑器</button></div>
+        <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiEditable" type="button">转换为可编辑文字版</button><button id="pptAiDone" class="ppt-ai-primary">进入编辑器</button></div>
       </div>
     </div>
   </div>
