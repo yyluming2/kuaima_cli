@@ -124,22 +124,24 @@
       if (!window.confirm("此操作会替换原图片并自动修复文字背景，原图片可能无法恢复。建议先备份 PPT，是否继续？")) return;
       setBusy(true); setOcrBusy(true); setOcrTarget({ x: image.x, y: image.y, width: image.width, height: image.height, rotation: image.rotation || 0 });
       try {
-        let imageData = image.assetUrl || "";
-        if (imageData && !imageData.startsWith("data:image/")) { const response = await fetch(imageData); if (!response.ok) throw new Error(`图片读取失败（HTTP ${response.status}）`); const blob = await response.blob(); imageData = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); }); }
-        const deckForOCR = structuredClone(deck);
-        // Keep the upload in imageData/asset only. Embedding the same large
-        // data URL in every image element can exceed the JSON body limit.
-        (deckForOCR.slides || []).forEach(s => (s.elements || []).forEach(e => { if (e.type === "image") e.assetUrl = ""; }));
-        const payload = { presentation: deckForOCR, slideIndex: slide, provider: ocrProvider, imageData, asset: imageData, x: 0, y: 0, width: image.width, height: image.height, cropWidth: image.width, cropHeight: image.height, imageOffsetX: image.x || 0, imageOffsetY: image.y || 0, scanAll: true, convertAll: true, repairBackground: true };
-        const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const out = await r.json().catch(() => ({})); if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`); if (!out.presentation) throw new Error("OCR 未返回转换后的页面");
-        // The OCR upload intentionally strips image data from the request to
-        // keep it small. Merge the converted current slide back into the
-        // original deck so images on every other page remain intact.
-        setDeck(previous => {
-          const merged = structuredClone(previous || deck);
-          merged.slides = (merged.slides || []).map((page, index) => index === slide ? structuredClone(out.presentation.slides?.[index] || page) : page);
-          return normalizeDeck(merged);
-        }); setSelected(null); setEditing(null);
+        let workingDeck = structuredClone(deck);
+        for (let pageIndex = slide; pageIndex < (workingDeck.slides || []).length; pageIndex++) {
+          const page = workingDeck.slides[pageIndex];
+          const pageImages = (page.elements || []).filter(e => e?.type === "image");
+          if (pageIndex !== slide && (pageImages.length !== 1 || (page.elements || []).length !== 1)) break;
+          const currentImage = pageImages[0];
+          setSlide(pageIndex); setSelected(null); setEditing(null);
+          setOcrTarget({ x: currentImage.x, y: currentImage.y, width: currentImage.width, height: currentImage.height, rotation: currentImage.rotation || 0 });
+          let imageData = currentImage.assetUrl || "";
+          if (imageData && !imageData.startsWith("data:image/")) { const response = await fetch(imageData); if (!response.ok) throw new Error(`图片读取失败（HTTP ${response.status}）`); const blob = await response.blob(); imageData = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); }); }
+          const deckForOCR = structuredClone(workingDeck);
+          (deckForOCR.slides || []).forEach(s => (s.elements || []).forEach(e => { if (e.type === "image") e.assetUrl = ""; }));
+          const payload = { presentation: deckForOCR, slideIndex: pageIndex, provider: ocrProvider, imageData, asset: imageData, x: 0, y: 0, width: currentImage.width, height: currentImage.height, cropWidth: currentImage.width, cropHeight: currentImage.height, imageOffsetX: currentImage.x || 0, imageOffsetY: currentImage.y || 0, scanAll: true, convertAll: true, repairBackground: true };
+          const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const out = await r.json().catch(() => ({})); if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`); if (!out.presentation) throw new Error("OCR 未返回转换后的页面");
+          workingDeck.slides[pageIndex] = structuredClone(out.presentation.slides?.[pageIndex] || page);
+          setDeck(normalizeDeck(structuredClone(workingDeck)));
+        }
+        setDeck(normalizeDeck(workingDeck)); setSelected(null); setEditing(null);
       } catch (e) { alert("转换失败：" + e.message); } finally { setOcrBusy(false); setOcrTarget(null); setBusy(false); }
     };
     const ocrAtPoint = ev => {
@@ -326,9 +328,11 @@
           reader.readAsDataURL(file);
         }))).then(items => {
           const width = 1280, height = 720;
-          const value = { width, height, title: "图片演示文稿", theme: { background: "#ffffff", foreground: "#111827", accent: "#2563eb" }, master: { elements: [] }, slides: items.map((item, index) => ({
-            id: "slide-" + (index + 1), layout: "image", elements: [{ id: "image-" + (index + 1), type: "image", x: 0, y: 0, width, height, content: "", assetUrl: item.data, style: { ...defaults } }]
-          })) };
+          const value = {
+            width, height, title: "图片演示文稿", theme: { background: "#ffffff", foreground: "#111827", accent: "#2563eb" }, master: { elements: [] }, slides: items.map((item, index) => ({
+              id: "slide-" + (index + 1), layout: "image", elements: [{ id: "image-" + (index + 1), type: "image", x: 0, y: 0, width, height, content: "", assetUrl: item.data, style: { ...defaults } }]
+            }))
+          };
           setDeck(normalizeDeck(value)); resetHistory(); setSlide(0); setSelected(null); setEditing(null); setTopic("图片演示文稿");
         }).catch(e => alert("打开图片失败：" + e.message));
         return;
@@ -478,7 +482,7 @@
     const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["image", "image-plus", "图片"]];
     if (current?.type === "image") tools.push(["ocr", "scan-text", "识别文字"]);
     if (onlyImagePage) tools.push(["ocr-convert", "text-cursor-input", "一键转可编辑文字"]);
-    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件 / 图片")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: t === "ocr" ? "ocr-tool-button" : "", onClick: () => t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), current && h("button", {
+    return h(React.Fragment, null, h("header", null, h("button", { className: "btn small", onClick: () => location.href = "/" }, icon("arrow-left"), h("span", null, "返回首页")), h("b", null, "快马 AI · PPT 工作台")), h("div", { className: "bar" }, h("button", { onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: t === "ocr" ? "ocr-tool-button" : "", onClick: () => t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), current && h("button", {
       className: "danger", onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
       key: s.id || i, className: "thumb " + (i === slide ? "active" : ""), draggable: true,
