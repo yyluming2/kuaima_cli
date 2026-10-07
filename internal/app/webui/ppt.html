@@ -16,7 +16,7 @@
         <div>
           <h2>AI 制作 PPT</h2>
           <p>告诉 AI 你要做什么，确认方案后即可按页生成</p>
-        </div><button id="pptAiClose" class="ppt-ai-close">×</button>
+        </div><button id="pptAiMinimize" class="ppt-ai-minimize" type="button" title="最小化">−</button><button id="pptAiClose" class="ppt-ai-close" type="button">×</button>
       </div>
       <div class="ppt-ai-steps" aria-label="生成步骤">
         <div class="active" data-step="1"><b>1</b><span>确认需求</span></div>
@@ -57,6 +57,7 @@
         </section>
         <details class="ppt-ai-advanced"><summary>高级设置：选择模型</summary>
           <div class="ppt-ai-grid"><label>大纲生成模型<select id="pptAiTextModel"><option value="">正在加载模型…</option></select></label><label>图片生成模型<select id="pptAiImageModel"><option value="">正在加载模型…</option></select></label></div>
+          <label class="ppt-ai-retry-setting">单页失败自动重试 <small>默认 3 次</small><input id="pptAiRetryCount" type="number" min="0" max="5" value="3"></label>
         </details>
         <div class="ppt-ai-actions"><button id="pptAiCancel">取消</button><button id="pptAiPlan" class="ppt-ai-primary">生成方案 <span>→</span></button></div>
       </div>
@@ -86,6 +87,7 @@
       </div>
     </div>
   </div>
+  <button id="pptAiRestore" class="ppt-ai-restore" type="button" hidden>✦ 查看 AI 生成进度</button>
   <div class="ppt-toolbar-actions"><button id="pptMasterMode" type="button">进入母版画布</button></div>
   <button id="pptInspectorReopen" type="button" aria-label="展开属性" title="展开属性"><i data-lucide="panel-right-open" aria-hidden="true"></i></button>
   <div id="app"></div>

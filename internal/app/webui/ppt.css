@@ -830,6 +830,7 @@ main.inspector-collapsed > .side {
     color: #64748b;
     cursor: pointer
 }
+.ppt-ai-minimize{border:0;background:transparent;color:#64748b;font-size:22px;line-height:1;cursor:pointer;padding:2px 8px}.ppt-ai-minimize:hover{color:#2563eb}.ppt-ai-restore{position:fixed;right:22px;bottom:22px;z-index:10001;border:1px solid #bfdbfe;background:#fff;color:#2563eb;border-radius:999px;padding:10px 15px;box-shadow:0 6px 20px #0002;cursor:pointer}.ppt-ai-retry-setting{display:flex;align-items:center;gap:8px;margin-top:10px;color:#475569;font-size:12px}.ppt-ai-retry-setting input{width:58px}
 
 .ppt-ai-dialog label {
     display: block;
