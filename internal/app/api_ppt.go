@@ -86,6 +86,38 @@ func cropPPTOCRImage(ctx context.Context, asset string, x, y, w, h, canvasW, can
 	return imageDataURL("image/png", buf.Bytes()), nil
 }
 
+// repairPPTOCRBackground removes raster glyphs from detected OCR boxes by
+// painting each box with the dominant colour sampled from its border. It is
+// intentionally conservative: the surrounding image remains untouched and
+// the returned PNG can be used as the replacement slide image.
+func repairPPTOCRBackground(src image.Image, polys []OCRPolygon) (string, error) {
+	b := src.Bounds()
+	out := image.NewRGBA(b)
+	draw.Draw(out, b, src, b.Min, draw.Src)
+	for _, poly := range polys {
+		box := polygonBounds(poly.Points).Intersect(b)
+		if box.Empty() {
+			continue
+		}
+		br, bgc, bb := paddleOCRBorderColor(cropImageForOCR(out, box))
+		draw.Draw(out, box, &image.Uniform{C: color.RGBA{R: br, G: bgc, B: bb, A: 255}}, image.Point{}, draw.Src)
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, out); err != nil {
+		return "", err
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+func cropImageForOCR(src image.Image, box image.Rectangle) image.Image {
+	if box.Empty() {
+		return src
+	}
+	out := image.NewRGBA(image.Rect(0, 0, box.Dx(), box.Dy()))
+	draw.Draw(out, out.Bounds(), src, box.Min, draw.Src)
+	return out
+}
+
 // autoPPTOCRRegion finds the text line nearest the click using the image's
 // edge density. It deliberately has no fixed crop size: the returned box is
 // derived from the actual glyph pixels in the slide image.
@@ -744,15 +776,20 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 		CropWidth           float64          `json:"cropWidth"`
 		CropHeight          float64          `json:"cropHeight"`
 		ScanAll             bool             `json:"scanAll"`
+		ConvertAll          bool             `json:"convertAll"`
+		RepairBackground    bool             `json:"repairBackground"`
 		X, Y, Width, Height float64
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
+	// OCR requests carry a full-resolution data URL. Allow a larger bounded
+	// body so ordinary poster/slide images are not truncated mid-JSON.
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
 	// New clients upload only the selected crop. Keep the old presentation
 	// path for compatibility with older web clients and API callers.
 	compactX, compactY := in.X, in.Y
+	originalCanvasW, originalCanvasH := in.Presentation.Width, in.Presentation.Height
 	if in.Asset != "" {
 		localX, localY := compactX, compactY
 		compactX, compactY = 0, 0
@@ -763,10 +800,31 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			in.CropHeight = in.Height
 		}
 		in.Presentation.Width, in.Presentation.Height = in.CropWidth, in.CropHeight
-		in.Presentation.Slides = []ppt.Slide{{Elements: []ppt.Element{{Type: "image", AssetURL: in.Asset, X: 0, Y: 0, Width: in.CropWidth, Height: in.CropHeight}}}}
+		if in.ConvertAll && in.SlideIndex >= 0 && in.SlideIndex < len(in.Presentation.Slides) {
+			for i := range in.Presentation.Slides[in.SlideIndex].Elements {
+				if in.Presentation.Slides[in.SlideIndex].Elements[i].Type == "image" {
+					in.Presentation.Slides[in.SlideIndex].Elements[i].AssetURL = in.Asset
+					in.Presentation.Slides[in.SlideIndex].Elements[i].X = 0
+					in.Presentation.Slides[in.SlideIndex].Elements[i].Y = 0
+					in.Presentation.Slides[in.SlideIndex].Elements[i].Width = in.CropWidth
+					in.Presentation.Slides[in.SlideIndex].Elements[i].Height = in.CropHeight
+					break
+				}
+			}
+		} else {
+			in.Presentation.Slides = []ppt.Slide{{Elements: []ppt.Element{{Type: "image", AssetURL: in.Asset, X: 0, Y: 0, Width: in.CropWidth, Height: in.CropHeight}}}}
+		}
 		// Keep a zero selection so the normal auto-region detector runs against
-		// the supplied image; CropWidth/CropHeight provide its canvas size.
-		in.SlideIndex, in.X, in.Y = 0, localX, localY
+		// the supplied image; CropWidth/CropHeight provide its canvas size. In
+		// convert mode retain the original slide index so the repaired page is
+		// written back to the correct page.
+		if !in.ConvertAll {
+			in.SlideIndex = 0
+		}
+		in.X, in.Y = localX, localY
+	}
+	if in.ConvertAll && originalCanvasW > 0 && originalCanvasH > 0 {
+		in.Presentation.Width, in.Presentation.Height = originalCanvasW, originalCanvasH
 	}
 	if in.SlideIndex < 0 || in.SlideIndex >= len(in.Presentation.Slides) {
 		writeError(w, 400, "slideIndex out of range")
@@ -870,7 +928,11 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			// DB recognition boxes often include spacing that the recognizer drops.
 			// Justification lets the editable text occupy the original box width.
 			fontFamily, fontBold, fontWeight := matchOCRFont(cropImg, text, fontSize, in.Presentation.FontAssets)
-			style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(cropImg), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "justify", "verticalAlign": "middle", "lineHeight": 1.0, "background": paddleOCRBackground(cropImg)}
+			background := paddleOCRBackground(cropImg)
+			if in.ConvertAll {
+				background = "transparent"
+			}
+			style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(cropImg), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "justify", "verticalAlign": "middle", "lineHeight": 1.0, "background": background}
 			dx1, dy1 := float64(poly.Points[1].X-poly.Points[0].X), float64(poly.Points[1].Y-poly.Points[0].Y)
 			dx2, dy2 := float64(poly.Points[2].X-poly.Points[1].X), float64(poly.Points[2].Y-poly.Points[1].Y)
 			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
@@ -883,6 +945,28 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			}
 			e.Style["ocrPolygon"] = poly.Points
 			elements = append(elements, e)
+		}
+		if in.ConvertAll {
+			// Keep the repaired raster as the slide background and overlay only
+			// transparent editable text boxes. This prevents the original glyphs
+			// from showing through when the user edits the recognized text.
+			repaired, repairErr := repairPPTOCRBackground(img, polys)
+			if repairErr != nil {
+				writeError(w, http.StatusInternalServerError, "修复 OCR 区域背景失败："+repairErr.Error())
+				return
+			}
+			sl := &in.Presentation.Slides[in.SlideIndex]
+			base := make([]ppt.Element, 0, len(sl.Elements)+len(elements))
+			for _, e := range sl.Elements {
+				if e.Type != "image" {
+					base = append(base, e)
+				}
+			}
+			base = append(base, ppt.Element{ID: fmt.Sprintf("ocr-repaired-%d", time.Now().UnixNano()), Type: "image", X: in.ImageOffsetX, Y: in.ImageOffsetY, Width: canvasW, Height: canvasH, AssetURL: repaired, Style: map[string]any{"objectFit": "cover"}})
+			base = append(base, elements...)
+			sl.Elements = base
+			writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "elements": elements, "regions": len(elements), "polygons": polys, "provider": provider, "scanned": true, "converted": true})
+			return
 		}
 		writeJSON(w, 200, map[string]any{"elements": elements, "regions": len(elements), "polygons": polys, "provider": provider, "scanned": true})
 		return
