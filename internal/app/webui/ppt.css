@@ -306,7 +306,7 @@ main.inspector-collapsed>.side {
 
 .ocr-engine-picker {
     position: absolute;
-    z-index: 30;
+    z-index: 3;
     margin-top: 42px;
     margin-left: -8px;
     padding: 6px;

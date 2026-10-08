@@ -617,13 +617,19 @@
       el("retouchEmpty").hidden = true; el("retouchCanvasWrap").hidden = false;
       updateCanvasInfo();
       el("retouchExportWidth").value = String(state.width); el("retouchExportHeight").value = String(state.height);
-      el("imageModal").hidden = true; el("fineEditor").hidden = false; requestAnimationFrame(() => { fitToView(); scheduleEstimate(); });
+      // The PPT editor page does not include the gallery preview modal.
+      // Opening a retouch image must still work there.
+      const imageModal = el("imageModal");
+      if (imageModal) imageModal.hidden = true;
+      el("fineEditor").hidden = false; requestAnimationFrame(() => { fitToView(); scheduleEstimate(); });
     };
     image.onerror = () => setHint("图片读取失败，可能不允许跨域编辑"); image.src = url;
   }
   function openEmpty(tool = "cutout") {
     state.sourceURL = ""; state.sourceBytes = 0; state.width = 0; state.height = 0; state.original = null; state.undo = []; state.redo = []; updateHistoryButtons();
-    el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false; el("fineEditor").hidden = false; el("imageModal").hidden = true;
+    el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false; el("fineEditor").hidden = false;
+    const imageModal = el("imageModal");
+    if (imageModal) imageModal.hidden = true;
     el("retouchEmpty").hidden = false; el("retouchCanvasWrap").hidden = true; updateCanvasInfo();
     document.querySelectorAll("[data-editor-tab]").forEach((button) => { const active = button.dataset.editorTab === "manual"; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
     setTool(tool); setHint("选择或拖入图片后即可开始一键抠图");
@@ -864,5 +870,9 @@
     window.addEventListener("blur", () => { stopCompare(); state.spacePressed = false; stopPan({}); dropArea.classList.remove("pan-ready"); });
     window.addEventListener("beforeunload", (event) => { if (state.cutoutProcessing) { event.preventDefault(); event.returnValue = ""; } });
   }
-  window.KuaimaRetouchEditor = { open, openEmpty, close }; init();
+  function exportDataURL() {
+    if (!state.width || !state.height) return "";
+    return exportCanvas().toDataURL("image/png");
+  }
+  window.KuaimaRetouchEditor = { open, openEmpty, close, exportDataURL }; init();
 })();

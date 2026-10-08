@@ -298,7 +298,13 @@
       if (event.target.dataset.fineFileRemove != null) { state.files.splice(Number(event.target.dataset.fineFileRemove), 1); renderFiles(); }
     });
     el("applyFineEdit").addEventListener("click", apply);
-    el("applyFineEditHeader")?.addEventListener("click", apply);
+    el("applyFineEditHeader")?.addEventListener("click", () => {
+      if (!el("retouchEditor").hidden && state.onApply && window.KuaimaRetouchEditor) {
+        const result = window.KuaimaRetouchEditor.exportDataURL();
+        if (result) { state.onApply(result); close(); return; }
+      }
+      apply();
+    });
     window.addEventListener("resize", syncMarkerBounds);
   }
 
