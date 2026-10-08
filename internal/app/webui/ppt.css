@@ -160,6 +160,7 @@ main.inspector-collapsed > .side {
 #pptInspectorReopen { position:fixed; right:324px; top:174px; z-index:40; width:30px; height:54px; padding:14px 5px; box-sizing:border-box; border:1px solid #d9e1ee; border-right:0; border-radius:10px 0 0 10px; background:#fff; color:#64748b; cursor:pointer; box-shadow:-3px 2px 10px #26344d18; }
 #pptInspectorReopen:hover { border-color:#3478f6; color:#3478f6; }
 #pptInspectorReopen[hidden] { display:none; }
+.ppt-inspector-icon{display:block;font:700 24px/20px Arial,sans-serif;pointer-events:none}
 .bar { position:relative; }
 .tools { position:relative; }
 .ocr-engine-picker { top:42px; margin-top:0; margin-left:0; }
@@ -1160,3 +1161,16 @@ main.inspector-collapsed > .side {
 .ppt-custom-colors{display:flex;gap:12px;margin-top:12px}.ppt-custom-colors label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}.ppt-custom-colors input{width:42px;height:28px;padding:2px;border:1px solid #cbd5e1;border-radius:6px;background:#fff}.ppt-ai-reference-preview{display:flex;align-items:center;gap:10px;margin-top:10px;padding:8px;border:1px solid #dbe3ef;border-radius:8px;font-size:12px;color:var(--muted)}.ppt-ai-reference-preview img{width:96px;height:60px;object-fit:cover;border-radius:5px}
 .ppt-ai-live-preview{width:100%;max-width:760px;margin:18px auto 0;text-align:left;border:1px solid #dbe3ef;border-radius:12px;background:#fff;overflow:hidden}.ppt-ai-live-title{padding:10px 14px;font-size:13px;font-weight:700;color:#334155;background:#f8fafc;border-bottom:1px solid #e2e8f0}.ppt-ai-live-preview pre{height:220px;margin:0;padding:14px;overflow:auto;white-space:pre-wrap;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;color:#334155}
 .ppt-ai-live-cards{max-height:240px;overflow:auto;padding:10px}.ppt-ai-live-card{padding:10px 12px;margin-bottom:8px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}.ppt-ai-live-card ul{margin:6px 0 0 18px}
+.ppt-home-button img{width:18px;height:18px;border-radius:5px;object-fit:contain;margin-right:6px;vertical-align:middle}
+.ppt-io-active [data-lucide]{animation:ppt-io-spin .8s linear infinite}
+@keyframes ppt-io-spin{to{transform:rotate(360deg)}}
+.ppt-ai-dialog{animation:ppt-dialog-in .2s ease-out both}
+.ppt-ai-head-actions{display:flex;align-items:center;gap:2px;flex-shrink:0}
+.ppt-ai-minimize,.ppt-ai-close{transition:transform .18s ease,color .18s ease,background .18s ease}
+.ppt-ai-minimize:hover{transform:translateY(2px);background:#eff6ff;border-radius:6px}
+.ppt-ai-close:hover{transform:rotate(8deg);background:#fef2f2;border-radius:6px}
+.ppt-ai-restore{transition:transform .2s ease,box-shadow .2s ease}.ppt-ai-restore:hover{transform:translateY(-3px);box-shadow:0 10px 25px #0003}
+@keyframes ppt-dialog-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+.ppt-home-button{display:inline-flex;align-items:center;gap:8px;padding:4px 8px!important}
+.ppt-brand-mark{display:block;width:30px;height:30px;border-radius:50%;background:url("/logo.png") center/contain no-repeat,linear-gradient(135deg,#2563eb,#0f9f8f);box-shadow:0 8px 20px rgba(37,99,235,.22)}
+.ppt-home-button .app-version{font-size:11px;min-height:20px;padding:0 2px;border:0;background:transparent}

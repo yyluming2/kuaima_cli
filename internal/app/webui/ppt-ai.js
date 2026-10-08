@@ -1,5 +1,6 @@
 (() => {
   const $ = id => document.getElementById(id), modal = $("pptAiModal");
+  fetch("/api/config").then(r => r.json()).then(c => { const v = $("pptAppVersion"); if (v && c?.version) v.textContent = "v" + c.version; }).catch(() => {});
   const views = { form: $("pptAiForm"), outline: $("pptAiOutline"), progress: $("pptAiProgress"), generating: $("pptAiGenerating") };
   let currentPlan = null, generatedDeck = null, visualMode = "auto";
   const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -39,7 +40,6 @@
   function renderLiveOutline(raw){const box=$("pptAiStreamText"), m=[...raw.matchAll(/"title"\s*:\s*"([^"]*)"[\s\S]{0,900}?"blocks"\s*:\s*\[([\s\S]*?)(?:\]|$)/g)]; if(!m.length){box.textContent=raw.slice(-5000);return} box.innerHTML=m.map((x,i)=>"<div class=\"ppt-ai-live-card\"><b>"+String(i+1).padStart(2,"0")+" "+esc(x[1])+"</b><ul>"+[...x[2].matchAll(/"content"\s*:\s*"([^"]*)"/g)].map(b=>"<li>"+esc(b[1].replace(/\\n/g," "))+"</li>").join("")+"</ul></div>").join(""); box.scrollTop=box.scrollHeight; }
   setTimeout(()=>show(true),0); loadModels();
 })();
-
 
 
 
