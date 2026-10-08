@@ -29,7 +29,7 @@
       </div>
       <div id="pptAiForm">
         <section class="ppt-ai-section">
-          <div class="ppt-ai-section-title"><b>内容需求</b><span>输入主题，或直接上传参考 PPT</span></div>
+          <div class="ppt-ai-section-title"><b>内容需求</b><span>输入主题，或上传参考 PPT 进行美化</span></div>
           <label>主题和内容<textarea id="pptAiBrief" rows="4"
               placeholder="例如：面向企业客户的 2026 产品发布会，介绍新产品、核心优势和行动计划"></textarea></label>
           <div class="ppt-ai-or"><span>或</span></div>
@@ -74,7 +74,7 @@
         </section>
         <details class="ppt-ai-advanced">
           <summary>高级设置：选择模型</summary>
-          <div class="ppt-ai-grid"><label>大纲生成模型<select id="pptAiTextModel">
+          <div class="ppt-ai-grid"><label>内容模型<select id="pptAiTextModel">
                 <option value="">正在加载模型…</option>
               </select></label><label>图片生成模型<select id="pptAiImageModel">
                 <option value="">正在加载模型…</option>
@@ -88,20 +88,19 @@
       <div id="pptAiOutline" hidden>
         <div class="ppt-ai-confirm-head">
           <div>
-            <h3>确认生成方案</h3>
-            <p>提示词和每页内容都可以修改</p>
+            <h3>参考页面</h3>
+            <p>逐页使用 Canvas 画面作为视觉参考</p>
           </div><span id="pptAiPlanSummary"></span>
         </div>
         <div class="ppt-ai-confirm-grid">
           <div class="ppt-ai-confirm-main">
             <label>统一提示词<textarea id="pptAiUnifiedPrompt" rows="3"></textarea></label>
-            <label>内容结构提示词<textarea id="pptAiOutlinePrompt" rows="2"></textarea></label>
-            <div class="ppt-ai-outline-head"><b>每页大纲</b><span>共 <em id="pptAiOutlineCount">0</em> 页</span></div>
+            <div class="ppt-ai-outline-head"><b>页面预览</b><span>共 <em id="pptAiOutlineCount">0</em> 页</span></div>
             <div id="pptAiOutlineList"></div>
           </div>
           <aside class="ppt-ai-master-card">
-            <div class="ppt-ai-master-head"><b>参考母版</b><button id="pptAiRegenerate" type="button">重新生成</button></div>
-            <p>后续每页都会遵循这套配色和版式。</p>
+            <div class="ppt-ai-master-head"><b>视觉参考</b><button id="pptAiRegenerate" type="button">重新生成</button></div>
+            <p>每页独立美化，保留原页面顺序。</p>
           </aside>
         </div>
         <div class="ppt-ai-actions ppt-ai-sticky-actions"><button id="pptAiStyleBack">← 返回修改</button><button
@@ -114,13 +113,13 @@
         <div id="pptAiProgressText">正在连接模型</div>
         <div class="ppt-ai-live-preview">
           <div class="ppt-ai-live-title">实时方案预览</div>
-          <div id="pptAiStreamText" class="ppt-ai-live-cards">正在等待大纲内容…</div>
+          <div id="pptAiStreamText" class="ppt-ai-live-cards">正在等待处理…</div>
         </div>
       </div>
       <div id="pptAiGenerating" hidden>
         <div class="ppt-ai-generating-head">
           <div>
-            <h3 id="pptAiGeneratingTitle">正在按页生成</h3>
+            <h3 id="pptAiGeneratingTitle">正在美化 PPT</h3>
             <p id="pptAiGeneratingText">请稍候，生成完成的页面会立即显示</p>
           </div><b id="pptAiGeneratingCount">0 / 0</b>
         </div>

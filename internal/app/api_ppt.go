@@ -720,8 +720,9 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Presentation ppt.Presentation `json:"presentation"`
-		SlideIndex   *int             `json:"slideIndex,omitempty"`
+		Presentation   ppt.Presentation `json:"presentation"`
+		SlideIndex     *int             `json:"slideIndex,omitempty"`
+		ReferenceImage string           `json:"referenceImage,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
@@ -772,7 +773,10 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		}
 		var resp *responsePayload
 		var genErr error
-		if in.Presentation.Master != nil && strings.TrimSpace(in.Presentation.Master.Background) != "" {
+		if strings.TrimSpace(in.ReferenceImage) != "" {
+			prompt += "\n参考图是需要美化的原页面。准确保留内容与数据，根据用户要求重新设计视觉，输出完整演示文稿页面。"
+			resp, genErr = c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: []imageRef{{ImageURL: in.ReferenceImage}}, N: 1, Size: "1536x864"})
+		} else if in.Presentation.Master != nil && strings.TrimSpace(in.Presentation.Master.Background) != "" {
 			// Keep the reference image out of the text prompt. Besides wasting context,
 			// embedding a data URL there can exceed the model's prompt limit. The image
 			// edit endpoint accepts it as a proper visual reference instead.
