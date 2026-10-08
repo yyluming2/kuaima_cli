@@ -2515,3 +2515,6 @@ main.inspector-collapsed>.side {
 #retouchEditor .retouch-download-actions {
     display: none;
 }
+.ppt-reference-thumb{display:block;width:96px;height:54px;object-fit:cover;border-radius:4px;margin-top:6px}
+
+.ppt-redesign-dialog.is-generating:after{content:'AI 正在生成新的页面图片…';display:block;text-align:center;color:#667085;animation:pptPulse 1.2s ease-in-out infinite}@keyframes pptPulse{50%{opacity:.35}}

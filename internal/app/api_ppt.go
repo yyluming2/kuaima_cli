@@ -405,7 +405,9 @@ func (s *webUIServer) handlePPTMaster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct{ Title, Style, Brief, ImageModel, StyleReference, UnifiedPrompt string }
-	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
+	// Slides may contain embedded reference/image data URLs; allow a realistic
+	// deck payload instead of failing with "unexpected EOF" at the 8 MB limit.
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
@@ -838,6 +840,8 @@ func (s *webUIServer) handlePPTImageToEditable(w http.ResponseWriter, r *http.Re
 		SlideIndex     int              `json:"slideIndex"`
 		Prompt         string           `json:"prompt"`
 		ReferenceImage string           `json:"referenceImage"`
+		ImageModel     string           `json:"imageModel"`
+		PageImage      string           `json:"pageImage"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
@@ -1460,8 +1464,10 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 		SlideIndex     int              `json:"slideIndex"`
 		Prompt         string           `json:"prompt"`
 		ReferenceImage string           `json:"referenceImage"`
+		ImageModel     string           `json:"imageModel"`
+		PageImage      string           `json:"pageImage"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
@@ -1550,12 +1556,22 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 				if out.ImagePrompt != "" {
 					page.Elements = append(page.Elements, ppt.Element{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 790, Y: 170, Width: 400, Height: 300, AssetURL: illustrationDataURL(out.ImagePrompt)})
 				}
-				imageModel := strings.TrimSpace(in.Presentation.AIImageModel)
+				imageModel := strings.TrimSpace(in.ImageModel)
+				if imageModel == "" {
+					imageModel = strings.TrimSpace(in.Presentation.AIImageModel)
+				}
 				if imageModel == "" && s.clientOpts.imageModel != nil {
 					imageModel = strings.TrimSpace(*s.clientOpts.imageModel)
 				}
 				if imageModel != "" && out.ImagePrompt != "" && len(page.Elements) > 0 {
-					if imgResp, imgErr := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: out.ImagePrompt, N: 1, Size: "1024x1024"}); imgErr != nil {
+					var imgResp *responsePayload
+					var imgErr error
+					if strings.TrimSpace(in.PageImage) != "" {
+						imgResp, imgErr = c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: strings.TrimSpace(in.Prompt), Images: []imageRef{{ImageURL: in.PageImage}}, N: 1, Size: "1024x1024"})
+					} else {
+						imgResp, imgErr = c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: out.ImagePrompt, N: 1, Size: "1024x1024"})
+					}
+					if imgErr != nil {
 						if streamMode {
 							// Keep the regenerated text/layout even when the optional
 							// image phase fails. The client can retry the image alone.
