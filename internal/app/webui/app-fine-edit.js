@@ -1,6 +1,15 @@
 (function () {
   const state = { sourceURL: "", points: [], files: [], selectedIndex: -1, dragging: null, onApply: null };
   const el = (id) => document.getElementById(id);
+  async function loadImageModels() {
+    const select = el("fineEditorImageModel");
+    if (!select) return;
+    try {
+      const data = await fetch("/api/ipricing").then(r => r.json());
+      const models = (data?.data?.img || data?.data?.image || []).filter(x => x?.model_name);
+      if (models.length) select.innerHTML = models.map(x => '<option value="' + esc(x.model_name) + '">' + esc(x.model_name) + '</option>').join("");
+    } catch (_) { /* keep the built-in model */ }
+  }
 
   function syncMarkerBounds() {
     const img = el("fineEditorImage");
@@ -147,7 +156,7 @@
     if (state.onApply) {
       try {
         const sourceResponse = await fetch(state.sourceURL); const sourceBlob = await sourceResponse.blob();
-        const formData = new FormData(); formData.append("prompt", pointPrompt()); formData.append("model", "gpt-image-2"); formData.append("images", sourceBlob, "ppt-image.png");
+        const formData = new FormData(); formData.append("prompt", pointPrompt()); formData.append("model", el("fineEditorImageModel")?.value || "gpt-image-2"); formData.append("images", sourceBlob, "ppt-image.png");
         const response = await fetch("/api/generate", { method: "POST", body: formData }); const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || "图片编辑失败");
         const result = payload.images?.[0] || payload.data?.[0]?.url || payload.url; if (!result) throw new Error("编辑接口未返回图片");
@@ -156,6 +165,7 @@
     }
     let previousImages = null;
     let previousPrompt = "";
+    let previousModel = "";
     try {
       const source = await sourceFile();
       const supplements = await dedupeReferenceFiles(state.files, [source]);
@@ -164,6 +174,8 @@
       if (generateTab) generateTab.click();
       previousImages = selectedImages;
       previousPrompt = form.elements.prompt.value;
+      previousModel = form.elements.image_model?.value || "";
+      if (form.elements.image_model && el("fineEditorImageModel")?.value) form.elements.image_model.value = el("fineEditorImageModel").value;
       selectedImages = [source].concat(supplements);
       form.elements.prompt.value = pointPrompt();
       activeGenerationController = new AbortController();
@@ -191,6 +203,7 @@
       if (previousImages) {
         selectedImages = previousImages;
         el("genForm").elements.prompt.value = previousPrompt;
+        if (el("genForm").elements.image_model && previousModel) el("genForm").elements.image_model.value = previousModel;
         syncImageInput();
         renderImagePreviews();
       }
@@ -200,6 +213,7 @@
   }
 
   function init() {
+    loadImageModels();
     document.addEventListener("click", (event) => {
       if (event.target.closest("[data-fine-edit-tab]")) el("fineEditorSourceFiles").click();
     });

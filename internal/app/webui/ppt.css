@@ -2319,3 +2319,6 @@ main.inspector-collapsed>.side {
     border: 0;
     background: transparent
 }
+/* PPT 手动编辑只保留必要的画布操作，下载由 PPT 导出完成。 */
+#retouchEditor .retouch-more-menu,
+#retouchEditor .retouch-download-actions { display: none; }
