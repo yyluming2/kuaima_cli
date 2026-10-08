@@ -834,8 +834,10 @@ func (s *webUIServer) handlePPTImageToEditable(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var in struct {
-		Presentation ppt.Presentation `json:"presentation"`
-		SlideIndex   int              `json:"slideIndex"`
+		Presentation   ppt.Presentation `json:"presentation"`
+		SlideIndex     int              `json:"slideIndex"`
+		Prompt         string           `json:"prompt"`
+		ReferenceImage string           `json:"referenceImage"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
@@ -1454,8 +1456,10 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var in struct {
-		Presentation ppt.Presentation `json:"presentation"`
-		SlideIndex   int              `json:"slideIndex"`
+		Presentation   ppt.Presentation `json:"presentation"`
+		SlideIndex     int              `json:"slideIndex"`
+		Prompt         string           `json:"prompt"`
+		ReferenceImage string           `json:"referenceImage"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
@@ -1470,6 +1474,14 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 		model = strings.TrimSpace(*s.clientOpts.model)
 	}
 	page := in.Presentation.Slides[in.SlideIndex]
+	if strings.TrimSpace(in.Prompt) != "" {
+		for i := range page.Elements {
+			if page.Elements[i].Type == "text" {
+				page.Elements[i].Content += "\n\n修改要求：" + strings.TrimSpace(in.Prompt)
+				break
+			}
+		}
+	}
 	title, body := "", ""
 	for _, e := range page.Elements {
 		if e.Type == "text" && title == "" {

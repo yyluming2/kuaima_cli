@@ -881,6 +881,7 @@ main.inspector-collapsed>.side {
 }
 
 .thumb {
+    position: relative;
     padding: 10px;
     background: #fff;
     margin-bottom: 8px;
@@ -2013,17 +2014,26 @@ main.inspector-collapsed>.side {
 }
 
 .thumb-label {
-    position: relative
+    position: relative;
+    display: block;
+    height: 20px;
+    margin-top: 6px;
+    line-height: 20px;
+    z-index: 4;
+    pointer-events: none;
 }
 
 .thumb-actions {
-    display: flex;
-    gap: 3px;
-    justify-content: center;
-    margin-top: 4px;
+    position: absolute;
+    right: 8px;
+    top: 32px;
+    display: block;
+    gap: 4px;
+    margin-top: 0;
     opacity: 0;
     visibility: hidden;
-    transition: opacity .15s ease
+    transition: opacity .15s ease;
+    pointer-events: auto
 }
 
 .thumb:hover .thumb-actions,
@@ -2033,20 +2043,117 @@ main.inspector-collapsed>.side {
 }
 
 .thumb-actions button {
-    font-size: 11px;
-    padding: 3px 5px;
-    border: 1px solid #cbd5e1;
-    background: #fff;
-    border-radius: 4px;
+    width: 25px;
+    height: 25px;
+    padding: 0;
+    border: 1px solid #dbe3ef;
+    background: rgba(255, 255, 255, .96);
+    border-radius: 7px;
+    color: #526176;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center
 }
 
+.thumb-actions button {
+    float: right;
+    margin-left: 4px;
+}
+
+.thumb-actions button:nth-of-type(3) {
+    color: #dc2626;
+    border-color: #fecaca;
+    background: #fff5f5;
+}
+
+.thumb-actions button:nth-of-type(3):hover {
+    color: #b91c1c;
+    border-color: #f87171;
+    background: #fee2e2;
+}
+
 .thumb-actions button:hover {
-    background: #eff6ff;
-    border-color: #60a5fa
+    background: #eef5ff;
+    border-color: #7aaaf7;
+    color: #2563eb;
+    transform: translateY(-1px)
+}
+
+.ppt-redesign-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, .42);
+    backdrop-filter: blur(3px);
+}
+
+.ppt-redesign-dialog {
+    width: min(460px, calc(100vw - 32px));
+    padding: 24px;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, .28);
+    color: #172033;
+}
+
+.ppt-redesign-dialog h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+}
+
+.ppt-redesign-dialog p {
+    margin: 0 0 16px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.ppt-redesign-dialog textarea {
+    width: 100%;
+    min-height: 110px;
+    box-sizing: border-box;
+    padding: 11px;
+    border: 1px solid #d8e0ec;
+    border-radius: 10px;
+    resize: vertical;
+    font: inherit;
+}
+
+.ppt-redesign-dialog label {
+    display: block;
+    margin-top: 14px;
+    color: #526176;
+    font-size: 13px;
+}
+
+.ppt-redesign-dialog input {
+    display: block;
+    margin-top: 7px;
+    width: 100%;
+}
+
+.ppt-redesign-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.ppt-redesign-actions button {
+    border: 1px solid #d7dfeb;
+    border-radius: 9px;
+    padding: 9px 16px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.ppt-redesign-actions .primary {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
 }
 
 .thumb-actions [data-lucide] {
