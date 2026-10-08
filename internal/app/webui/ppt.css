@@ -2518,3 +2518,7 @@ main.inspector-collapsed>.side {
 .ppt-reference-thumb{display:block;width:96px;height:54px;object-fit:cover;border-radius:4px;margin-top:6px}
 
 .ppt-redesign-dialog.is-generating:after{content:'AI 正在生成新的页面图片…';display:block;text-align:center;color:#667085;animation:pptPulse 1.2s ease-in-out infinite}@keyframes pptPulse{50%{opacity:.35}}
+
+body.ppt-regenerating .ppt-stream-status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:16px 22px;border-radius:12px;background:rgba(255,255,255,.94);box-shadow:0 8px 28px rgba(15,23,42,.2);font-size:15px;pointer-events:none}.ppt-regenerate-blocker:before{content:"";display:inline-block;width:18px;height:18px;margin-right:10px;vertical-align:-4px;border:3px solid #dbeafe;border-top-color:#2563eb;border-radius:50%;animation:pptSpin .8s linear infinite}@keyframes pptSpin{to{transform:rotate(360deg)}}
+
+.ppt-redesign-current-thumb{margin:10px 0 14px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#f8fafc}.ppt-redesign-current-thumb span{display:block;padding:6px 10px;font-size:12px;color:#667085}.ppt-redesign-current-thumb img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#eef2f7}.ppt-redesign-model{margin-top:12px;color:#667085;font-size:13px}.ppt-redesign-model summary{cursor:pointer}.ppt-redesign-model select{display:block;width:100%;margin-top:8px}

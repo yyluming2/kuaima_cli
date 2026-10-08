@@ -34,6 +34,25 @@ func (c *client) logRequest(req *http.Request, body []byte) {
 	}
 }
 
+func (c *client) logImageEditMultipart(req imageEditRequest) {
+	if !logEnabled(c.verbose, c.logWriter) {
+		return
+	}
+	w := logOutput(c.verbose, c.logWriter)
+	f := make([]string, 0, len(req.Images))
+	for _, image := range req.Images {
+		f = append(f, fmt.Sprintf("source=%s", image.ImageURL[:logMinInt(len(image.ImageURL), 80)]))
+	}
+	fmt.Fprintf(w, "multipart fields: model=%q prompt=%q n=%d size=%q images=[%s]\n", req.Model, req.Prompt, req.N, req.Size, strings.Join(f, ", "))
+}
+
+func logMinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (c *client) logTiming(started, first time.Time) {
 	if !logEnabled(c.verbose, c.logWriter) {
 		return

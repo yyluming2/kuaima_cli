@@ -49,6 +49,7 @@ func imageEditUsesMultipart(req imageEditRequest) bool {
 }
 
 func (c *client) createImageEditMultipart(ctx context.Context, req imageEditRequest) (*responsePayload, error) {
+	c.logImageEditMultipart(req)
 	body, contentType, err := c.buildImageEditMultipartBody(ctx, req)
 	if err != nil {
 		return nil, err
@@ -82,6 +83,7 @@ func (c *client) createImageEditMultipart(ctx context.Context, req imageEditRequ
 }
 
 func (c *client) createImageEditMultipartStream(ctx context.Context, req imageEditRequest, onImage func(imageCandidate) error) (*responsePayload, error) {
+	c.logImageEditMultipart(req)
 	body, contentType, err := c.buildImageEditMultipartBody(ctx, req)
 	if err != nil {
 		return nil, err

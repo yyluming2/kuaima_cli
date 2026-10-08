@@ -1502,6 +1502,76 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 		stream = newWebUIEventStream(w)
 		stream.send("status", map[string]string{"message": "正在生成本页内容…"})
 	}
+	// When the editor supplies a snapshot, regenerate the complete page as a
+	// single image. This keeps the visual composition intact and uses the image
+	// model directly instead of asking the text model to rebuild the slide.
+	if strings.TrimSpace(in.PageImage) != "" {
+		imageModel := strings.TrimSpace(in.ImageModel)
+		if imageModel == "" && s.clientOpts.imageModel != nil {
+			imageModel = strings.TrimSpace(*s.clientOpts.imageModel)
+		}
+		if imageModel == "" {
+			if streamMode {
+				stream.send("error", map[string]string{"error": "image model is not configured"})
+				return
+			}
+			writeError(w, 400, "image model is not configured")
+			return
+		}
+		c, err := s.clientOpts.newClient()
+		if err != nil {
+			writeError(w, 502, err.Error())
+			return
+		}
+		defer c.Close()
+		prompt := strings.TrimSpace(in.Prompt)
+		if prompt == "" {
+			prompt = "重新设计这张 PPT 页面，保持文字内容和信息含义，优化版式、层次、配色与视觉表达，输出 16:9 演示文稿页面"
+		}
+		if streamMode {
+			stream.send("status", map[string]string{"message": "正在用生图模型重绘当前页面…"})
+		}
+		refs := []imageRef{{ImageURL: in.PageImage}}
+		if strings.TrimSpace(in.ReferenceImage) != "" {
+			refs = append(refs, imageRef{ImageURL: in.ReferenceImage})
+		}
+		resp, err := c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: refs, N: 1, Size: "1536x864"})
+		if err != nil {
+			if streamMode {
+				stream.send("error", map[string]string{"error": err.Error()})
+				return
+			}
+			writeError(w, 502, err.Error())
+			return
+		}
+		saved, err := saveImagesFromResponse(r.Context(), c.httpClient, resp, s.saveDirectory(), false, "")
+		if err != nil {
+			if streamMode {
+				stream.send("error", map[string]string{"error": err.Error()})
+				return
+			}
+			writeError(w, 502, err.Error())
+			return
+		}
+		urls := s.publicImageURLs(saved, s.saveDirectory())
+		if len(urls) == 0 {
+			if streamMode {
+				stream.send("error", map[string]string{"error": "image model returned no image"})
+				return
+			}
+			writeError(w, 502, "image model returned no image")
+			return
+		}
+		page.Layout = "image"
+		page.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 0, Y: 0, Width: 1280, Height: 720, AssetURL: urls[0]}}
+		in.Presentation.Slides[in.SlideIndex] = page
+		if streamMode {
+			stream.send("done", map[string]any{"slide": page, "slideIndex": in.SlideIndex})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"slide": page, "slideIndex": in.SlideIndex})
+		return
+	}
 	if model != "" {
 		if c, err := s.clientOpts.newClient(); err == nil {
 			defer c.Close()
