@@ -167,9 +167,17 @@ header,
 }
 
 header {
-    height: 56px;
+    min-height: 56px;
+    height: auto;
     box-sizing: border-box;
     box-shadow: 0 1px 3px #0001
+}
+
+header .bar {
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
 }
 
 header b {
@@ -336,7 +344,8 @@ main.inspector-collapsed>.side {
 }
 
 .ppt-welcome-actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 12px;
     flex-wrap: wrap;
     justify-content: center;
@@ -351,6 +360,28 @@ main.inspector-collapsed>.side {
     font-weight: 600;
     cursor: pointer;
     box-shadow: 0 6px 16px rgba(37, 99, 235, .2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.ppt-welcome-actions button svg {
+    width: 18px;
+    height: 18px;
+}
+
+.ppt-welcome-actions .ppt-welcome-primary {
+    grid-column: 1 / -1;
+    padding: 16px 28px;
+    font-size: 17px;
+}
+
+.ppt-welcome-actions button:not(.ppt-welcome-primary) {
+    background: #fff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, .12);
 }
 
 .ppt-welcome-actions button:hover {
