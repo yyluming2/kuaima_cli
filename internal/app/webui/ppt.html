@@ -27,15 +27,24 @@
         <i></i>
         <div data-step="3"><b>3</b><span>生成页面</span></div>
       </div>
-      <div id="pptAiForm">
+      <div id="pptAiForm" class="ppt-ai-view">
+        <div class="ppt-ai-scroll">
         <section class="ppt-ai-section">
-          <div class="ppt-ai-section-title"><b>内容需求</b><span>输入主题，或上传参考 PPT 进行美化</span></div>
+          <div class="ppt-ai-section-title"><b>内容需求</b><span id="pptAiContentHint">输入主题和内容，创建全新 PPT</span></div>
+          <div class="ppt-ai-content-tabs" role="tablist" aria-label="PPT 制作方式">
+            <button id="pptAiCreateTab" type="button" role="tab" aria-selected="true" aria-controls="pptAiCreatePanel" data-content-mode="create"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M12 12v6M9 15h6"/></svg><span>新建 PPT</span></button>
+            <button id="pptAiBeautifyTab" type="button" role="tab" aria-selected="false" aria-controls="pptAiBeautifyPanel" data-content-mode="beautify" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 4 5 5L7 22l-5-5ZM12 7l5 5M5 3v4M3 5h4M19 15v4M17 17h4"/></svg><span>美化 PPT</span></button>
+          </div>
+          <div id="pptAiCreatePanel" role="tabpanel" aria-labelledby="pptAiCreateTab">
           <label>主题和内容<textarea id="pptAiBrief" rows="4"
               placeholder="例如：面向企业客户的 2026 产品发布会，介绍新产品、核心优势和行动计划"></textarea></label>
-          <div class="ppt-ai-or"><span>或</span></div>
+          </div>
+          <div id="pptAiBeautifyPanel" role="tabpanel" aria-labelledby="pptAiBeautifyTab" hidden>
           <label class="ppt-file ppt-file-compact">参考 PPT 文件<input id="pptAiDeck" type="file"
-              accept=".pptx,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json，AI 会参考其内容和页数</small></label>
-          <div class="ppt-ai-grid"><label>页数 <small>选填</small><input id="pptAiPages" type="number" min="3" max="50"
+              accept=".pptx,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json，AI 会保留原页内容和顺序进行美化</small></label>
+          <label>美化要求 <small>选填</small><textarea id="pptAiBeautifyBrief" rows="3" placeholder="例如：保留原有内容，优化排版和字体层级，整体更简洁"></textarea></label>
+          </div>
+          <div class="ppt-ai-grid"><label id="pptAiPagesField">页数 <small>选填</small><input id="pptAiPages" type="number" min="3" max="50"
                 placeholder="AI 自动决定"></label><label>风格描述 <small>选填</small><input id="pptAiStyle"
                 placeholder="例如：现代商务、科技感"></label></div>
         </section>
@@ -82,10 +91,12 @@
           <label class="ppt-ai-retry-setting">单页失败自动重试 <small>默认 3 次</small><input id="pptAiRetryCount" type="number"
               min="0" max="5" value="3"></label>
         </details>
+        </div>
         <div class="ppt-ai-actions"><button id="pptAiCancel">取消</button><button id="pptAiPlan"
             class="ppt-ai-primary">生成方案 <span>→</span></button></div>
       </div>
-      <div id="pptAiOutline" hidden>
+      <div id="pptAiOutline" class="ppt-ai-view" hidden>
+        <div class="ppt-ai-scroll">
         <div class="ppt-ai-confirm-head">
           <div>
             <h3>参考页面</h3>
@@ -103,6 +114,7 @@
             <p>每页独立美化，保留原页面顺序。</p>
           </aside>
         </div>
+        </div>
         <div class="ppt-ai-actions ppt-ai-sticky-actions"><button id="pptAiStyleBack">← 返回修改</button><button
             id="pptAiGenerate" class="ppt-ai-primary">确认并生成 <span>→</span></button></div>
       </div>
@@ -116,7 +128,8 @@
           <div id="pptAiStreamText" class="ppt-ai-live-cards">正在等待处理…</div>
         </div>
       </div>
-      <div id="pptAiGenerating" hidden>
+      <div id="pptAiGenerating" class="ppt-ai-view" hidden>
+        <div class="ppt-ai-scroll">
         <div class="ppt-ai-generating-head">
           <div>
             <h3 id="pptAiGeneratingTitle">正在美化 PPT</h3>
@@ -125,6 +138,7 @@
         </div>
         <div class="ppt-ai-page-progress"><i id="pptAiPageProgressBar"></i></div>
         <div id="pptAiPageList" class="ppt-ai-page-list"></div>
+        </div>
         <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiEditable"
             type="button">转换为可编辑文字版</button><button id="pptAiDone" class="ppt-ai-primary">进入编辑器</button></div>
       </div>
