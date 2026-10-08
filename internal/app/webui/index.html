@@ -468,6 +468,7 @@
             </button>
           </div>
         </div>
+        <p id="agentModelStatus" class="field-note" role="status" hidden></p>
         <div id="agentChatLog" class="agent-chat-log" aria-live="polite"></div>
         <form id="agentForm" class="agent-composer">
           <input id="agentImageInput" class="sr-only" type="file" accept="image/*" multiple>
@@ -483,6 +484,10 @@
                 <i data-lucide="circle-x" aria-hidden="true"></i>
                 <span>取消</span>
               </button>
+              <label class="agent-model-picker" for="agentModel">
+                <span>模型</span>
+                <select id="agentModel" disabled><option value="">加载中…</option></select>
+              </label>
               <button class="btn primary" type="submit">
                 <i data-lucide="send-horizontal" aria-hidden="true"></i>
                 <span>发送</span>

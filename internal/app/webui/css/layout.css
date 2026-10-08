@@ -152,6 +152,23 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-model-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.agent-model-picker select {
+  width: auto;
+  max-width: min(240px, 45vw);
+  min-height: 32px;
+  padding: 6px 10px;
 }
 
 .agent-chat-log {
@@ -337,6 +354,7 @@ button.chat-image:focus-visible {
 
 .agent-actions {
   display: flex;
+  align-items: center;
   gap: 10px;
   justify-content: flex-end;
   flex-wrap: wrap;

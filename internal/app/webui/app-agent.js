@@ -2,7 +2,29 @@
   const $ = (selector) => document.querySelector(selector);
   const STORAGE_KEY = "kuaima.webui.agent.chats.v1";
   const MODE_STORAGE_KEY = "kuaima.webui.workflow-tab.v1";
+  const MODEL_STORAGE_KEY = "kuaima.webui.agent.model.v1";
   const HISTORY_LIMIT = 50;
+
+  async function loadAgentModels() {
+    const select = $("#agentModel");
+    const status = $("#agentModelStatus");
+    try {
+      const payload = await api("/api/ipricing");
+      const models = payload && payload.data && payload.data.agent;
+      const available = Array.isArray(models) ? models.filter((item) => item && typeof item.model_name === "string" && item.model_name.trim()) : [];
+      if (!available.length) throw new Error("暂无可用的 agent 模型");
+      select.innerHTML = available.map((item) => '<option value="' + esc(item.model_name) + '" title="' + esc(item.description || "") + '">' + esc(item.model_name) + '</option>').join("");
+      let previous = "";
+      try { previous = localStorage.getItem(MODEL_STORAGE_KEY) || ""; } catch (_) {}
+      if (available.some((item) => item.model_name === previous)) select.value = previous;
+      select.disabled = false;
+      status.hidden = true;
+    } catch (error) {
+      select.innerHTML = '<option value="">模型不可用</option>';
+      status.textContent = (error.message || "模型加载失败") + "，请刷新页面重试。";
+      status.hidden = false;
+    }
+  }
 
   const state = {
     history: [],
@@ -355,6 +377,13 @@
     if (!prompt && state.attachments.length === 0) {
       return;
     }
+    const model = $("#agentModel").value;
+    if (!model) {
+      const status = $("#agentModelStatus");
+      status.textContent = "请等待 agent 模型加载完成；加载失败时请刷新页面重试。";
+      status.hidden = false;
+      return;
+    }
 
     const isEditing = state.editingIndex >= 0 && state.editingIndex < state.history.length;
     if (isEditing) {
@@ -381,7 +410,7 @@
       await apiStream("/api/agent/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: requestMessages() }),
+        body: JSON.stringify({ model, messages: requestMessages() }),
         signal: controller.signal,
       }, {
         status(payload) {
@@ -587,6 +616,10 @@
   });
 
   window.KuaimaAgent = { addAttachments };
+  $("#agentModel").addEventListener("change", (event) => {
+    try { localStorage.setItem(MODEL_STORAGE_KEY, event.target.value); } catch (_) {}
+  });
+  loadAgentModels();
   loadChats();
   if (state.chats.length) activateChat(state.chats[0].id);
   let initialMode = "generate";
