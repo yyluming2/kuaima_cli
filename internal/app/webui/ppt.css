@@ -302,6 +302,18 @@ main.inspector-collapsed>.side {
 
 .ocr-tool-button {
     position: relative;
+    transition: background .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.ocr-tool-button.active {
+    color: #fff;
+    background: linear-gradient(135deg, #2563eb, #0f9f8f);
+    border-color: transparent;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, .28);
+}
+
+.ocr-tool-button.active:hover {
+    color: #fff;
 }
 
 .ocr-engine-picker {

@@ -94,7 +94,7 @@
     };
     const runOCR = async (rect, image) => {
       if (!deck || !rect || !image) return;
-      setBusy(true); setOcrBusy(true); setOcrTarget({ x: image.x, y: image.y, width: image.width, height: image.height, rotation: image.rotation || 0 }); setOcrMode(false); setOcrRect(null);
+      setBusy(true); setOcrBusy(true); setOcrTarget({ x: image.x, y: image.y, width: image.width, height: image.height, rotation: image.rotation || 0 }); setOcrRect(null);
       try {
         let imageData = image?.assetUrl || "";
         // Data URLs are already inline. Generated images may be served from a
@@ -157,16 +157,16 @@
       } else runOCR({ x, y, width: 0, height: 0 }, image);
       return true;
     };
+    const editImage = image => {
+      if (image?.assetUrl && window.KuaimaFineEditor) {
+        window.KuaimaFineEditor.open(image.assetUrl, { onApply: next => update(e => { e.assetUrl = next; }, image.id) });
+      }
+    };
     useEffect(() => {
-      if (!deck) return;
+      if (!deck || !ocrMode) return;
       const pick = ev => {
         const el = ev.target?.closest?.('.el');
-        // Existing editable text keeps the normal double-click editor. OCR is
-        // only relevant for raster images (or explicit OCR mode).
-        if (el && !el.classList.contains('image-el') && !ocrMode) return;
-        // Converted slides keep their raster background underneath editable
-        // text. Never treat that background as a fresh OCR target.
-        if (el && el.classList.contains('image-el') && (deck?.slides?.[slide]?.elements || []).some(x => x.type === 'text')) return;
+        if (el && !el.classList.contains('image-el')) return;
         const c = ev.target?.closest?.('.canvas'); if (!c) return;
         const q = c.getBoundingClientRect(), x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
         ocrAtPoint(ev);
@@ -484,10 +484,10 @@
     };
     const slideImages = elements.filter(e => e.type === "image");
     const onlyImagePage = !masterMode && slideImages.length === 1 && elements.length === 1;
-    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "文本"], ["shape", "shapes", "形状"], ["image", "image-plus", "图片"]];
+    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ["text", "type", "添加文本"], ["image", "image-plus", "添加图片"], ["shape", "shapes", "添加形状"]];
     if (current?.type === "image") tools.push(["ocr", "scan-text", "识别文字"]);
     if (onlyImagePage) tools.push(["ocr-convert", "text-cursor-input", "一键转可编辑文字"]);
-    return h(React.Fragment, null, h("header", null, h("a", { className: "brand", onClick: () => location.href = "/" }, h("span", { className: "ppt-brand-mark", title: "返回首页" }), h("span", { id: "pptAppVersion", className: "app-version" })), h("b", null, "快马AI · PPT工作台")), h("div", { className: "bar" }, h("button", { "data-ppt-action": "import", onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { "data-ppt-action": "export", onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: t === "ocr" ? "ocr-tool-button" : "", onClick: () => t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), current && h("button", {
+    return h(React.Fragment, null, h("header", null, h("a", { className: "brand", onClick: () => location.href = "/" }, h("span", { className: "ppt-brand-mark", title: "返回首页" }), h("span", { id: "pptAppVersion", className: "app-version" })), h("b", null, "快马AI · PPT工作台")), h("div", { className: "bar" }, h("button", { "data-ppt-action": "import", onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { "data-ppt-action": "export", onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON"))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: t === "ocr" ? `ocr-tool-button${ocrMode ? " active" : ""}` : "", "aria-pressed": t === "ocr" ? String(ocrMode) : undefined, onClick: () => t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), current && h("button", {
       className: "danger", onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
       key: s.id || i, className: "thumb " + (i === slide ? "active" : ""), draggable: true,
@@ -508,7 +508,7 @@
           setSelected(e.id)
         }, onDoubleClick: ev => {
           ev.stopPropagation();
-          if (e.type === "image" && !(deck?.slides?.[slide]?.elements || []).some(x => x.type === "text")) { ocrAtPoint(ev); }
+          if (e.type === "image") { if (ocrMode) ocrAtPoint(ev); else editImage(e); }
           else if (ocrMode && e.type === "text") { ocrAtPoint(ev); }
           else if (e.type === "text") setEditing(e.id)
         }, onMouseDown: ev => {
@@ -539,3 +539,4 @@
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
+
