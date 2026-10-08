@@ -305,6 +305,58 @@ main.inspector-collapsed>.side {
     transition: background .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 
+.ppt-welcome {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #172033;
+    background: linear-gradient(145deg, #f8fbff, #eef5ff);
+}
+
+.ppt-welcome img {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    border-radius: 50%;
+    box-shadow: 0 12px 28px rgba(37, 99, 235, .2);
+}
+
+.ppt-welcome h1 {
+    margin: 4px 0 0;
+    font-size: 30px;
+}
+
+.ppt-welcome p {
+    margin: 0 0 14px;
+    color: #64748b;
+}
+
+.ppt-welcome-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.ppt-welcome-actions button {
+    border: 0;
+    border-radius: 10px;
+    padding: 12px 18px;
+    color: #fff;
+    background: linear-gradient(135deg, #2563eb, #0f9f8f);
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 6px 16px rgba(37, 99, 235, .2);
+}
+
+.ppt-welcome-actions button:hover {
+    transform: translateY(-1px);
+}
+
 .ocr-tool-button.active {
     color: #fff;
     background: linear-gradient(135deg, #2563eb, #0f9f8f);
@@ -2319,6 +2371,9 @@ main.inspector-collapsed>.side {
     border: 0;
     background: transparent
 }
+
 /* PPT 手动编辑只保留必要的画布操作，下载由 PPT 导出完成。 */
 #retouchEditor .retouch-more-menu,
-#retouchEditor .retouch-download-actions { display: none; }
+#retouchEditor .retouch-download-actions {
+    display: none;
+}
