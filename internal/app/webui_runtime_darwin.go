@@ -16,6 +16,7 @@ void webui_tray_run(const void *iconBytes, size_t iconLen);
 import "C"
 
 import (
+	"net/url"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -118,6 +119,15 @@ func goWebUITrayExit() {
 }
 
 func openTrayWebUI() {
+	openTrayWebUIPath("")
+}
+
+//export goWebUITrayPPT
+func goWebUITrayPPT() {
+	openTrayWebUIPath("/ppt.html")
+}
+
+func openTrayWebUIPath(path string) {
 	trayStateMu.Lock()
 	rawURL := ""
 	if trayState != nil {
@@ -125,6 +135,13 @@ func openTrayWebUI() {
 	}
 	trayStateMu.Unlock()
 	if rawURL != "" {
+		if path != "" {
+			parsed, err := url.Parse(rawURL)
+			if err != nil {
+				return
+			}
+			rawURL = parsed.ResolveReference(&url.URL{Path: path}).String()
+		}
 		_ = openBrowser(rawURL)
 	}
 }
