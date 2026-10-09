@@ -235,7 +235,13 @@
     }
     return done;
   };
-  const icon = name => h("i", { "data-lucide": name });
+  // Lucide replaces its placeholder. Keep that DOM inside an opaque wrapper
+  // so React can safely remove the wrapper when a button changes state.
+  const icon = name => h("span", {
+    style: { display: "inline-flex" },
+    "aria-hidden": true,
+    dangerouslySetInnerHTML: { __html: `<i data-lucide="${name}"></i>` }
+  });
 
   window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, loadFontFamily, textAlign, verticalAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
 })();
