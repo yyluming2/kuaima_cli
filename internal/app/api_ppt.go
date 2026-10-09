@@ -2641,8 +2641,21 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
+	// The editor creates the download locally. A JSON transport avoids browser
+	// or local security filters treating a fetch response as an attachment.
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, map[string]string{
+			"filename":    "presentation.pptx",
+			"contentType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			"data":        base64.StdEncoding.EncodeToString(b),
+		})
+		return
+	}
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "presentation.pptx"))
+	w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+	w.Header().Set("Cache-Control", "no-store")
 	w.Write(b)
 }
 

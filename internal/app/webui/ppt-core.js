@@ -211,7 +211,15 @@
     if (!rotation && sx === 1 && sy === 1) return undefined;
     return `rotate(${rotation}deg) scale(${sx}, ${sy})`;
   };
-  const api = async (url, options) => { const response = await fetch(url, options); if (!response.ok) throw Error("请求失败（" + response.status + "）"); return response; };
+  const api = async (url, options) => {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      let detail = "";
+      try { const body = await response.json(); detail = body.error || ""; } catch (_) {}
+      throw Error(detail || "请求失败（" + response.status + "）");
+    }
+    return response;
+  };
   const readSSE = async response => {
     const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = "", done = null;
     while (true) {

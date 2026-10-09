@@ -25,6 +25,7 @@
     useEffect(() => { const button = document.querySelector("#pptInspectorReopen"), panel = document.querySelector(".side"), main = document.querySelector("main"); if (!button) return; button.hidden = false; button.setAttribute("aria-expanded", String(inspectorOpen)); button.title = inspectorOpen ? "收起属性" : "展开属性"; button.onclick = () => setInspectorOpen(v => !v); const place = () => { const rect = panel?.getBoundingClientRect(); if (rect) { button.style.left = `${Math.max(4, rect.left - button.offsetWidth)}px`; button.style.top = `${rect.top + 10}px`; button.style.right = "auto"; } }; place(); addEventListener("resize", place); main?.addEventListener("transitionend", place); return () => { removeEventListener("resize", place); main?.removeEventListener("transitionend", place); }; }, [inspectorOpen]);
     useEffect(() => { const toggle = () => setInspectorOpen(v => !v); addEventListener("ppt-toggle-inspector", toggle); return () => removeEventListener("ppt-toggle-inspector", toggle); }, []);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
+    const [exporting, setExporting] = useState(false), exportLock = useRef(false);
     const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
     useEffect(() => { setInspectorOpen(!!selected); }, [selected]);
     useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
@@ -525,14 +526,34 @@
     }, [selected, slide, deck]);
     const changeMaster = fn => setDeck(d => { const n = structuredClone(d); n.master = n.master || {}; fn(n.master); return applyMasterToSlides(n); });
     const exportDeck = async () => {
-      if (!deck) return;
-      const button = document.querySelector('[data-ppt-action="export"]'); button?.classList.add("ppt-io-active");
+      if (!deck || exportLock.current) return;
+      exportLock.current = true;
+      setExporting(true);
       try {
-        const r = await api("/api/pptx/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(deck) }), a = document.createElement("a");
-        a.href = URL.createObjectURL(await r.blob());
+        // Let the loading state paint before serializing a large deck.
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        const r = await api("/api/pptx/export", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(deck) }), a = document.createElement("a");
+        let blob;
+        if ((r.headers.get("Content-Type") || "").includes("application/json")) {
+          const file = await r.json();
+          if (!file.data) throw new Error("导出接口未返回文件数据");
+          const binary = atob(file.data), chunks = [];
+          for (let offset = 0; offset < binary.length; offset += 65536) {
+            const part = binary.slice(offset, offset + 65536);
+            chunks.push(Uint8Array.from(part, ch => ch.charCodeAt(0)));
+          }
+          blob = new Blob(chunks, { type: file.contentType });
+        } else {
+          blob = await r.blob();
+        }
+        const url = URL.createObjectURL(blob);
+        a.href = url;
         a.download = "presentation.pptx";
-        a.click()
-      } catch (e) { alert("导出失败：" + e.message) } finally { button?.classList.remove("ppt-io-active"); }
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (e) { alert("导出失败：" + e.message) } finally { exportLock.current = false; setExporting(false); }
     };
     const slideImages = elements.filter(e => e.type === "image");
     const onlyImagePage = !masterMode && slideImages.length === 1 && elements.length === 1;
@@ -545,7 +566,7 @@
       const fileInput = overlay.querySelector("input[type=file]"), preview = overlay.querySelector("[data-reference-preview]"); fileInput.onchange = () => { const f = fileInput.files[0]; preview.innerHTML = f ? `<img class="ppt-reference-thumb" src="${URL.createObjectURL(f)}" alt="参考图片缩略图">` : ""; };
       const close = () => overlay.remove(); overlay.querySelector("[data-cancel]").onclick = close; overlay.onclick = e => { if (e.target === overlay) close() }; overlay.querySelector("[data-submit]").onclick = () => { const prompt = textInput.value.trim(); const imageModel = modelSelect.value; try { localStorage.setItem("ppt-redesign-preferences", JSON.stringify({ prompt, imageModel })); } catch (_) {} const file = fileInput.files[0]; const btn = overlay.querySelector("[data-submit]"); btn.disabled = true; btn.textContent = "正在设计…"; overlay.querySelector(".ppt-redesign-dialog").classList.add("is-generating"); const send = referenceImage => { window.dispatchEvent(new CustomEvent("ppt:ai-page", { detail: { index, prompt, referenceImage, imageModel, pageImage: snapshot, redesignOverlay: overlay } })); close(); }; if (file) { const reader = new FileReader(); reader.onload = () => send(reader.result); reader.readAsDataURL(file); } else send(""); };
     };
-    return h(React.Fragment, null, h("header", null, h("a", { className: "brand", onClick: () => location.href = "/" }, h("span", { className: "ppt-brand-mark", title: "返回首页" }), h("span", { id: "pptAppVersion", className: "app-version" })), h("b", null, "快马AI · PPT工作台"), h("div", { className: "bar" }, h("button", { "data-ppt-action": "import", onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { "data-ppt-action": "export", onClick: exportDeck, disabled: !deck }, icon("download"), h("span", null, "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON")))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: t === "ocr" ? `ocr-tool-button${ocrMode ? " active" : ""}` : "", "aria-pressed": t === "ocr" ? String(ocrMode) : undefined, onClick: () => t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("button", { className: "tool-ai-redesign", onClick: () => openAIDialog(slide), disabled: !deck, title: "AI重新设计当前页" }, icon("sparkles"), h("span", null, "AI重新生成")), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), current && h("button", {
+    return h(React.Fragment, null, h("header", null, h("a", { className: "brand", onClick: () => location.href = "/" }, h("span", { className: "ppt-brand-mark", title: "返回首页" }), h("span", { id: "pptAppVersion", className: "app-version" })), h("b", null, "快马AI · PPT工作台"), h("div", { className: "bar" }, h("button", { "data-ppt-action": "import", onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { "data-ppt-action": "export", onClick: exportDeck, disabled: !deck || exporting, "aria-busy": exporting }, exporting ? h("span", { className: "ppt-export-spinner", "aria-hidden": true }) : icon("download"), h("span", { role: "status", "aria-live": "polite" }, exporting ? "正在导出…" : "导出 PPTX")), h("button", { onClick: () => setShowJson(true), disabled: !current }, icon("code-2"), h("span", null, "对象 JSON")))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: t === "ocr" ? `ocr-tool-button${ocrMode ? " active" : ""}` : "", "aria-pressed": t === "ocr" ? String(ocrMode) : undefined, onClick: () => t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("button", { className: "tool-ai-redesign", onClick: () => openAIDialog(slide), disabled: !deck, title: "AI重新设计当前页" }, icon("sparkles"), h("span", null, "AI重新生成")), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", null, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: () => setZoom(1) }, "重置")), current && h("button", {
       className: "danger", onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
       key: s.id || i, className: "thumb " + (i === slide ? "active" : ""), draggable: true,

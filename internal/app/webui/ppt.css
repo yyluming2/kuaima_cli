@@ -2440,6 +2440,27 @@ main.inspector-collapsed>.side {
     }
 }
 
+[data-ppt-action="export"][aria-busy="true"] {
+    cursor: progress;
+    opacity: 1;
+}
+
+.ppt-export-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    box-sizing: border-box;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: ppt-io-spin .8s linear infinite;
+    flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ppt-export-spinner { animation: none; }
+}
+
 .ppt-ai-dialog {
     animation: ppt-dialog-in .2s ease-out both
 }
@@ -2698,4 +2719,7 @@ body.ppt-regenerating .ppt-stream-status {
     width: 18px;
     height: 18px;
     flex-shrink: 0;
+}
+.ppt-ai-confirm-grid:has(> .ppt-ai-master-card[hidden]) {
+    grid-template-columns: minmax(0, 1fr);
 }
