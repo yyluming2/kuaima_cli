@@ -361,11 +361,13 @@ func cloneOCRStyle(style map[string]any, color string) map[string]any {
 }
 
 type pptPlanPage struct {
-	Title       string         `json:"title"`
-	Bullets     []string       `json:"bullets,omitempty"`
-	Layout      string         `json:"layout,omitempty"`
-	ImagePrompt string         `json:"imagePrompt,omitempty"`
-	Blocks      []pptPlanBlock `json:"blocks,omitempty"`
+	Title               string         `json:"title"`
+	Bullets             []string       `json:"bullets,omitempty"`
+	Layout              string         `json:"layout,omitempty"`
+	ImagePrompt         string         `json:"imagePrompt,omitempty"`
+	Blocks              []pptPlanBlock `json:"blocks,omitempty"`
+	ReferenceImage      string         `json:"referenceImage,omitempty"`
+	ReferenceImageIndex int            `json:"referenceImageIndex,omitempty"`
 }
 type pptPlanBlock struct {
 	Type        string  `json:"type"` // text or image
@@ -453,10 +455,9 @@ func (s *webUIServer) handlePPTPrompts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
-	brief := strings.TrimSpace(in.Brief)
 	style := strings.TrimSpace(in.Style)
 	writeJSON(w, 200, map[string]string{
-		"unifiedPrompt": fmt.Sprintf("保持%s风格统一，所有页面使用一致的配色、字体层级、留白和装饰语言；画面清晰、信息层级明确、适合演示文稿。主题内容：%s", style, brief),
+		"unifiedPrompt": fmt.Sprintf("保持%s风格统一，所有页面使用一致的配色、字体层级、留白和装饰语言；画面清晰、信息层级明确、适合演示文稿。", style),
 		"outlinePrompt": "按背景/问题、核心方案、关键数据或案例、行动计划的逻辑组织内容；每页只表达一个重点，标题简洁，要点具体。",
 	})
 }
@@ -479,13 +480,19 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		TextModel                                    string `json:"textModel"`
 		ImageModel                                   string `json:"imageModel"`
 		References, Images                           []string
-		PageCount                                    int `json:"pageCount"`
+		Files                                        []pptReferenceFile `json:"files,omitempty"`
+		PageCount                                    int                `json:"pageCount"`
 		AccentColor, BackgroundColor, StyleReference string
 		UnifiedPrompt, OutlinePrompt                 string
 		UnifiedBackground                            bool `json:"unifiedBackground"`
 	}
 	w.Header().Set("X-PPT-OCR-Debug", "request-received")
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&in); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<20)).Decode(&in); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	fileContent, err := pptReferenceFileContent(in.Files)
+	if err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
@@ -514,16 +521,22 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 	prompt := fmt.Sprintf(`请为“%s”生成一份单页/多页演示文稿的 PPT DSL 草案。内容要求：%s。大纲提示词：%s。目标受众：%s。页数：%d 页。视觉风格：%s。统一提示词：%s。
 %s
-文字与图片提示词分离，先保证文字内容完整。必须恰好返回 %d 页，第一页 layout 必须为 title。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.OutlinePrompt), strings.TrimSpace(in.Audience), n, style, strings.TrimSpace(in.UnifiedPrompt), pptPlanDSL, n)
+附件为内容参考资料，请读取文字、数据与案例并结合内容要求生成大纲。文字与图片提示词分离，先保证文字内容完整。必须恰好返回 %d 页，第一页 layout 必须为 title。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.OutlinePrompt), strings.TrimSpace(in.Audience), n, style, strings.TrimSpace(in.UnifiedPrompt), pptPlanDSL, n)
+	content := []inputContent{{Type: "input_text", Text: prompt + "\n附图为参考素材，请结合图中信息生成大纲；每页可返回 referenceImageIndex（从 1 开始），选择相关参考图片，没有相关图片则返回 0。"}}
+	for _, image := range in.Images {
+		content = append(content, inputContent{Type: "input_image", ImageURL: image})
+	}
+	content = append(content, fileContent...)
+	input := []inputMessage{{Role: "user", Content: content}}
 	streamMode := r.URL.Query().Get("stream") == "1" || strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream")
 	var resp *responsePayload
 	var stream *webUIEventStream
 	if streamMode {
 		stream = newWebUIEventStream(w)
 		stream.send("status", map[string]string{"message": "正在连接大模型，逐字生成大纲…"})
-		resp, err = c.createResponseStream(r.Context(), responseRequest{Model: model, Input: prompt}, stream.textWriter())
+		resp, err = c.createResponseStream(r.Context(), responseRequest{Model: model, Input: input}, stream.textWriter())
 	} else {
-		resp, err = c.createResponse(r.Context(), responseRequest{Model: model, Input: prompt})
+		resp, err = c.createResponse(r.Context(), responseRequest{Model: model, Input: input})
 	}
 	if err != nil {
 		if streamMode {
@@ -573,6 +586,9 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for i := range generated.Pages {
+		if index := generated.Pages[i].ReferenceImageIndex; index > 0 && index <= len(in.Images) {
+			generated.Pages[i].ReferenceImage = in.Images[index-1]
+		}
 		// Derive the legacy editor summary fields from the layout blocks so the
 		// outline confirmation UI can still display and edit the DSL content.
 		for _, b := range generated.Pages[i].Blocks {
@@ -723,6 +739,7 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		Presentation   ppt.Presentation `json:"presentation"`
 		SlideIndex     *int             `json:"slideIndex,omitempty"`
 		ReferenceImage string           `json:"referenceImage,omitempty"`
+		ReferenceMode  string           `json:"referenceMode,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 256<<20)).Decode(&in); err != nil {
 		writeError(w, 400, err.Error())
@@ -774,7 +791,11 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		var resp *responsePayload
 		var genErr error
 		if strings.TrimSpace(in.ReferenceImage) != "" {
-			prompt += "\n参考图是需要美化的原页面。准确保留内容与数据，根据用户要求重新设计视觉，输出完整演示文稿页面。"
+			if in.ReferenceMode == "material" {
+				prompt += "\n参考图是本页的内容素材，结合图片主体、数据与页面大纲设计完整演示文稿页面，遵循统一视觉提示词。"
+			} else {
+				prompt += "\n参考图是需要美化的原页面。准确保留内容与数据，根据用户要求重新设计视觉，输出完整演示文稿页面。"
+			}
 			resp, genErr = c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: []imageRef{{ImageURL: in.ReferenceImage}}, N: 1, Size: "1536x864"})
 		} else if in.Presentation.Master != nil && strings.TrimSpace(in.Presentation.Master.Background) != "" {
 			// Keep the reference image out of the text prompt. Besides wasting context,
@@ -2661,4 +2682,37 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 
 func dataURLBytes(value string) []byte {
 	return svgDataURLBytes(value)
+}
+
+// Legacy plan payloads are parsed locally before being sent to the model.
+type pptReferenceFile struct {
+	Name string `json:"name"`
+	Data string `json:"data"`
+}
+
+func pptReferenceFileContent(files []pptReferenceFile) ([]inputContent, error) {
+	if len(files) > 12 {
+		return nil, fmt.Errorf("最多添加 12 个参考文件")
+	}
+	content := make([]inputContent, 0, len(files))
+	for _, file := range files {
+		ext := strings.ToLower(filepath.Ext(file.Name))
+		if ext != ".doc" && ext != ".docx" && ext != ".pdf" {
+			return nil, fmt.Errorf("不支持的参考文件格式：%s", file.Name)
+		}
+		header, encoded, ok := strings.Cut(file.Data, ",")
+		if !ok || !strings.HasPrefix(header, "data:") || !strings.HasSuffix(header, ";base64") || len(encoded) > base64.StdEncoding.EncodedLen(10<<20) {
+			return nil, fmt.Errorf("参考文件无效或超过 10 MB：%s", file.Name)
+		}
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(data) == 0 || len(data) > 10<<20 {
+			return nil, fmt.Errorf("参考文件内容无效：%s", file.Name)
+		}
+		text, err := extractPPTDocument(file.Name, data)
+		if err != nil {
+			return nil, fmt.Errorf("解析 %s：%w", file.Name, err)
+		}
+		content = append(content, inputContent{Type: "input_text", Text: "参考文件：" + filepath.Base(file.Name) + "\n" + text})
+	}
+	return content, nil
 }

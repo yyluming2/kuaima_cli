@@ -4,13 +4,18 @@ go 1.25
 
 require (
 	github.com/CoolBanHub/genppt v0.0.0
+	github.com/ledongthuc/pdf v0.0.0-20260907135840-6c8c28e0e8a0
+	github.com/richardlehane/mscfb v1.0.9
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/yalue/onnxruntime_go v1.32.0
 	golang.org/x/image v0.32.0
 	golang.org/x/text v0.30.0
 )
 
-require golang.org/x/net v0.41.0 // indirect
+require (
+	github.com/richardlehane/msoleps v1.0.3 // indirect
+	golang.org/x/net v0.41.0 // indirect
+)
 
 replace github.com/yalue/onnxruntime_go => ./third_party/onnxruntime_go
 

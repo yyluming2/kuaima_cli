@@ -36,8 +36,14 @@
             <button id="pptAiBeautifyTab" type="button" role="tab" aria-selected="false" aria-controls="pptAiBeautifyPanel" data-content-mode="beautify" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 4 5 5L7 22l-5-5ZM12 7l5 5M5 3v4M3 5h4M19 15v4M17 17h4"/></svg><span>美化 PPT</span></button>
           </div>
           <div id="pptAiCreatePanel" role="tabpanel" aria-labelledby="pptAiCreateTab">
-          <label>主题和内容<textarea id="pptAiBrief" rows="4"
+          <label>主题与内容要求<textarea id="pptAiBrief" rows="4"
               placeholder="例如：面向企业客户的 2026 产品发布会，介绍新产品、核心优势和行动计划"></textarea></label>
+          <details class="ppt-ai-reference-section"><summary>参考文字与素材 <small>选填</small></summary>
+          <label>参考文字 <small>选填</small><textarea id="pptAiReferenceText" rows="4" placeholder="粘贴资料、数据、案例或需要保留的原文"></textarea></label>
+          <label class="ppt-file ppt-file-compact">参考素材 <small>可添加多个文件</small><input id="pptAiReferenceFiles" type="file" multiple accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pptx,.doc,.docx,.pdf"><small>支持图片、Word（DOC/DOCX）、PDF、TXT、Markdown、CSV、JSON 和 PPTX，单个文件最多 10 MB；Word 和 PDF 自动提取文字，扫描 PDF 自动按页转为参考图片</small></label>
+          <small id="pptAiReferenceStatus" role="status" aria-live="polite"></small>
+          <div id="pptAiReferenceList" class="ppt-ai-materials"></div>
+          </details>
           </div>
           <div id="pptAiBeautifyPanel" role="tabpanel" aria-labelledby="pptAiBeautifyTab" hidden>
           <label class="ppt-file ppt-file-compact">参考 PPT 文件<input id="pptAiDeck" type="file"
@@ -105,13 +111,15 @@
         </div>
         <div class="ppt-ai-confirm-grid">
           <div class="ppt-ai-confirm-main">
-            <label>统一提示词<textarea id="pptAiUnifiedPrompt" rows="3"></textarea></label>
+            <label>统一视觉提示词<textarea id="pptAiUnifiedPrompt" rows="3"></textarea></label>
             <div class="ppt-ai-outline-head"><b>页面预览</b><span>共 <em id="pptAiOutlineCount">0</em> 页</span></div>
             <div id="pptAiOutlineList"></div>
           </div>
           <aside class="ppt-ai-master-card">
             <div class="ppt-ai-master-head"><b>视觉参考</b><button id="pptAiRegenerate" type="button">重新生成</button></div>
-            <p>每页独立美化，保留原页面顺序。</p>
+            <img id="pptAiSample" class="ppt-ai-master-preview" alt="PPT 视觉母版预览" hidden>
+            <label class="ppt-ai-master-prompt">母版修改提示词（选填）<textarea id="pptAiMasterPrompt" rows="3" placeholder="例如：增加科技感，使用深色背景和蓝紫色光效"></textarea></label>
+            <p>母版用于统一各页的配色、版式和视觉风格，可重新生成后确认。</p>
           </aside>
         </div>
         </div>
@@ -139,7 +147,7 @@
         <div class="ppt-ai-page-progress"><i id="pptAiPageProgressBar"></i></div>
         <div id="pptAiPageList" class="ppt-ai-page-list"></div>
         </div>
-        <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiDone" class="ppt-ai-primary">进入编辑器</button></div>
+        <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiDone" class="ppt-ai-primary">保存并进入编辑器</button></div>
       </div>
     </div>
   </div>
@@ -392,6 +400,7 @@
   <script src="/ppt-inspector.js"></script>
   <script src="/ppt-image-editor.js"></script>
   <script src="/ppt.js?v=ocr-v6-v5"></script>
+  <script src="/pdf.min.js"></script>
   <script src="/ppt-ai.js"></script>
 </body>
 
