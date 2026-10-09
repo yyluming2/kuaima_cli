@@ -458,16 +458,13 @@ func (s *webUIServer) handlePPTPrompts(w http.ResponseWriter, r *http.Request) {
 	style := strings.TrimSpace(in.Style)
 	writeJSON(w, 200, map[string]string{
 		"unifiedPrompt": fmt.Sprintf("保持%s风格统一，所有页面使用一致的配色、字体层级、留白和装饰语言；画面清晰、信息层级明确、适合演示文稿。", style),
-		"outlinePrompt": "按背景/问题、核心方案、关键数据或案例、行动计划的逻辑组织内容；每页只表达一个重点，标题简洁，要点具体。",
+		"outlinePrompt": "每页只表达一个重点，标题简洁，要点具体。",
 	})
 }
 
-// pptPlanDSL is intentionally small: the text model only needs to describe
-// editable copy, layout and an optional image brief. Rendering details belong
-// to the server-side Presentation DSL.
-const pptPlanDSL = `PPT DSL（仅输出 JSON，不要代码块）：
-{"pages":[{"title":"页面标题","layout":"split","blocks":[{"type":"text","role":"title","x":0.06,"y":0.08,"width":0.88,"height":0.12,"content":"页面标题"},{"type":"text","role":"body","x":0.08,"y":0.28,"width":0.42,"height":0.48,"content":"要点1\n要点2"},{"type":"image","role":"hero","x":0.56,"y":0.20,"width":0.36,"height":0.60,"imagePrompt":"主体、构图和风格"}]}]}
-约束：坐标和尺寸使用 0~1 的页面比例；blocks 描述完整图文排版，type 只能是 text 或 image；text 必须有 content，image 必须有 imagePrompt；role 可用 title、body、caption、hero、icon；layout 可用 title、content、split、hero、timeline。imagePrompt 只描述画面，不包含需要渲染的文字。`
+// Outline generation supplies content only; the image model designs each page.
+const pptPlanDSL = `仅输出 JSON，不要代码块，格式为：{"pages":[{"title":"页面标题","bullets":["要点1","要点2"]}]}
+只填写内容大纲。每页只表达一个重点，标题简洁，要点具体。`
 
 // handlePPTPlan creates a confirmation-ready brief with the selected text model.
 func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
@@ -519,9 +516,9 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	prompt := fmt.Sprintf(`请为“%s”生成一份单页/多页演示文稿的 PPT DSL 草案。内容要求：%s。大纲提示词：%s。目标受众：%s。页数：%d 页。视觉风格：%s。统一提示词：%s。
+	prompt := fmt.Sprintf(`请为“%s”生成一份演示文稿内容大纲。内容要求：%s。大纲提示词：%s。目标受众：%s。页数：%d 页。视觉风格：%s。统一提示词：%s。
 %s
-附件为内容参考资料，请读取文字、数据与案例并结合内容要求生成大纲。文字与图片提示词分离，先保证文字内容完整。必须恰好返回 %d 页，第一页 layout 必须为 title。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.OutlinePrompt), strings.TrimSpace(in.Audience), n, style, strings.TrimSpace(in.UnifiedPrompt), pptPlanDSL, n)
+附件为内容参考资料，请读取文字、数据与案例并结合内容要求生成大纲，保证文字内容完整。必须恰好返回 %d 页。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.OutlinePrompt), strings.TrimSpace(in.Audience), n, style, strings.TrimSpace(in.UnifiedPrompt), pptPlanDSL, n)
 	content := []inputContent{{Type: "input_text", Text: prompt + "\n附图为参考素材，请结合图中信息生成大纲；每页可返回 referenceImageIndex（从 1 开始），选择相关参考图片，没有相关图片则返回 0。"}}
 	for _, image := range in.Images {
 		content = append(content, inputContent{Type: "input_image", ImageURL: image})
@@ -579,10 +576,9 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 	for len(generated.Pages) < n {
 		i := len(generated.Pages) + 1
 		generated.Pages = append(generated.Pages, pptPlanPage{
-			Title:       fmt.Sprintf("第 %d 页", i),
-			Bullets:     []string{"待补充内容"},
-			Layout:      "content",
-			ImagePrompt: fmt.Sprintf("第 %d 页，%s风格的简洁插画", i, style),
+			Title:   fmt.Sprintf("第 %d 页", i),
+			Bullets: []string{"待补充内容"},
+			Layout:  "content",
 		})
 	}
 	for i := range generated.Pages {
@@ -604,9 +600,6 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.TrimSpace(generated.Pages[i].Title) == "" {
 			generated.Pages[i].Title = fmt.Sprintf("第 %d 页", i+1)
-		}
-		if generated.Pages[i].ImagePrompt == "" {
-			generated.Pages[i].ImagePrompt = generated.Pages[i].Title + "，" + style + "风格的简洁插画"
 		}
 		if i == 0 {
 			generated.Pages[i].Layout = "title"
