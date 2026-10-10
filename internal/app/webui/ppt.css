@@ -2863,17 +2863,15 @@ body.ppt-regenerating .ppt-stream-status {
 
 /* Smooth page changes and consistent image-based thumbnails. */
 .canvas-wrap {
-    animation: ppt-page-enter .22s ease-out;
+    animation: ppt-page-shift .14s ease-out;
 }
 
-@keyframes ppt-page-enter {
+@keyframes ppt-page-shift {
     from {
-        opacity: .35;
-        transform: translateY(4px);
+        transform: translateY(3px);
     }
 
     to {
-        opacity: 1;
         transform: translateY(0);
     }
 }

@@ -26,8 +26,13 @@
     useEffect(() => { const toggle = () => setInspectorOpen(v => !v); addEventListener("ppt-toggle-inspector", toggle); return () => removeEventListener("ppt-toggle-inspector", toggle); }, []);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
     const [exporting, setExporting] = useState(false), exportLock = useRef(false);
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [thumbImages, setThumbImages] = useState({}), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), exported = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
-    useEffect(() => { setInspectorOpen(!!selected); }, [selected]);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [thumbImages, setThumbImages] = useState({}), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), exported = useRef(false), selectedRef = useRef(null), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const selectElement = value => { selectedRef.current = value; setSelected(value); };
+    // Selecting an object should reveal the inspector, but editing a field must
+    // not close it.  An update rerenders the canvas and can briefly leave the
+    // derived `current` value unavailable; tying the open state to the
+    // selection's truthiness made that transient state hide the whole panel.
+    useEffect(() => { if (selected != null) setInspectorOpen(true); }, [selected]);
     useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
     useEffect(() => {
       let cancelled = false;
@@ -41,7 +46,9 @@
     // PPTX object ids are often reused on every slide. Clear stale selection
     // state when changing pages so old SVG connectors and resize handles are
     // removed instead of being associated with the new page.
-    useEffect(() => { setSelected(null); setEditing(null); }, [slide, masterMode]);
+    // Selection is cleared explicitly when switching slides/modes.  Do not
+    // clear it from an effect: deck updates from inspector edits can coincide
+    // with a slide state refresh and would otherwise cancel the selection.
     const thumbSignatures = useRef(new Map());
     useEffect(() => {
       if (!deck?.slides?.length) { thumbSignatures.current.clear(); setThumbImages({}); return; }
@@ -67,7 +74,9 @@
     // All consumers capture the same editor canvas after committing the requested page.
     const pageSnapshot = async (index = slide, value = deck) => {
       if (!value?.slides?.[index]) throw new Error("页面不存在");
-      ReactDOM.flushSync(() => { setDeck(value); setSlide(index); setMasterMode(false); setSelected(null); setEditing(null); });
+      // Snapshot rendering is triggered after ordinary edits (for example by
+      // thumbnail refresh). It must not clear the user's active selection.
+      ReactDOM.flushSync(() => { setDeck(value); setSlide(index); setMasterMode(false); setEditing(null); });
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       await document.fonts.ready;
       const source = document.querySelector(".canvas");
@@ -126,14 +135,19 @@
       }
       return n;
     });
-    const update = (fn, targetId = selected, track = true) => (track ? trackedSetDeck : setDeck)(d => {
+    const update = (fn, targetId = selectedRef.current ?? selected, track = true) => {
+      // Property edits originate in the inspector, so keep the edited object
+      // selected even if the canvas rerenders while the input is committing.
+      if (targetId != null) selectElement(targetId);
+      return (track ? trackedSetDeck : setDeck)(d => {
       // Canvas editing can blur after another object has been selected.  Do
       // not resolve the target from the mutable `selected` state at commit
       // time; callers editing a specific object pass its id explicitly.
       const n = structuredClone(d), e = masterMode ? n.master?.elements?.find(e => e.id === targetId) : n.slides[slide].elements.find(e => e.id === targetId);
       if (e && (masterMode || !e.locked)) fn(e);
-      return n
-    });
+        return n
+      });
+    };
     const ocrCache = useRef(new Map());
     const imageAtPoint = (x, y) => (deck?.slides?.[slide]?.elements || []).filter(e => e.type === "image" && e.assetUrl && x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height).sort((a, b) => (Number(b.zIndex) || 0) - (Number(a.zIndex) || 0))[0] || null;
     const ocrKey = image => {
@@ -596,7 +610,7 @@
       return h("div", {
         key: e.id, "data-ppt-id": e.id, className: "el " + (e.type === "image" ? "image-el " : "") + (String(e.id).startsWith("ocr-") ? "ocr-el " : "") + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
           ev.stopPropagation();
-          setSelected(e.id)
+          selectElement(e.id)
         }, onDoubleClick: ev => {
           ev.stopPropagation();
           if (e.type === "image") { if (ocrMode) ocrAtPoint(ev); else editImage(e); }
@@ -606,7 +620,7 @@
           if (ev.button === 0 && !e.locked && !isEditing) {
             const duplicate = ev.ctrlKey || ev.metaKey;
             const id = duplicate ? duplicateSelected(e) : e.id;
-            setSelected(id || e.id);
+            selectElement(id || e.id);
             drag.current = { id: id || e.id, duplicated: duplicate, x: ev.clientX, y: ev.clientY, ex: Number(e.x) + (duplicate ? 10 : 0), ey: Number(e.y) + (duplicate ? 10 : 0), canvas: ev.currentTarget.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } };
             if (duplicate) ev.preventDefault();
           }
@@ -630,6 +644,8 @@
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
+
+
 
 
 
