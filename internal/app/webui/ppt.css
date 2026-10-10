@@ -2769,3 +2769,18 @@ body.ppt-regenerating .ppt-stream-status {
 .ppt-ai-reference-section[open] summary { margin-bottom:14px; }
 
 .ppt-ai-material span small { display:block; margin-top:3px; color:#64748b; font-size:12px; }
+.ppt-ai-direct { border: 0; background: transparent; color: #94a3b8; font-size: 22px; cursor: pointer; padding: 4px 8px; }
+.ppt-ai-direct.is-on { color: #f59e0b; }
+.ppt-ai-direct {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 0 0 32px;
+}

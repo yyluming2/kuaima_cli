@@ -496,9 +496,6 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 	title := strings.TrimSpace(in.Title)
 	style := strings.TrimSpace(in.Style)
 	n := in.PageCount
-	if n < 3 {
-		n = 3
-	}
 	if n > 50 {
 		n = 50
 	}
@@ -516,9 +513,13 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	prompt := fmt.Sprintf(`请为“%s”生成一份演示文稿内容大纲。内容要求：%s。大纲提示词：%s。目标受众：%s。页数：%d 页。视觉风格：%s。统一提示词：%s。
+	pageInstruction := "页数由你根据内容自行决定，不要为了凑数添加空泛页面。"
+	if n > 0 {
+		pageInstruction = fmt.Sprintf("页数：%d 页。必须恰好返回 %d 页。", n, n)
+	}
+	prompt := fmt.Sprintf(`请为“%s”生成一份演示文稿内容大纲。内容要求：%s。大纲提示词：%s。目标受众：%s。%s视觉风格：%s。统一提示词：%s。
 %s
-附件为内容参考资料，请读取文字、数据与案例并结合内容要求生成大纲，保证文字内容完整。必须恰好返回 %d 页。`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.OutlinePrompt), strings.TrimSpace(in.Audience), n, style, strings.TrimSpace(in.UnifiedPrompt), pptPlanDSL, n)
+附件为内容参考资料，请读取文字、数据与案例并结合内容要求生成大纲，保证文字内容完整。%s`, title, strings.TrimSpace(strings.Join(in.References, "\n")), strings.TrimSpace(in.OutlinePrompt), strings.TrimSpace(in.Audience), pageInstruction, style, strings.TrimSpace(in.UnifiedPrompt), pptPlanDSL, pageInstruction)
 	content := []inputContent{{Type: "input_text", Text: prompt + "\n附图为参考素材，请结合图中信息生成大纲；每页可返回 referenceImageIndex（从 1 开始），选择相关参考图片，没有相关图片则返回 0。"}}
 	for _, image := range in.Images {
 		content = append(content, inputContent{Type: "input_image", ImageURL: image})
@@ -567,13 +568,13 @@ func (s *webUIServer) handlePPTPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "text model returned invalid PPT outline")
 		return
 	}
-	if len(generated.Pages) > n {
+	if n > 0 && len(generated.Pages) > n {
 		generated.Pages = generated.Pages[:n]
 	}
 	// Models occasionally stop early after emitting a valid first page. Keep
 	// the user's requested page count stable and make the missing pages
 	// editable placeholders instead of silently returning a one-page deck.
-	for len(generated.Pages) < n {
+	for n > 0 && len(generated.Pages) < n {
 		i := len(generated.Pages) + 1
 		generated.Pages = append(generated.Pages, pptPlanPage{
 			Title:   fmt.Sprintf("第 %d 页", i),
