@@ -201,7 +201,7 @@
   };
   const imageCropStyle = (style = {}) => {
     const crop = style.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0)), right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0)), width = 100 / (1 - left - right), height = 100 / (1 - top - bottom);
-    return { position: "absolute", maxWidth: "none", width: width + "%", height: height + "%", left: (-left * width) + "%", top: (-top * height) + "%", objectFit: "fill" };
+    return { position: "absolute", maxWidth: "none", width: width + "%", height: height + "%", left: (-left * width) + "%", top: (-top * height) + "%", objectFit: "cover" };
   };
   const ImageBlock = ({ src, style, alt = "" }) => h("div", { className: "image-frame" }, h("img", { src, alt, loading: "lazy", decoding: "async", style: imageCropStyle(style) }));
   const elementTransform = element => {
@@ -245,3 +245,6 @@
 
   window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, loadFontFamily, textAlign, verticalAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
 })();
+
+
+

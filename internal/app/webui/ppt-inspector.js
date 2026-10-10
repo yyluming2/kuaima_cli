@@ -60,7 +60,7 @@
 
   const primaryTab = element => element?.type === "text" ? "text" : element?.type === "image" ? "image" : element?.type === "shape" ? "shape" : element ? "content" : "layout";
 
-  function Inspector({ element, onChange, onReplaceImage, onEditImage, onPickBackground, onPickElementBackground, onLayer, onToggle, master, onMasterChange, themeColors = [], fontFamilies = [] }) {
+  function Inspector({ element, onChange, onReplaceImage, onEditImage, onFitImage, onPickBackground, onPickElementBackground, onLayer, onToggle, master, onMasterChange, themeColors = [], fontFamilies = [] }) {
     const [activeTab, setActiveTab] = useState(primaryTab(element));
     useEffect(() => setActiveTab(primaryTab(element)), [element?.id, !!master]);
     useEffect(() => { window.lucide && window.lucide.createIcons(); }, [activeTab, element?.id]);
@@ -191,6 +191,7 @@
       shownTab === "image" && h("div", { className: "inspector-tab" },
         h("button", { className: "replace-image", type: "button", onClick: () => onReplaceImage?.(element.id) }, "替换图片"),
         h("button", { className: "replace-image", type: "button", onClick: () => onEditImage?.(element.id) }, "编辑图片"),
+        h("button", { className: "replace-image", type: "button", onClick: () => onFitImage?.(element) }, "适应画布"),
         h("h3", null, "裁剪"),
         h("section", { className: "geometry" }, cropField("左", "left"), cropField("上", "top"), cropField("右", "right"), cropField("下", "bottom"))
       )
@@ -199,3 +200,5 @@
 
   window.PPTEditor = { ...window.PPTEditor, ColorField, Inspector };
 })();
+
+
