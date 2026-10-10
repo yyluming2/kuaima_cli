@@ -444,5 +444,5 @@ func matchOCRFont(crop image.Image, text string, size float64, assets []ppt.Font
 // mask matching by accident (often serialized by Windows as STHUPO).
 func isDecorativeOCRFont(family string) bool {
 	s := strings.ToLower(strings.TrimSpace(family))
-	return strings.Contains(s, "sthupo") || strings.Contains(s, "hupo") || strings.Contains(s, "琥珀")
+	return strings.Contains(s, "sthupo") || strings.Contains(s, "hupo") || strings.Contains(s, "琥珀") || strings.Contains(s, "outlook") || strings.Contains(s, "webding") || strings.Contains(s, "jokerman")
 }

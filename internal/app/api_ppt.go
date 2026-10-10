@@ -297,6 +297,20 @@ func nextPPTOCRZ(elements []ppt.Element) int {
 	return max + 1
 }
 
+// normalizePPTOCRRotation converts detector angles to the orientation expected
+// by the editable PPT text element. A vertical baseline reported as 90 degrees
+// is represented by an unrotated text box, while the negative half of the
+// detector's range is mapped into the equivalent positive orientation.
+func normalizePPTOCRRotation(angle float64) float64 {
+	if math.Abs(angle-90) < 1e-9 {
+		return 0
+	}
+	if angle < -90 {
+		angle += 180
+	}
+	return angle
+}
+
 func ocrFontSize(height float64, text string, detected float64) float64 {
 	lines := float64(strings.Count(text, "\n") + 1)
 	minSize := height / lines * 0.62
@@ -1082,7 +1096,7 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
 				dx1, dy1 = dx2, dy2
 			}
-			rotation := math.Atan2(dy1, dx1) * 180 / math.Pi
+			rotation := normalizePPTOCRRotation(math.Atan2(dy1, dx1) * 180 / math.Pi)
 			e := ppt.Element{ID: fmt.Sprintf("ocr-%d-%d", time.Now().UnixNano(), i), Type: "text", X: x + in.ImageOffsetX, Y: y + in.ImageOffsetY, Width: width, Height: height, Rotation: rotation, ZIndex: z + i, Content: text, Style: style, TextRuns: ocrTextRuns(cropImg, text, style)}
 			if e.Style == nil {
 				e.Style = map[string]any{}
