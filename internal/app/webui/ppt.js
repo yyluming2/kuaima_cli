@@ -26,7 +26,7 @@
     useEffect(() => { const toggle = () => setInspectorOpen(v => !v); addEventListener("ppt-toggle-inspector", toggle); return () => removeEventListener("ppt-toggle-inspector", toggle); }, []);
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
     const [exporting, setExporting] = useState(false), exportLock = useRef(false);
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), exported = useRef(false), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
     useEffect(() => { setInspectorOpen(!!selected); }, [selected]);
     useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
     useEffect(() => {
@@ -175,7 +175,7 @@
     };
     const convertImageToEditable = async image => {
       if (!deck || !image) return;
-      if (!window.confirm("此操作会替换原图片并自动修复文字背景，原图片可能无法恢复。建议先备份 PPT，是否继续？")) return;
+      if (!exported.current && !window.confirm("此操作会替换原图片并自动修复文字背景，原图片可能无法恢复。建议先备份 PPT，是否继续？")) return;
       setBusy(true); setOcrBusy(true); setOcrTarget({ x: image.x, y: image.y, width: image.width, height: image.height, rotation: image.rotation || 0 });
       try {
         let workingDeck = structuredClone(deck);
@@ -552,6 +552,7 @@
         document.body.appendChild(a);
         a.click();
         a.remove();
+        exported.current = true;
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } catch (e) { alert("导出失败：" + e.message) } finally { exportLock.current = false; setExporting(false); }
     };
