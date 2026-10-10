@@ -352,6 +352,7 @@ main.inspector-collapsed>.side {
 }
 
 .ppt-welcome-actions button {
+    position: relative;
     border: 0;
     border-radius: 10px;
     padding: 12px 18px;
@@ -2835,30 +2836,49 @@ body.ppt-regenerating .ppt-stream-status {
 }
 
 .ppt-ai-direct {
-    border: 0;
-    background: transparent;
+    border: 1px solid #cbd5e1;
+    background: #fff;
     color: #94a3b8;
-    font-size: 22px;
+    font-size: 13px;
+    font-weight: 600;
     cursor: pointer;
-    padding: 4px 8px;
+    padding: 10px 13px;
+    gap: 7px;
+}
+
+.ppt-free-badge {
+    position: absolute;
+    top: -8px;
+    right: -7px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #16a34a;
+    color: #fff;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: 1.2;
+    box-shadow: 0 2px 6px rgba(22, 163, 74, .25);
 }
 
 .ppt-ai-direct.is-on {
     color: #f59e0b;
+    border-color: #fbbf24;
+    background: #fffbeb;
 }
 
 .ppt-ai-direct {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
-    min-height: 32px;
-    padding: 0;
-    overflow: hidden;
     white-space: nowrap;
-    flex: 0 0 32px;
+    flex: 0 0 auto;
+}
+
+.ppt-ai-direct-icon {
+    width: 17px;
+    height: 17px;
+    line-height: 1;
 }
 
 /* Smooth page changes and consistent image-based thumbnails. */
