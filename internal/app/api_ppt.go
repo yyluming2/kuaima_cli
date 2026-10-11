@@ -29,6 +29,10 @@ import (
 	genppt "github.com/CoolBanHub/genppt"
 )
 
+// ppt图片尺寸 16:9
+// const defaultPptSize = "1536x864"
+const defaultPptSize = "1672x941"
+
 func cropPPTOCRImage(ctx context.Context, asset string, x, y, w, h, canvasW, canvasH float64) (string, error) {
 	var data []byte
 	if strings.HasPrefix(asset, "data:image/") {
@@ -442,7 +446,7 @@ func (s *webUIServer) handlePPTMaster(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close()
 	prompt := fmt.Sprintf("PPT视觉母版，主题：%s。内容方向：%s。统一视觉风格：%s。统一提示词：%s。生成一张16:9的高质感演示文稿母版示例图，包含清晰的版式、配色、字体层级和装饰元素，不要出现可读文字，不要水印。", strings.TrimSpace(in.Title), strings.TrimSpace(in.Brief), strings.TrimSpace(in.Style), strings.TrimSpace(in.UnifiedPrompt))
-	resp, err := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: model, Prompt: prompt, N: 1, Size: "1536x864"})
+	resp, err := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: model, Prompt: prompt, N: 1, Size: defaultPptSize})
 	if err != nil {
 		writeError(w, 502, err.Error())
 		return
@@ -804,7 +808,7 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 			} else {
 				prompt += "\n参考图是需要美化的原页面。准确保留内容与数据，根据用户要求重新设计视觉，输出完整演示文稿页面。"
 			}
-			resp, genErr = c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: []imageRef{{ImageURL: in.ReferenceImage}}, N: 1, Size: "1536x864"})
+			resp, genErr = c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: []imageRef{{ImageURL: in.ReferenceImage}}, N: 1, Size: defaultPptSize})
 		} else if in.Presentation.Master != nil && strings.TrimSpace(in.Presentation.Master.Background) != "" {
 			// Keep the reference image out of the text prompt. Besides wasting context,
 			// embedding a data URL there can exceed the model's prompt limit. The image
@@ -834,10 +838,10 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 				Prompt: prompt,
 				Images: []imageRef{{ImageURL: reference}},
 				N:      1,
-				Size:   "1536x864",
+				Size:   defaultPptSize,
 			})
 		} else {
-			resp, genErr = c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: prompt, N: 1, Size: "1536x864"})
+			resp, genErr = c.createImageGeneration(r.Context(), imageGenerationRequest{Model: imageModel, Prompt: prompt, N: 1, Size: defaultPptSize})
 		}
 		if genErr != nil {
 			errs = append(errs, fmt.Sprintf("slide %d: %v", i+1, genErr))
@@ -1568,7 +1572,7 @@ func (s *webUIServer) handlePPTSlideGenerate(w http.ResponseWriter, r *http.Requ
 		if strings.TrimSpace(in.ReferenceImage) != "" {
 			refs = append(refs, imageRef{ImageURL: in.ReferenceImage})
 		}
-		resp, err := c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: refs, N: 1, Size: "1536x864"})
+		resp, err := c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: refs, N: 1, Size: defaultPptSize})
 		if err != nil {
 			if streamMode {
 				stream.send("error", map[string]string{"error": err.Error()})
@@ -2236,6 +2240,8 @@ func (s *webUIServer) handlePPTXImport(w http.ResponseWriter, r *http.Request) {
 	var p ppt.Presentation
 	if len(body) >= 2 && body[0] == 'P' && body[1] == 'K' {
 		p, err = pptximport.Read(bytes.NewReader(body), int64(len(body)))
+	} else if len(body) >= 8 && body[0] == 0xd0 && body[1] == 0xcf && body[2] == 0x11 && body[3] == 0xe0 {
+		err = fmt.Errorf("暂不支持 .ppt 文件，请先将文件另存为 .pptx 后再上传")
 	} else {
 		err = json.Unmarshal(body, &p)
 	}

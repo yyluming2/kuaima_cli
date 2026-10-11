@@ -40,14 +40,14 @@
               placeholder="例如：面向企业客户的 2026 产品发布会，介绍新产品、核心优势和行动计划"></textarea></label>
           <details class="ppt-ai-reference-section"><summary>参考文字与素材 <small>选填</small></summary>
           <label>参考文字 <small>选填</small><textarea id="pptAiReferenceText" rows="4" placeholder="粘贴资料、数据、案例或需要保留的原文"></textarea></label>
-          <label class="ppt-file ppt-file-compact">参考素材 <small>可添加多个文件</small><input id="pptAiReferenceFiles" type="file" multiple accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pptx,.doc,.docx,.pdf"><small>支持图片、Word（DOC/DOCX）、PDF、TXT、Markdown、CSV、JSON 和 PPTX，单个文件最多 10 MB；Word 和 PDF 自动提取文字，扫描 PDF 自动按页转为参考图片</small></label>
+          <label class="ppt-file ppt-file-compact">参考素材 <small>可添加多个文件</small><input id="pptAiReferenceFiles" type="file" multiple accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pptx,.ppt,.doc,.docx,.pdf"><small>支持图片、Word（DOC/DOCX）、PDF、TXT、Markdown、CSV、JSON 和 PPT/PPTX，单个文件最多 10 MB；Word 和 PDF 自动提取文字，扫描 PDF 自动按页转为参考图片</small></label>
           <small id="pptAiReferenceStatus" role="status" aria-live="polite"></small>
           <div id="pptAiReferenceList" class="ppt-ai-materials"></div>
           </details>
           </div>
           <div id="pptAiBeautifyPanel" role="tabpanel" aria-labelledby="pptAiBeautifyTab" hidden>
           <label class="ppt-file ppt-file-compact">参考 PPT 文件<input id="pptAiDeck" type="file"
-              accept=".pptx,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json，AI 会保留原页内容和顺序进行美化</small></label>
+              accept=".pptx,.ppt,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json；.ppt 文件请先另存为 .pptx</small></label>
           <label>美化要求 <small>选填</small><textarea id="pptAiBeautifyBrief" rows="3" placeholder="例如：保留原有内容，优化排版和字体层级，整体更简洁"></textarea></label>
           </div>
           <div class="ppt-ai-grid"><label id="pptAiPagesField">页数 <small>选填</small><input id="pptAiPages" type="number" min="3" max="50"
