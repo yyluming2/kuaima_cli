@@ -31,7 +31,8 @@ import (
 
 // ppt图片尺寸 16:9
 // const defaultPptSize = "1536x864"
-const defaultPptSize = "1672x941"
+// const defaultPptSize = "1672x941"
+const defaultPptSize = "auto"
 
 func cropPPTOCRImage(ctx context.Context, asset string, x, y, w, h, canvasW, canvasH float64) (string, error) {
 	var data []byte
