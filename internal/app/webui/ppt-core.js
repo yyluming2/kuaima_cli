@@ -243,7 +243,7 @@
     dangerouslySetInnerHTML: { __html: `<i data-lucide="${name}"></i>` }
   });
 
-  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, loadFontFamily, textAlign, verticalAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, elementTransform, api, readSSE, icon };
+  window.PPTEditor = { ...(window.PPTEditor || {}), names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, loadFontFamily, textAlign, verticalAlign, textRuns, rewriteRunContent, readEditableRuns, customPath, ImageBlock, imageCropStyle, elementTransform, api, readSSE, icon };
 })();
 
 

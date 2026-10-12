@@ -3029,11 +3029,21 @@ body.ppt-format-paint-active .tools button[aria-pressed="true"] {
     flex-direction: column
 }
 
+.ppt-compare-image {
+    position: relative;
+    flex: 0 1 auto;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    min-height: 0;
+    overflow: hidden;
+    margin: auto 0;
+}
+
 .ppt-compare-body img {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    background: #f3f4f6
+    background: transparent
 }
 
 .ppt-compare-body figcaption {
@@ -3092,9 +3102,9 @@ body.ppt-format-paint-active .tools button[aria-pressed="true"] {
 
 .ppt-compare-body img {
     display: block;
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain
+    max-width: none;
+    max-height: none;
+    object-fit: cover
 }
 
 .ppt-compare-head button svg {
@@ -3141,4 +3151,26 @@ body.ppt-format-paint-active .tools button[aria-pressed="true"] {
 .ppt-compare-body.stack figure {
     width: 100%;
     flex-basis: calc(100% - 10px)
+}
+
+/* Keep both comparison modes on the same predictable flex geometry. */
+.ppt-compare-body.side,
+.ppt-compare-body.stack {
+    align-items: stretch;
+}
+
+.ppt-compare-body.side figure,
+.ppt-compare-body.stack figure {
+    width: auto;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.ppt-compare-body.stack figure {
+    flex: 0 0 auto;
+    height: auto;
+}
+
+.ppt-compare-body.stack .ppt-compare-image {
+    flex: 0 0 auto;
 }
