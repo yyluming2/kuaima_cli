@@ -104,7 +104,7 @@
       if (!value?.slides?.[index]) throw new Error("页面不存在");
       // Snapshot rendering is triggered after ordinary edits (for example by
       // thumbnail refresh). It must not clear the user's active selection.
-      ReactDOM.flushSync(() => { setDeck(value); setSlide(index); setMasterMode(false); setEditing(null); });
+      ReactDOM.flushSync(() => { if (value !== deck) setDeck(value); setSlide(index); setMasterMode(false); setEditing(null); });
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       await document.fonts.ready;
       const source = document.querySelector(".canvas");
