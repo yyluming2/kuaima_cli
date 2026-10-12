@@ -950,7 +950,17 @@ func (s *webUIServer) handlePPTImageToEditable(w http.ResponseWriter, r *http.Re
 	if title == "" {
 		title = fmt.Sprintf("第 %d 页", in.SlideIndex+1)
 	}
-	sl.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 0, Y: 0, Width: in.Presentation.Width, Height: in.Presentation.Height, AssetURL: img.AssetURL, Style: map[string]any{"objectFit": "cover"}}, {ID: fmt.Sprintf("slide-%d-title", in.SlideIndex+1), Type: "text", X: 72, Y: 52, Width: 1136, Height: 80, Content: title, Style: map[string]any{"fontSize": 44.0, "fontWeight": 700, "color": "#ffffff", "background": "transparent"}}, {ID: fmt.Sprintf("slide-%d-body", in.SlideIndex+1), Type: "text", X: 88, Y: 150, Width: 620, Height: 280, Content: body, Style: map[string]any{"fontSize": 28.0, "color": "#ffffff", "background": "transparent"}}}
+	// Keep the source image's geometry styling, especially normalized crop
+	// values. Replacing the element with a fresh style used to make the
+	// canvas continue showing the cropped image while the inspector lost it.
+	imageStyle := map[string]any{}
+	for k, v := range img.Style {
+		imageStyle[k] = v
+	}
+	if imageStyle["objectFit"] == nil {
+		imageStyle["objectFit"] = "cover"
+	}
+	sl.Elements = []ppt.Element{{ID: fmt.Sprintf("slide-%d-image", in.SlideIndex+1), Type: "image", X: 0, Y: 0, Width: in.Presentation.Width, Height: in.Presentation.Height, AssetURL: img.AssetURL, Style: imageStyle}, {ID: fmt.Sprintf("slide-%d-title", in.SlideIndex+1), Type: "text", X: 72, Y: 52, Width: 1136, Height: 80, Content: title, Style: map[string]any{"fontSize": 44.0, "fontWeight": 700, "color": "#ffffff", "background": "transparent"}}, {ID: fmt.Sprintf("slide-%d-body", in.SlideIndex+1), Type: "text", X: 88, Y: 150, Width: 620, Height: 280, Content: body, Style: map[string]any{"fontSize": 28.0, "color": "#ffffff", "background": "transparent"}}}
 	in.Presentation.Slides[in.SlideIndex] = *sl
 	writeJSON(w, 200, map[string]any{"presentation": in.Presentation})
 }

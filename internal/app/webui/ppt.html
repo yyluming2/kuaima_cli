@@ -29,99 +29,121 @@
       </div>
       <div id="pptAiForm" class="ppt-ai-view">
         <div class="ppt-ai-scroll">
-        <section class="ppt-ai-section">
-          <div class="ppt-ai-section-title"><b>内容需求</b><span id="pptAiContentHint">输入主题和内容，创建全新 PPT</span></div>
-          <div class="ppt-ai-content-tabs" role="tablist" aria-label="PPT 制作方式">
-            <button id="pptAiCreateTab" type="button" role="tab" aria-selected="true" aria-controls="pptAiCreatePanel" data-content-mode="create"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M12 12v6M9 15h6"/></svg><span>新建 PPT</span></button>
-            <button id="pptAiBeautifyTab" type="button" role="tab" aria-selected="false" aria-controls="pptAiBeautifyPanel" data-content-mode="beautify" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 4 5 5L7 22l-5-5ZM12 7l5 5M5 3v4M3 5h4M19 15v4M17 17h4"/></svg><span>美化 PPT</span></button>
-          </div>
-          <div id="pptAiCreatePanel" role="tabpanel" aria-labelledby="pptAiCreateTab">
-          <label>主题与内容要求<textarea id="pptAiBrief" rows="4"
-              placeholder="例如：面向企业客户的 2026 产品发布会，介绍新产品、核心优势和行动计划"></textarea></label>
-          <details class="ppt-ai-reference-section"><summary>参考文字与素材 <small>选填</small></summary>
-          <label>参考文字 <small>选填</small><textarea id="pptAiReferenceText" rows="4" placeholder="粘贴资料、数据、案例或需要保留的原文"></textarea></label>
-          <label class="ppt-file ppt-file-compact">参考素材 <small>可添加多个文件</small><input id="pptAiReferenceFiles" type="file" multiple accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pptx,.ppt,.doc,.docx,.pdf"><small>支持图片、Word（DOC/DOCX）、PDF、TXT、Markdown、CSV、JSON 和 PPT/PPTX，单个文件最多 10 MB；Word 和 PDF 自动提取文字，扫描 PDF 自动按页转为参考图片</small></label>
-          <small id="pptAiReferenceStatus" role="status" aria-live="polite"></small>
-          <div id="pptAiReferenceList" class="ppt-ai-materials"></div>
+          <section class="ppt-ai-section">
+            <div class="ppt-ai-section-title"><b>内容需求</b><span id="pptAiContentHint">输入主题和内容，创建全新 PPT</span></div>
+            <div class="ppt-ai-content-tabs" role="tablist" aria-label="PPT 制作方式">
+              <button id="pptAiCreateTab" type="button" role="tab" aria-selected="true" aria-controls="pptAiCreatePanel"
+                data-content-mode="create"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                  <path d="M14 2v6h6M12 12v6M9 15h6" />
+                </svg><span>新建 PPT</span></button>
+              <button id="pptAiBeautifyTab" type="button" role="tab" aria-selected="false"
+                aria-controls="pptAiBeautifyPanel" data-content-mode="beautify" tabindex="-1"><svg viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                  aria-hidden="true">
+                  <path d="m15 4 5 5L7 22l-5-5ZM12 7l5 5M5 3v4M3 5h4M19 15v4M17 17h4" />
+                </svg><span>美化 PPT</span></button>
+            </div>
+            <div id="pptAiCreatePanel" role="tabpanel" aria-labelledby="pptAiCreateTab">
+              <label>主题与内容要求<textarea id="pptAiBrief" rows="4"
+                  placeholder="例如：面向企业客户的 2026 产品发布会，介绍新产品、核心优势和行动计划"></textarea></label>
+              <details class="ppt-ai-reference-section">
+                <summary>参考文字与素材 <small>选填</small></summary>
+                <label>参考文字 <small>选填</small><textarea id="pptAiReferenceText" rows="4"
+                    placeholder="粘贴资料、数据、案例或需要保留的原文"></textarea></label>
+                <label class="ppt-file ppt-file-compact">参考素材 <small>可添加多个文件</small><input id="pptAiReferenceFiles"
+                    type="file" multiple
+                    accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pptx,.ppt,.doc,.docx,.pdf"><small>支持图片、Word（DOC/DOCX）、PDF、TXT、Markdown、CSV、JSON
+                    和 PPT/PPTX，单个文件不宜过大</small></label>
+                <small id="pptAiReferenceStatus" role="status" aria-live="polite"></small>
+                <div id="pptAiReferenceList" class="ppt-ai-materials"></div>
+              </details>
+            </div>
+            <div id="pptAiBeautifyPanel" role="tabpanel" aria-labelledby="pptAiBeautifyTab" hidden>
+              <label class="ppt-file ppt-file-compact">参考 PPT 文件<input id="pptAiDeck" type="file"
+                  accept=".pptx,.ppt,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json；.ppt 文件请先另存为
+                  .pptx</small></label>
+              <label>美化要求 <small>选填</small><textarea id="pptAiBeautifyBrief" rows="3"
+                  placeholder="例如：保留原有内容，优化排版和字体层级，整体更简洁"></textarea></label>
+            </div>
+            <div class="ppt-ai-grid"><label id="pptAiPagesField">页数 <small>选填</small><input id="pptAiPages"
+                  type="number" min="3" max="50" placeholder="AI 自动决定"></label><label>风格描述 <small>选填</small><input
+                  id="pptAiStyle" placeholder="例如：现代商务、科技感"></label></div>
+          </section>
+          <section class="ppt-ai-section">
+            <div class="ppt-ai-section-title"><b>视觉风格</b><span>选一种方式即可</span></div>
+            <div class="ppt-visual-modes">
+              <label class="selected"><input type="radio" name="pptVisualMode" value="auto" checked><b>✦ AI
+                  自动决定</b><span>根据内容自动设计</span></label>
+              <label><input type="radio" name="pptVisualMode" value="color"><b>选择主题色</b><span>指定整套配色</span></label>
+              <label><input type="radio" name="pptVisualMode" value="image"><b>参考图片</b><span>沿用图片视觉语言</span></label>
+            </div>
+            <div id="pptAiColorPanel" class="ppt-visual-panel" hidden>
+              <div class="ppt-color-palettes">
+                <button type="button" class="selected" data-accent="#2563eb" data-background="#f8fafc" title="商务蓝"><i
+                    style="--c1:#2563eb;--c2:#60a5fa;--c3:#f8fafc"></i><span>商务蓝</span></button>
+                <button type="button" data-accent="#7c3aed" data-background="#faf5ff" title="创意紫"><i
+                    style="--c1:#7c3aed;--c2:#c084fc;--c3:#faf5ff"></i><span>创意紫</span></button>
+                <button type="button" data-accent="#059669" data-background="#f0fdf4" title="生态绿"><i
+                    style="--c1:#059669;--c2:#6ee7b7;--c3:#f0fdf4"></i><span>生态绿</span></button>
+                <button type="button" data-accent="#ea580c" data-background="#fff7ed" title="活力橙"><i
+                    style="--c1:#ea580c;--c2:#fdba74;--c3:#fff7ed"></i><span>活力橙</span></button>
+                <button type="button" data-accent="#e2e8f0" data-background="#0f172a" title="黑金深色"><i
+                    style="--c1:#0f172a;--c2:#475569;--c3:#e2e8f0"></i><span>黑金深色</span></button>
+              </div>
+              <div class="ppt-custom-colors"><label>主色 <input id="pptAiAccent" type="color"
+                    value="#2563eb"></label><label>辅助色 <input id="pptAiSecondary" type="color"
+                    value="#60a5fa"></label><label>背景色 <input id="pptAiBackground" type="color" value="#f8fafc"></label>
+              </div>
+            </div>
+            <div id="pptAiImagePanel" class="ppt-visual-panel" hidden>
+              <label class="ppt-file ppt-file-compact">上传参考图片<input id="pptAiStyleImage" type="file"
+                  accept="image/*"><small id="pptAiStyleHint">支持 JPG、PNG、WebP</small></label>
+              <div id="pptAiStylePreview" class="ppt-ai-reference-preview" hidden><img alt="参考图预览"><span>参考图预览</span>
+              </div>
+            </div>
+          </section>
+          <details class="ppt-ai-advanced">
+            <summary>高级设置：选择模型</summary>
+            <div class="ppt-ai-grid"><label>内容模型<select id="pptAiTextModel">
+                  <option value="">正在加载模型…</option>
+                </select></label><label>图片生成模型<select id="pptAiImageModel">
+                  <option value="">正在加载模型…</option>
+                </select></label></div>
+            <label class="ppt-ai-retry-setting">单页失败自动重试 <small>默认 3 次</small><input id="pptAiRetryCount" type="number"
+                min="0" max="5" value="3"></label>
           </details>
-          </div>
-          <div id="pptAiBeautifyPanel" role="tabpanel" aria-labelledby="pptAiBeautifyTab" hidden>
-          <label class="ppt-file ppt-file-compact">参考 PPT 文件<input id="pptAiDeck" type="file"
-              accept=".pptx,.ppt,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json；.ppt 文件请先另存为 .pptx</small></label>
-          <label>美化要求 <small>选填</small><textarea id="pptAiBeautifyBrief" rows="3" placeholder="例如：保留原有内容，优化排版和字体层级，整体更简洁"></textarea></label>
-          </div>
-          <div class="ppt-ai-grid"><label id="pptAiPagesField">页数 <small>选填</small><input id="pptAiPages" type="number" min="3" max="50"
-                placeholder="AI 自动决定"></label><label>风格描述 <small>选填</small><input id="pptAiStyle"
-                placeholder="例如：现代商务、科技感"></label></div>
-        </section>
-        <section class="ppt-ai-section">
-          <div class="ppt-ai-section-title"><b>视觉风格</b><span>选一种方式即可</span></div>
-          <div class="ppt-visual-modes">
-            <label class="selected"><input type="radio" name="pptVisualMode" value="auto" checked><b>✦ AI
-                自动决定</b><span>根据内容自动设计</span></label>
-            <label><input type="radio" name="pptVisualMode" value="color"><b>选择主题色</b><span>指定整套配色</span></label>
-            <label><input type="radio" name="pptVisualMode" value="image"><b>参考图片</b><span>沿用图片视觉语言</span></label>
-          </div>
-          <div id="pptAiColorPanel" class="ppt-visual-panel" hidden>
-            <div class="ppt-color-palettes">
-              <button type="button" class="selected" data-accent="#2563eb" data-background="#f8fafc" title="商务蓝"><i
-                  style="--c1:#2563eb;--c2:#60a5fa;--c3:#f8fafc"></i><span>商务蓝</span></button>
-              <button type="button" data-accent="#7c3aed" data-background="#faf5ff" title="创意紫"><i
-                  style="--c1:#7c3aed;--c2:#c084fc;--c3:#faf5ff"></i><span>创意紫</span></button>
-              <button type="button" data-accent="#059669" data-background="#f0fdf4" title="生态绿"><i
-                  style="--c1:#059669;--c2:#6ee7b7;--c3:#f0fdf4"></i><span>生态绿</span></button>
-              <button type="button" data-accent="#ea580c" data-background="#fff7ed" title="活力橙"><i
-                  style="--c1:#ea580c;--c2:#fdba74;--c3:#fff7ed"></i><span>活力橙</span></button>
-              <button type="button" data-accent="#e2e8f0" data-background="#0f172a" title="黑金深色"><i
-                  style="--c1:#0f172a;--c2:#475569;--c3:#e2e8f0"></i><span>黑金深色</span></button>
-            </div>
-            <div class="ppt-custom-colors"><label>主色 <input id="pptAiAccent" type="color"
-                  value="#2563eb"></label><label>辅助色 <input id="pptAiSecondary" type="color"
-                  value="#60a5fa"></label><label>背景色 <input id="pptAiBackground" type="color" value="#f8fafc"></label>
-            </div>
-          </div>
-          <div id="pptAiImagePanel" class="ppt-visual-panel" hidden>
-            <label class="ppt-file ppt-file-compact">上传参考图片<input id="pptAiStyleImage" type="file"
-                accept="image/*"><small id="pptAiStyleHint">支持 JPG、PNG、WebP</small></label>
-            <div id="pptAiStylePreview" class="ppt-ai-reference-preview" hidden><img alt="参考图预览"><span>参考图预览</span>
-            </div>
-          </div>
-        </section>
-        <details class="ppt-ai-advanced">
-          <summary>高级设置：选择模型</summary>
-          <div class="ppt-ai-grid"><label>内容模型<select id="pptAiTextModel">
-                <option value="">正在加载模型…</option>
-              </select></label><label>图片生成模型<select id="pptAiImageModel">
-                <option value="">正在加载模型…</option>
-              </select></label></div>
-          <label class="ppt-ai-retry-setting">单页失败自动重试 <small>默认 3 次</small><input id="pptAiRetryCount" type="number"
-              min="0" max="5" value="3"></label>
-        </details>
         </div>
-        <div class="ppt-ai-actions"><button id="pptAiDirect" class="ppt-ai-direct" type="button" aria-pressed="false" title="免确认直出：已关闭"><svg class="ppt-ai-direct-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg><span>免确认直出</span></button><button id="pptAiCancel">取消</button><button id="pptAiPlan"
+        <div class="ppt-ai-actions"><button id="pptAiDirect" class="ppt-ai-direct" type="button" aria-pressed="false"
+            title="免确认直出：已关闭"><svg class="ppt-ai-direct-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M13 2 3 14h9l-1 8 10-12h-9z" />
+            </svg><span>免确认直出</span></button><button id="pptAiCancel">取消</button><button id="pptAiPlan"
             class="ppt-ai-primary">生成方案 <span>→</span></button></div>
       </div>
       <div id="pptAiOutline" class="ppt-ai-view" hidden>
         <div class="ppt-ai-scroll">
-        <div class="ppt-ai-confirm-head">
-          <div>
-            <h3>参考页面</h3>
-            <p>逐页使用 Canvas 画面作为视觉参考</p>
-          </div><span id="pptAiPlanSummary"></span>
-        </div>
-        <div class="ppt-ai-confirm-grid">
-          <div class="ppt-ai-confirm-main">
-            <label>统一视觉提示词<textarea id="pptAiUnifiedPrompt" rows="3"></textarea></label>
-            <div class="ppt-ai-outline-head"><b>页面预览</b><span>共 <em id="pptAiOutlineCount">0</em> 页</span></div>
-            <div id="pptAiOutlineList"></div>
+          <div class="ppt-ai-confirm-head">
+            <div>
+              <h3>参考页面</h3>
+              <p>逐页使用 Canvas 画面作为视觉参考</p>
+            </div><span id="pptAiPlanSummary"></span>
           </div>
-          <aside class="ppt-ai-master-card">
-            <div class="ppt-ai-master-head"><b>视觉参考</b><button id="pptAiRegenerate" type="button">重新生成</button></div>
-            <img id="pptAiSample" class="ppt-ai-master-preview" alt="PPT 视觉母版预览" hidden>
-            <label class="ppt-ai-master-prompt">母版修改提示词（选填）<textarea id="pptAiMasterPrompt" rows="3" placeholder="例如：增加科技感，使用深色背景和蓝紫色光效"></textarea></label>
-            <p>母版用于统一各页的配色、版式和视觉风格，可重新生成后确认。</p>
-          </aside>
-        </div>
+          <div class="ppt-ai-confirm-grid">
+            <div class="ppt-ai-confirm-main">
+              <label>统一视觉提示词<textarea id="pptAiUnifiedPrompt" rows="3"></textarea></label>
+              <div class="ppt-ai-outline-head"><b>页面预览</b><span>共 <em id="pptAiOutlineCount">0</em> 页</span></div>
+              <div id="pptAiOutlineList"></div>
+            </div>
+            <aside class="ppt-ai-master-card">
+              <div class="ppt-ai-master-head"><b>视觉参考</b><button id="pptAiRegenerate" type="button">重新生成</button></div>
+              <img id="pptAiSample" class="ppt-ai-master-preview" alt="PPT 视觉母版预览" hidden>
+              <label class="ppt-ai-master-prompt">母版修改提示词（选填）<textarea id="pptAiMasterPrompt" rows="3"
+                  placeholder="例如：增加科技感，使用深色背景和蓝紫色光效"></textarea></label>
+              <p>母版用于统一各页的配色、版式和视觉风格，可重新生成后确认。</p>
+            </aside>
+          </div>
         </div>
         <div class="ppt-ai-actions ppt-ai-sticky-actions"><button id="pptAiStyleBack">← 返回修改</button><button
             id="pptAiGenerate" class="ppt-ai-primary">确认并生成 <span>→</span></button></div>
@@ -138,16 +160,17 @@
       </div>
       <div id="pptAiGenerating" class="ppt-ai-view" hidden>
         <div class="ppt-ai-scroll">
-        <div class="ppt-ai-generating-head">
-          <div>
-            <h3 id="pptAiGeneratingTitle">正在美化 PPT</h3>
-            <p id="pptAiGeneratingText">请稍候，生成完成的页面会立即显示</p>
-          </div><b id="pptAiGeneratingCount">0 / 0</b>
+          <div class="ppt-ai-generating-head">
+            <div>
+              <h3 id="pptAiGeneratingTitle">正在美化 PPT</h3>
+              <p id="pptAiGeneratingText">请稍候，生成完成的页面会立即显示</p>
+            </div><b id="pptAiGeneratingCount">0 / 0</b>
+          </div>
+          <div class="ppt-ai-page-progress"><i id="pptAiPageProgressBar"></i></div>
+          <div id="pptAiPageList" class="ppt-ai-page-list"></div>
         </div>
-        <div class="ppt-ai-page-progress"><i id="pptAiPageProgressBar"></i></div>
-        <div id="pptAiPageList" class="ppt-ai-page-list"></div>
-        </div>
-        <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiDone" class="ppt-ai-primary">保存并进入编辑器</button></div>
+        <div class="ppt-ai-actions" id="pptAiDoneActions" hidden><button id="pptAiDone"
+            class="ppt-ai-primary">保存并进入编辑器</button></div>
       </div>
     </div>
   </div>
@@ -158,7 +181,9 @@
   <div id="app"></div>
   <div id="fineEditor" class="modal-backdrop fine-editor-backdrop" hidden>
     <div class="fine-editor" role="dialog" aria-modal="true" aria-labelledby="fineEditorTitle">
-      <button id="closeFineEditor" class="modal-close" type="button" aria-label="关闭">×</button><button id="applyFineEditHeader" class="fine-editor-header-apply" type="button"><i data-lucide="check-circle-2" aria-hidden="true"></i><span>应用到 PPT</span></button>
+      <button id="closeFineEditor" class="modal-close" type="button" aria-label="关闭">×</button><button
+        id="applyFineEditHeader" class="fine-editor-header-apply" type="button"><i data-lucide="check-circle-2"
+          aria-hidden="true"></i><span>应用到 PPT</span></button>
       <div class="fine-editor-head">
         <div>
           <p class="eyebrow">Image edit</p>
@@ -191,7 +216,9 @@
           </div>
           <label class="field fine-note"><span>整体备注</span><textarea id="fineEditorNote"
               placeholder="例如：保持人物身份、构图和光影不变，整体风格要自然。"></textarea></label>
-          <label class="field fine-model"><span>生图模型</span><select id="fineEditorImageModel"><option value="gpt-image-2">正在加载模型…</option></select></label>
+          <label class="field fine-model"><span>生图模型</span><select id="fineEditorImageModel">
+              <option value="gpt-image-2">正在加载模型…</option>
+            </select></label>
           <div class="field fine-supplements">
             <label>补充参考图</label>
             <label class="upload-button" for="fineEditorFiles"><span class="upload-icon"><i data-lucide="images"
@@ -392,18 +419,16 @@
         <span class="contact-badge">常见问题</span>
       </div>
       <div class="contact-modal-body">
-  <script src="/app-icons.js"></script>
-  <script src="/app-shared.js"></script>
-  <script src="/app-retouch.js"></script>
-  <script src="/app-fine-edit.js"></script>
-  <script src="/ppt-core.js"></script>
-  <script src="/ppt-inspector.js"></script>
-  <script src="/ppt-image-editor.js"></script>
-  <script src="/ppt.js?v=ocr-v6-v5"></script>
-  <script src="/pdf.min.js"></script>
-  <script src="/ppt-ai.js"></script>
+        <script src="/app-icons.js"></script>
+        <script src="/app-shared.js"></script>
+        <script src="/app-retouch.js"></script>
+        <script src="/app-fine-edit.js"></script>
+        <script src="/ppt-core.js"></script>
+        <script src="/ppt-inspector.js"></script>
+        <script src="/ppt-image-editor.js"></script>
+        <script src="/ppt.js?v=ocr-v6-v5"></script>
+        <script src="/pdf.min.js"></script>
+        <script src="/ppt-ai.js"></script>
 </body>
 
 </html>
-
-

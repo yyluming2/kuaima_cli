@@ -33,6 +33,25 @@
     // derived `current` value unavailable; tying the open state to the
     // selection's truthiness made that transient state hide the whole panel.
     useEffect(() => { if (selected != null) setInspectorOpen(true); }, [selected]);
+    // Imported images may already be rendered with cover semantics while
+    // lacking explicit normalized crop values. Materialize those values so
+    // the inspector matches what the canvas shows.
+    useEffect(() => {
+      if (!deck?.slides?.length) return;
+      let cancelled = false;
+      const jobs = [];
+      deck.slides.forEach((s, si) => (s.elements || []).forEach((el, ei) => {
+        if (el.type !== "image" || !el.assetUrl || el.style?.crop) return;
+        const img = new Image();
+        jobs.push(new Promise(resolve => { img.onload = () => {
+          const boxRatio = Number(el.width) / Math.max(1, Number(el.height)), ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
+          const crop = ratio > boxRatio ? { left: (1 - boxRatio / ratio) / 2, right: (1 - boxRatio / ratio) / 2, top: 0, bottom: 0 } : { left: 0, right: 0, top: (1 - ratio / boxRatio) / 2, bottom: (1 - ratio / boxRatio) / 2 };
+          resolve({ si, ei, crop });
+        }; img.onerror = () => resolve(null); img.src = el.assetUrl; }));
+      }));
+      Promise.all(jobs).then(results => { if (cancelled || !results.some(Boolean)) return; setDeck(d => { const n = structuredClone(d); results.filter(Boolean).forEach(({ si, ei, crop }) => { const el = n.slides?.[si]?.elements?.[ei]; if (el && !el.style?.crop) el.style = { ...(el.style || {}), crop }; }); return n; }); });
+      return () => { cancelled = true; };
+    }, [deck]);
     useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
     useEffect(() => {
       let cancelled = false;
