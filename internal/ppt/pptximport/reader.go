@@ -996,9 +996,6 @@ func (im *importer) walk(n *node, c ctx) {
 		}
 		t := readXF(directXF(n))
 		x, y, w, h, r := apply(t, c)
-		if w <= 0 || h <= 0 {
-			return
-		}
 		var idn *node
 		if n.Name == "sp" {
 			idn = n.child("nvSpPr")
@@ -1032,6 +1029,17 @@ func (im *importer) walk(n *node, c ctx) {
 			return
 		}
 		content, style, textRuns, textParagraphs := textBodyDetailed(n, im.theme)
+		// A slide shape can be a placeholder whose geometry is inherited from
+		// its slide layout.  Such shapes (including valid text placeholders)
+		// deliberately omit spPr/xfrm in the slide XML.  Keep their text instead
+		// of dropping the element as a zero-sized shape; the layout-independent
+		// fallback gives the editor a usable, editable text box.
+		if w <= 0 || h <= 0 {
+			if content == "" {
+				return
+			}
+			x, y, w, h = 0, 0, 1280, 720
+		}
 		typ := "shape"
 		if n.Name == "cxnSp" {
 			typ = "line"
