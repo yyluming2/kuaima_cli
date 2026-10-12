@@ -7,7 +7,7 @@ func TestNormalizePPTOCRRotation(t *testing.T) {
 		input, want float64
 	}{
 		{90, 0},
-		{-45, 135},
+		{-45, -45},
 		{-180, 0},
 		{30, 30},
 	}

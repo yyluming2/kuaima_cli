@@ -100,7 +100,10 @@ func repairPPTOCRBackground(src image.Image, polys []OCRPolygon) (string, error)
 	out := image.NewRGBA(b)
 	draw.Draw(out, b, src, b.Min, draw.Src)
 	for _, poly := range polys {
-		box := polygonBounds(poly.Points).Intersect(b)
+		// Give the inpaint pass a small context ring.  This preserves the
+		// surrounding gradient instead of forcing the reconstruction to start
+		// directly on the antialiased glyph edge.
+		box := polygonBounds(poly.Points).Inset(-3).Intersect(b)
 		if box.Empty() {
 			continue
 		}
@@ -121,14 +124,39 @@ func inpaintOCRBox(img *image.RGBA, box image.Rectangle) {
 	br, bg, bb := paddleOCRBorderColor(ref)
 	w, h := box.Dx(), box.Dy()
 	mask := make([]bool, w*h)
-	for y := 1; y < h-1; y++ {
-		for x := 1; x < w-1; x++ {
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
 			r, g, b, _ := img.At(box.Min.X+x, box.Min.Y+y).RGBA()
 			d := absOCRUint(uint64(r>>8), uint64(br)) + absOCRUint(uint64(g>>8), uint64(bg)) + absOCRUint(uint64(b>>8), uint64(bb))
+			// Use a lower threshold for low-contrast glyphs. Rasterized PPT text
+			// often has only a small RGB deviation from its background, especially
+			// after export or JPEG conversion.
+			gray := (uint64(r>>8)*299 + uint64(g>>8)*587 + uint64(b>>8)*114) / 1000
+			bgGray := (uint64(br)*299 + uint64(bg)*587 + uint64(bb)*114) / 1000
+			contrast := absOCRUint(gray, bgGray)
 			// Include antialiased glyph edges as well; the surrounding background is
 			// still protected because the comparison is against the local border.
-			mask[y*w+x] = d > 24
+			mask[y*w+x] = d > 14 || contrast > 7
 		}
+	}
+	// Include antialiased glyph fringes and the faint halo left by JPEG/PPT
+	// rasterization. A small morphological dilation is much more reliable
+	// than lowering the colour threshold, which would remove real background
+	// details on gradients.
+	for pass := 0; pass < 2; pass++ {
+		expanded := append([]bool(nil), mask...)
+		for y := 1; y < h-1; y++ {
+			for x := 1; x < w-1; x++ {
+				if mask[y*w+x] {
+					for dy := -1; dy <= 1; dy++ {
+						for dx := -1; dx <= 1; dx++ {
+							expanded[(y+dy)*w+x+dx] = true
+						}
+					}
+				}
+			}
+		}
+		mask = expanded
 	}
 	// Fast marching style diffusion. Newly reconstructed pixels become valid
 	// sources on the next pass, so wide glyphs are filled all the way through.
@@ -149,13 +177,20 @@ func inpaintOCRBox(img *image.RGBA, box image.Rectangle) {
 					continue
 				}
 				var rr, gg, bb2, n uint32
-				for _, q := range [...]image.Point{{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}} {
+				for _, q := range [...]image.Point{
+					{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1},
+					{x - 1, y - 1}, {x + 1, y - 1}, {x - 1, y + 1}, {x + 1, y + 1},
+				} {
 					if known[q.Y*w+q.X] {
 						r, g, b, _ := img.At(box.Min.X+q.X, box.Min.Y+q.Y).RGBA()
-						rr += r >> 8
-						gg += g >> 8
-						bb2 += b >> 8
-						n++
+						weight := uint32(2)
+						if q.X != x && q.Y != y {
+							weight = 1
+						}
+						rr += (r >> 8) * weight
+						gg += (g >> 8) * weight
+						bb2 += (b >> 8) * weight
+						n += weight
 					}
 				}
 				if n > 0 {
