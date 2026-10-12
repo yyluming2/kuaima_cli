@@ -77,8 +77,9 @@
     // Selection is cleared explicitly when switching slides/modes.  Do not
     // clear it from an effect: deck updates from inspector edits can coincide
     // with a slide state refresh and would otherwise cancel the selection.
-    const thumbSignatures = useRef(new Map());
+    const thumbSignatures = useRef(new Map()), snapshotBatch = useRef(0);
     useEffect(() => {
+      if (snapshotBatch.current) return undefined;
       if (!deck?.slides?.length) { thumbSignatures.current.clear(); setThumbImages({}); return; }
       let cancelled = false; const active = slide, missing = [];
       deck.slides.forEach((s, i) => { const key = s.id || `slide-${i}`; let sig = ""; try { sig = JSON.stringify(s); } catch (_) {} if (thumbSignatures.current.get(key) !== sig || !thumbImages[key]) { thumbSignatures.current.set(key, sig); missing.push(i); } });
@@ -105,7 +106,20 @@
       // Snapshot rendering is triggered after ordinary edits (for example by
       // thumbnail refresh). It must not clear the user's active selection.
       ReactDOM.flushSync(() => { if (value !== deck) setDeck(value); setSlide(index); setMasterMode(false); setEditing(null); });
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      // React may commit the slide change one frame later when thumbnails are
+      // rendered in a loop. Wait for the canvas to explicitly report the
+      // requested slide instead of capturing whichever page happened to be
+      // visible first.
+      await new Promise((resolve, reject) => {
+        const started = performance.now();
+        const wait = () => {
+          const node = document.querySelector('.canvas[data-slide-index]');
+          if (node && Number(node.dataset.slideIndex) === index) return resolve();
+          if (performance.now() - started > 5000) return reject(new Error('页面 Canvas 渲染超时'));
+          requestAnimationFrame(wait);
+        };
+        wait();
+      });
       await document.fonts.ready;
       const source = document.querySelector(".canvas");
       if (!source) throw new Error("页面 Canvas 尚未就绪");
@@ -147,7 +161,9 @@
       window.PPTPageSnapshot = pageSnapshot;
       window.PPTRenderDeckSnapshots = async value => {
         const normalized = normalizeDeck(value), shots = [];
-        for (let index = 0; index < normalized.slides.length; index++) shots.push(await pageSnapshot(index, normalized));
+        snapshotBatch.current++;
+        try { for (let index = 0; index < normalized.slides.length; index++) shots.push(await pageSnapshot(index, normalized)); }
+        finally { snapshotBatch.current--; }
         ReactDOM.flushSync(() => setSlide(0));
         return shots;
       };
@@ -656,7 +672,7 @@
         setSlide(i);
         setSelected(null)
       }
-    }, h("div", { className: "thumb-preview" }, thumbImages[s.id || `slide-${i}`] ? h("img", { src: thumbImages[s.id || `slide-${i}`], alt: `第${i + 1}页缩略图`, draggable: false }) : null), h("span", { className: "thumb-label" }, `第${i + 1}页`), h("span", { className: "thumb-actions" }, h("button", { onClick: ev => { ev.stopPropagation(); pageAction("add", i); }, title: "新建一页" }, icon("plus")), h("button", { onClick: ev => { ev.stopPropagation(); pageAction("duplicate", i); }, title: "复制当前页" }, icon("copy")), h("button", { onClick: ev => { ev.stopPropagation(); if (confirm("确定删除当前页吗？")) pageAction("delete", i); }, title: "删除当前页" }, icon("trash-2")), h("button", { onClick: ev => { ev.stopPropagation(); openAIDialog(i); }, title: "AI重新设计当前页" }, icon("sparkles")))))), h("div", { key: `canvas-page-${slide}`, className: "canvas-wrap", style: { width: W * zoom + "px", height: H * zoom + "px" } }, h("div", { className: "canvas", style: { width: W + "px", height: H + "px", transform: `scale(${zoom})` }, onClick: () => setSelected(null) }, !elements.length && !(deck?.slides?.length) && h("div", { className: "ppt-welcome", onClick: ev => ev.stopPropagation() }, h("img", { src: "/logo.png", alt: "快马AI" }), h("h1", null, "快马AI PPT 工作台"), h("p", null, "从灵感到演示文稿，一键完成创作"), h("div", { className: "ppt-welcome-actions" }, h("button", { className: "ppt-welcome-primary", onClick: () => window.dispatchEvent(new CustomEvent("ppt:ai-open", { detail: { mode: "create" } })) }, icon("sparkles"), h("span", null, "AI制作PPT")), h("button", { onClick: () => window.dispatchEvent(new CustomEvent("ppt:ai-open", { detail: { mode: "beautify" } })) }, icon("wand-sparkles"), h("span", null, "美化PPT")), h("button", { onClick: openDeck, className: "ppt-free-action" }, icon("file-image"), h("span", null, "图片转可编辑文字PPT"), h("em", { className: "ppt-free-badge" }, "免消耗 token")))), [...elements].sort((a, b) => (Number(a.zIndex) || 0) - (Number(b.zIndex) || 0)).map(e => {
+    }, h("div", { className: "thumb-preview" }, thumbImages[s.id || `slide-${i}`] ? h("img", { src: thumbImages[s.id || `slide-${i}`], alt: `第${i + 1}页缩略图`, draggable: false }) : null), h("span", { className: "thumb-label" }, `第${i + 1}页`), h("span", { className: "thumb-actions" }, h("button", { onClick: ev => { ev.stopPropagation(); pageAction("add", i); }, title: "新建一页" }, icon("plus")), h("button", { onClick: ev => { ev.stopPropagation(); pageAction("duplicate", i); }, title: "复制当前页" }, icon("copy")), h("button", { onClick: ev => { ev.stopPropagation(); if (confirm("确定删除当前页吗？")) pageAction("delete", i); }, title: "删除当前页" }, icon("trash-2")), h("button", { onClick: ev => { ev.stopPropagation(); openAIDialog(i); }, title: "AI重新设计当前页" }, icon("sparkles")))))), h("div", { key: `canvas-page-${slide}`, className: "canvas-wrap", style: { width: W * zoom + "px", height: H * zoom + "px" } }, h("div", { className: "canvas", "data-slide-index": slide, style: { width: W + "px", height: H + "px", transform: `scale(${zoom})` }, onClick: () => setSelected(null) }, !elements.length && !(deck?.slides?.length) && h("div", { className: "ppt-welcome", onClick: ev => ev.stopPropagation() }, h("img", { src: "/logo.png", alt: "快马AI" }), h("h1", null, "快马AI PPT 工作台"), h("p", null, "从灵感到演示文稿，一键完成创作"), h("div", { className: "ppt-welcome-actions" }, h("button", { className: "ppt-welcome-primary", onClick: () => window.dispatchEvent(new CustomEvent("ppt:ai-open", { detail: { mode: "create" } })) }, icon("sparkles"), h("span", null, "AI制作PPT")), h("button", { onClick: () => window.dispatchEvent(new CustomEvent("ppt:ai-open", { detail: { mode: "beautify" } })) }, icon("wand-sparkles"), h("span", null, "美化PPT")), h("button", { onClick: openDeck, className: "ppt-free-action" }, icon("file-image"), h("span", null, "图片转可编辑文字PPT"), h("em", { className: "ppt-free-badge" }, "免消耗 token")))), [...elements].sort((a, b) => (Number(a.zIndex) || 0) - (Number(b.zIndex) || 0)).map(e => {
       const st = { ...defaults, ...e.style, ...visualStyle(e, e.style || {}) }, bold = st.bold || Number(st.fontWeight) >= 600, isEditing = editing === e.id;
       const geometryOnly = e.geometry?.type === "custom" || e.geometry?.type === "line";
       return h("div", {
@@ -697,8 +713,6 @@
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
-
-
 
 
 
