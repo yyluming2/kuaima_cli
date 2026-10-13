@@ -107,7 +107,7 @@ func repairPPTOCRBackground(src image.Image, polys []OCRPolygon) (string, error)
 		if box.Empty() {
 			continue
 		}
-		inpaintOCRBox(out, box)
+		inpaintOCRPolygon(out, box, poly.Points)
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, out); err != nil {
@@ -117,6 +117,13 @@ func repairPPTOCRBackground(src image.Image, polys []OCRPolygon) (string, error)
 }
 
 func inpaintOCRBox(img *image.RGBA, box image.Rectangle) {
+	inpaintOCRPolygon(img, box, [4]image.Point{})
+}
+
+// inpaintOCRPolygon is the polygon-aware variant used by OCR conversion. A
+// rotated text quad must not be expanded to its axis-aligned bounds: doing so
+// makes the background repair erase pixels outside the detected text region.
+func inpaintOCRPolygon(img *image.RGBA, box image.Rectangle, polygon [4]image.Point) {
 	if box.Dx() < 3 || box.Dy() < 3 {
 		return
 	}
@@ -124,8 +131,12 @@ func inpaintOCRBox(img *image.RGBA, box image.Rectangle) {
 	br, bg, bb := paddleOCRBorderColor(ref)
 	w, h := box.Dx(), box.Dy()
 	mask := make([]bool, w*h)
+	constrained := polygon != [4]image.Point{}
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
+			if constrained && !pointInOCRPolygon(image.Point{X: box.Min.X + x, Y: box.Min.Y + y}, polygon) {
+				continue
+			}
 			r, g, b, _ := img.At(box.Min.X+x, box.Min.Y+y).RGBA()
 			d := absOCRUint(uint64(r>>8), uint64(br)) + absOCRUint(uint64(g>>8), uint64(bg)) + absOCRUint(uint64(b>>8), uint64(bb))
 			// Use a lower threshold for low-contrast glyphs. Rasterized PPT text
@@ -150,7 +161,10 @@ func inpaintOCRBox(img *image.RGBA, box image.Rectangle) {
 				if mask[y*w+x] {
 					for dy := -1; dy <= 1; dy++ {
 						for dx := -1; dx <= 1; dx++ {
-							expanded[(y+dy)*w+x+dx] = true
+							nx, ny := x+dx, y+dy
+							if nx >= 0 && nx < w && ny >= 0 && ny < h && (!constrained || pointInOCRPolygon(image.Point{X: box.Min.X + nx, Y: box.Min.Y + ny}, polygon)) {
+								expanded[ny*w+nx] = true
+							}
 						}
 					}
 				}
@@ -204,6 +218,19 @@ func inpaintOCRBox(img *image.RGBA, box image.Rectangle) {
 			break
 		}
 	}
+}
+
+func pointInOCRPolygon(p image.Point, poly [4]image.Point) bool {
+	inside := false
+	for i, j := 0, 3; i < 4; j, i = i, i+1 {
+		if (poly[i].Y > p.Y) != (poly[j].Y > p.Y) {
+			x := float64(poly[j].X-poly[i].X)*float64(p.Y-poly[i].Y)/float64(poly[j].Y-poly[i].Y) + float64(poly[i].X)
+			if float64(p.X) < x {
+				inside = !inside
+			}
+		}
+	}
+	return inside
 }
 
 func cropImageForOCR(src image.Image, box image.Rectangle) image.Image {
