@@ -262,6 +262,16 @@
           const payload = { presentation: deckForOCR, slideIndex: pageIndex, provider: ocrProvider, imageData, asset: imageData, x: 0, y: 0, width: currentImage.width, height: currentImage.height, cropWidth: currentImage.width, cropHeight: currentImage.height, imageOffsetX: currentImage.x || 0, imageOffsetY: currentImage.y || 0, scanAll: true, convertAll: true, repairBackground: true };
           const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const out = await r.json().catch(() => ({})); if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`); if (!out.presentation) throw new Error("OCR 未返回转换后的页面");
           const convertedPage = structuredClone(out.presentation.slides?.[pageIndex] || page);
+          // The server returns boxes in the full-image coordinate space. Map
+          // them into the image frame's normalized crop space on the client.
+          const crop = currentImage.style?.crop;
+          if (crop) {
+            const l = Math.max(0, Math.min(1, Number(crop.left) || 0)), t = Math.max(0, Math.min(1, Number(crop.top) || 0));
+            const sx = Math.max(1e-6, 1 - l - Math.max(0, Math.min(1, Number(crop.right) || 0))), sy = Math.max(1e-6, 1 - t - Math.max(0, Math.min(1, Number(crop.bottom) || 0)));
+            (convertedPage.elements || []).forEach(el => { if (el.type !== "text") return; el.x = (Number(el.x) - l * currentImage.width) / sx; el.y = (Number(el.y) - t * currentImage.height) / sy; el.width = Number(el.width) / sx; el.height = Number(el.height) / sy; });
+            const bg = (convertedPage.elements || []).find(el => el.type === "image");
+            if (bg) bg.style = { ...(bg.style || {}), crop: structuredClone(crop) };
+          }
           const convertedImage = (convertedPage.elements || []).find(e => e?.type === "image");
           if (convertedImage && currentImage.originalAssetUrl) convertedImage.originalAssetUrl = currentImage.originalAssetUrl;
           workingDeck.slides[pageIndex] = convertedPage;
@@ -713,9 +723,6 @@
   }
   ReactDOM.createRoot(document.getElementById("app")).render(h(App));
 })();
-
-
-
 
 
 
