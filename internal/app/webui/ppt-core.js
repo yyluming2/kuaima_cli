@@ -135,16 +135,17 @@
   const textRuns = (element, base, scale = 1) => {
     const runs = Array.isArray(element?.textRuns) ? element.textRuns : [];
     const alignment = textAlign(base.align);
-    const containerStyle = { display: "flex", flexDirection: "column", justifyContent: verticalAlign(base.verticalAlign) || "flex-start", width: "100%", height: "100%", textAlign: alignment, textAlignLast: alignment === "justify" ? "justify" : undefined, writingMode: base.verticalWriting ? "vertical-rl" : undefined, textOrientation: base.verticalWriting ? "mixed" : undefined, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined };
+    const vertical = !!base.verticalWriting;
+    const containerStyle = { display: vertical ? "block" : "flex", flexDirection: vertical ? undefined : "column", justifyContent: verticalAlign(base.verticalAlign) || "flex-start", position: vertical ? "relative" : undefined, width: "100%", height: "100%", textAlign: vertical ? "start" : alignment, textAlignLast: vertical ? "start" : (alignment === "justify" ? "justify" : undefined), writingMode: vertical ? "vertical-rl" : undefined, textOrientation: vertical ? "mixed" : undefined, whiteSpace: vertical ? "nowrap" : undefined, wordBreak: vertical ? "keep-all" : undefined, letterSpacing: vertical ? "0" : undefined, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined };
     if (!runs.length) return h("div", { "data-ppt-text-container": "true", style: containerStyle }, element?.content || "");
     // Some producers keep line breaks only in the compatibility `content`
     // field. Preserve those breaks when there is a single rich-text run.
     if (runs.length === 1 && typeof element?.content === "string" && element.content.includes("\n") && !String(runs[0]?.content || "").includes("\n")) {
-      return h("div", { "data-ppt-text-container": "true", style: containerStyle }, h("span", { style: { ...base, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined, whiteSpace: "pre-wrap" } }, element.content));
+      return h("div", { "data-ppt-text-container": "true", style: containerStyle }, h("span", { style: { ...base, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined, whiteSpace: vertical ? "nowrap" : "pre-wrap", lineHeight: vertical ? 1 : undefined } }, element.content));
     }
     const rendered = runs.flatMap((run, index) => {
       const style = { ...base, ...(run?.style || {}) };
-      return { paragraph: Number.isFinite(Number(run?.paragraph)) ? Number(run.paragraph) : 0, node: h("span", { key: index, style: { fontFamily: style.fontFamily, fontSize: Number(style.fontSize) ? Number(style.fontSize) * scale : undefined, color: style.color, fontWeight: style.bold ? "bold" : "normal", fontStyle: style.italic ? "italic" : "normal", textDecoration: style.underline ? "underline" : "none", writingMode: style.verticalWriting ? "vertical-rl" : undefined, textOrientation: style.verticalWriting ? "mixed" : undefined } }, run?.content || "") };
+      return { paragraph: Number.isFinite(Number(run?.paragraph)) ? Number(run.paragraph) : 0, node: h("span", { key: index, style: { fontFamily: style.fontFamily, fontSize: Number(style.fontSize) ? Number(style.fontSize) * scale : undefined, color: style.color, fontWeight: style.bold ? "bold" : "normal", fontStyle: style.italic ? "italic" : "normal", textDecoration: style.underline ? "underline" : "none" } }, run?.content || "") };
     });
     const blocks = [];
     rendered.forEach(item => {
@@ -153,7 +154,7 @@
       block.nodes.push(item.node);
     });
     const paragraphs = Array.isArray(element?.textParagraphs) ? element.textParagraphs : [];
-    return h("div", { "data-ppt-text-container": "true", style: containerStyle }, blocks.map((block, index) => { const paragraphAlign = textAlign(paragraphs[block.paragraph]?.align) || alignment; return h("div", { key: "paragraph" + index, style: { display: "block", width: "100%", whiteSpace: "pre-wrap", lineHeight: paragraphs[block.paragraph]?.lineHeight || base.lineHeight || undefined, textAlign: paragraphAlign, textAlignLast: paragraphAlign === "justify" ? "justify" : undefined } }, block.nodes); }));
+    return h("div", { "data-ppt-text-container": "true", style: containerStyle }, blocks.map((block, index) => { const paragraphAlign = vertical ? "start" : (textAlign(paragraphs[block.paragraph]?.align) || alignment); return h("div", { key: "paragraph" + index, style: { display: "block", position: vertical ? "absolute" : undefined, left: vertical ? "50%" : undefined, top: vertical ? "0" : undefined, transform: vertical ? "translateX(-50%)" : undefined, width: vertical ? "max-content" : "100%", height: vertical ? "auto" : undefined, whiteSpace: vertical ? "nowrap" : "pre-wrap", lineHeight: vertical ? "1" : (paragraphs[block.paragraph]?.lineHeight || base.lineHeight || undefined), textAlign: paragraphAlign, textAlignLast: vertical ? "start" : (paragraphAlign === "justify" ? "justify" : undefined) } }, block.nodes); }));
   };
   const rewriteRunContent = (element, content) => {
     const runs = Array.isArray(element.textRuns) ? element.textRuns : [];
