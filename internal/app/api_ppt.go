@@ -363,6 +363,22 @@ func ocrFontSize(height float64, text string, detected float64) float64 {
 	return detected
 }
 
+func verticalOCRFontSize(width, detected float64) float64 {
+	return math.Min(detected, math.Max(1, width-2))
+}
+
+func verticalOCRFontSizeForText(width, height float64, text string, detected float64) float64 {
+	size := verticalOCRFontSize(width, detected)
+	n := len([]rune(strings.ReplaceAll(text, "\n", "")))
+	if n > 0 {
+		// Vertical writing stacks glyphs along the box height. Keep the
+		// complete string inside the detector polygon, with the same small
+		// rounding margin used by horizontal OCR text.
+		size = math.Min(size, math.Max(1, height-2)/float64(n))
+	}
+	return size
+}
+
 // ocrTextRuns estimates per-character ink colors from vertical bands. OCR
 // returns one string for a polygon, so this preserves simple mixed-color text
 // without pretending the recognizer knows formatting boundaries.
@@ -1144,6 +1160,12 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 				fontMetric = width
 			}
 			fontSize := ocrFontSize(fontMetric, text, fontMetric)
+			if vertical {
+				// Vertical writing lays each glyph out across the box width. CSS
+				// glyph ink can exceed the nominal font size, so leave a small
+				// inset to prevent tall/narrow OCR boxes from clipping or spilling.
+				fontSize = verticalOCRFontSizeForText(width, height, text, fontSize)
+			}
 			if n := len([]rune(strings.ReplaceAll(text, "\n", ""))); n > 0 && !vertical {
 				// Reserve one extra pixel of effective width so the browser's
 				// fractional glyph metrics do not wrap the final character.
