@@ -342,11 +342,14 @@ func nextPPTOCRZ(elements []ppt.Element) int {
 // is represented by an unrotated text box, while the negative half of the
 // detector's range is mapped into the equivalent positive orientation.
 func normalizePPTOCRRotation(angle float64) float64 {
-	if math.Abs(angle-90) < 1e-9 {
+	if math.Abs(angle-90) < 1e-9 || math.Abs(angle+90) < 1e-9 {
 		return 0
 	}
 	if angle < -90 {
 		angle += 180
+	}
+	if angle > 90 {
+		angle -= 180
 	}
 	return angle
 }
@@ -1125,8 +1128,23 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 			y := float64(box.Min.Y) * canvasH / float64(img.Bounds().Dy())
 			width := float64(box.Dx()) * canvasW / float64(img.Bounds().Dx())
 			height := float64(box.Dy()) * canvasH / float64(img.Bounds().Dy())
-			fontSize := ocrFontSize(height, text, height)
-			if n := len([]rune(strings.ReplaceAll(text, "\n", ""))); n > 0 {
+			dx1, dy1 := float64(poly.Points[1].X-poly.Points[0].X), float64(poly.Points[1].Y-poly.Points[0].Y)
+			dx2, dy2 := float64(poly.Points[2].X-poly.Points[1].X), float64(poly.Points[2].Y-poly.Points[1].Y)
+			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
+				dx1, dy1 = dx2, dy2
+			}
+			rawAngle := math.Atan2(dy1, dx1) * 180 / math.Pi
+			vertical := math.Abs(rawAngle) > 45
+			rotation := normalizePPTOCRRotation(rawAngle)
+			fontMetric := height
+			if vertical {
+				// In vertical writing mode each glyph occupies the text box width;
+				// using the tall box height here makes the browser scale glyphs from
+				// the wrong axis and then shrink them to fit.
+				fontMetric = width
+			}
+			fontSize := ocrFontSize(fontMetric, text, fontMetric)
+			if n := len([]rune(strings.ReplaceAll(text, "\n", ""))); n > 0 && !vertical {
 				// Reserve one extra pixel of effective width so the browser's
 				// fractional glyph metrics do not wrap the final character.
 				// Keep a tiny safety margin for browser glyph rounding; the
@@ -1141,12 +1159,9 @@ func (s *webUIServer) handlePPTOCR(w http.ResponseWriter, r *http.Request) {
 				background = "transparent"
 			}
 			style := map[string]any{"fontSize": fontSize, "fontFamily": fontFamily, "color": paddleOCRTextColor(cropImg), "fontWeight": fontWeight, "bold": fontBold, "italic": false, "align": "center", "verticalAlign": "middle", "lineHeight": 1.0, "background": background}
-			dx1, dy1 := float64(poly.Points[1].X-poly.Points[0].X), float64(poly.Points[1].Y-poly.Points[0].Y)
-			dx2, dy2 := float64(poly.Points[2].X-poly.Points[1].X), float64(poly.Points[2].Y-poly.Points[1].Y)
-			if dx2*dx2+dy2*dy2 > dx1*dx1+dy1*dy1 {
-				dx1, dy1 = dx2, dy2
+			if vertical {
+				style["verticalWriting"] = true
 			}
-			rotation := normalizePPTOCRRotation(math.Atan2(dy1, dx1) * 180 / math.Pi)
 			e := ppt.Element{ID: fmt.Sprintf("ocr-%d-%d", time.Now().UnixNano(), i), Type: "text", X: x + in.ImageOffsetX, Y: y + in.ImageOffsetY, Width: width, Height: height, Rotation: rotation, ZIndex: z + i, Content: text, Style: style, TextRuns: ocrTextRuns(cropImg, text, style)}
 			if e.Style == nil {
 				e.Style = map[string]any{}
@@ -2478,6 +2493,7 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 			}
 			if e.Type == "text" {
 				o := genppt.TextOptions{X: e.X / ppt.LogicalDPI, Y: e.Y / ppt.LogicalDPI, Width: e.Width / ppt.LogicalDPI, Height: e.Height / ppt.LogicalDPI, FlipH: e.FlipH, FlipV: e.FlipV}
+				o.VerticalWriting = styleBool(e.Style, "verticalWriting")
 				if v, ok := styleFloat(e.Style, "fontSize"); ok {
 					// genppt expects points; the editor model uses 128 logical px/in.
 					o.FontSize = v * 72 / ppt.LogicalDPI

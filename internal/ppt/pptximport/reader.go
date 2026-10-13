@@ -765,6 +765,9 @@ func textBodyDetailed(n *node, theme map[string]string) (string, map[string]any,
 		if v := bp.attr("anchor"); v != "" {
 			st["verticalAlign"] = v
 		}
+		if v := bp.attr("vert"); v == "eaVert" || v == "vert" || v == "vert270" || v == "wordArtVert" || v == "wordArtVertRtl" {
+			st["verticalWriting"] = true
+		}
 		for _, k := range []string{"lIns", "rIns", "tIns", "bIns"} {
 			if v := bp.attr(k); v != "" {
 				st[map[string]string{"lIns": "marginLeft", "rIns": "marginRight", "tIns": "marginTop", "bIns": "marginBottom"}[k]] = emu(v)

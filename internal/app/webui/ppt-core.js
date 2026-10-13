@@ -135,7 +135,7 @@
   const textRuns = (element, base, scale = 1) => {
     const runs = Array.isArray(element?.textRuns) ? element.textRuns : [];
     const alignment = textAlign(base.align);
-    const containerStyle = { display: "flex", flexDirection: "column", justifyContent: verticalAlign(base.verticalAlign) || "flex-start", width: "100%", height: "100%", textAlign: alignment, textAlignLast: alignment === "justify" ? "justify" : undefined };
+    const containerStyle = { display: "flex", flexDirection: "column", justifyContent: verticalAlign(base.verticalAlign) || "flex-start", width: "100%", height: "100%", textAlign: alignment, textAlignLast: alignment === "justify" ? "justify" : undefined, writingMode: base.verticalWriting ? "vertical-rl" : undefined, textOrientation: base.verticalWriting ? "mixed" : undefined, fontSize: Number(base.fontSize) ? Number(base.fontSize) * scale : undefined };
     if (!runs.length) return h("div", { "data-ppt-text-container": "true", style: containerStyle }, element?.content || "");
     // Some producers keep line breaks only in the compatibility `content`
     // field. Preserve those breaks when there is a single rich-text run.
@@ -144,7 +144,7 @@
     }
     const rendered = runs.flatMap((run, index) => {
       const style = { ...base, ...(run?.style || {}) };
-      return { paragraph: Number.isFinite(Number(run?.paragraph)) ? Number(run.paragraph) : 0, node: h("span", { key: index, style: { fontFamily: style.fontFamily, fontSize: Number(style.fontSize) ? Number(style.fontSize) * scale : undefined, color: style.color, fontWeight: style.bold ? "bold" : "normal", fontStyle: style.italic ? "italic" : "normal", textDecoration: style.underline ? "underline" : "none" } }, run?.content || "") };
+      return { paragraph: Number.isFinite(Number(run?.paragraph)) ? Number(run.paragraph) : 0, node: h("span", { key: index, style: { fontFamily: style.fontFamily, fontSize: Number(style.fontSize) ? Number(style.fontSize) * scale : undefined, color: style.color, fontWeight: style.bold ? "bold" : "normal", fontStyle: style.italic ? "italic" : "normal", textDecoration: style.underline ? "underline" : "none", writingMode: style.verticalWriting ? "vertical-rl" : undefined, textOrientation: style.verticalWriting ? "mixed" : undefined } }, run?.content || "") };
     });
     const blocks = [];
     rendered.forEach(item => {
