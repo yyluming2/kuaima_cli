@@ -1543,7 +1543,15 @@ main.inspector-collapsed>.side {
     object-fit: contain;
     background: #eef2ff;
     border-radius: 7px;
+    cursor: zoom-in;
 }
+.ppt-ai-master-preview-wrap { position: relative; }
+.ppt-ai-master-loading { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; gap: 8px; border-radius: 7px; background: #eef2facc; color: #475569; font-size: 12px; }
+.ppt-ai-master-card.is-busy .ppt-ai-master-loading { display: flex; }
+.ppt-ai-master-card.is-busy .ppt-ai-master-preview { opacity: .35; }
+.ppt-ai-master-loading i { width: 14px; height: 14px; border: 2px solid #cbd5e1; border-top-color: #2563eb; border-radius: 50%; animation: ppt-ai-spin .8s linear infinite; }
+@keyframes ppt-ai-spin { to { transform: rotate(360deg); } }
+.ppt-ai-master-card.is-busy .ppt-ai-master-prompt, .ppt-ai-master-card.is-busy p { opacity: .55; }
 
 .ppt-ai-master-preview[hidden] {
     display: none;
@@ -3028,6 +3036,25 @@ body.ppt-format-paint-active .tools button[aria-pressed="true"] {
     display: flex;
     flex-direction: column
 }
+
+.ppt-ai-image-preview-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 42px;
+    height: 64px;
+    border: 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .9);
+    color: #334155;
+    font-size: 42px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 1;
+}
+.ppt-ai-image-preview-nav.prev { left: -58px; }
+.ppt-ai-image-preview-nav.next { right: -58px; }
+.ppt-ai-image-preview-nav:disabled { opacity: .35; cursor: default; }
 
 .ppt-compare-image {
     position: relative;
