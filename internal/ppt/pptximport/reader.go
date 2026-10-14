@@ -1281,6 +1281,12 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 			}
 		}
 		s := ppt.Slide{ID: "slide-" + strings.TrimSuffix(filepath.Base(f.Name), filepath.Ext(f.Name))[5:], Layout: "imported"}
+		// Speaker notes are stored in a separate notesSlide part. The bundled
+		// genppt exporter uses the matching slide number, while Office files may
+		// use the same conventional numbering.
+		if notes := notesForSlide(z, slideNumber(f.Name)); notes != "" {
+			s.Notes = notes
+		}
 		im := importer{z: z, rel: rel, theme: themeColors, elems: &s.Elements, zorder: 1}
 		if cs := root.child("cSld"); cs != nil {
 			if bg := cs.child("bg"); bg != nil {
@@ -1319,6 +1325,41 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 		return ppt.Presentation{}, fmt.Errorf("pptx contains no slides")
 	}
 	return p, nil
+}
+
+func notesForSlide(z *zip.Reader, n int) string {
+	name := "ppt/notesSlides/notesSlide" + strconv.Itoa(n) + ".xml"
+	for _, f := range z.File {
+		if f.Name != name {
+			continue
+		}
+		r, err := f.Open()
+		if err != nil {
+			return ""
+		}
+		b, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			return ""
+		}
+		root, err := parseTree(b)
+		if err != nil {
+			return ""
+		}
+		var out []string
+		var walk func(*node)
+		walk = func(x *node) {
+			if x.Name == "t" && strings.TrimSpace(x.Text) != "" {
+				out = append(out, strings.TrimSpace(x.Text))
+			}
+			for _, k := range x.Kids {
+				walk(k)
+			}
+		}
+		walk(root)
+		return strings.Join(out, "")
+	}
+	return ""
 }
 
 func embeddedFonts(z *zip.Reader, root *node, rels map[string]string) []ppt.FontAsset {

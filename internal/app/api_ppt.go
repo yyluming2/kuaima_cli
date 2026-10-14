@@ -818,7 +818,14 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 		if asset != "" && !hasImage {
 			elems = append(elems, ppt.Element{ID: fmt.Sprintf("slide-%d-image", i+1), Type: "image", X: 790, Y: 170, Width: 400, Height: 300, Content: page.ImagePrompt, AssetURL: asset, Style: map[string]any{"background": "transparent", "objectFit": "contain"}})
 		}
-		p.Slides = append(p.Slides, ppt.Slide{ID: fmt.Sprintf("slide-%d", i+1), Layout: page.Layout, Elements: elems})
+		notes := strings.TrimSpace(page.Title)
+		if len(page.Bullets) > 0 {
+			notes += "\n\n大纲：\n- " + strings.Join(page.Bullets, "\n- ")
+		}
+		if strings.TrimSpace(page.ImagePrompt) != "" {
+			notes += "\n\n配图提示词：" + strings.TrimSpace(page.ImagePrompt)
+		}
+		p.Slides = append(p.Slides, ppt.Slide{ID: fmt.Sprintf("slide-%d", i+1), Layout: page.Layout, Notes: notes, Elements: elems})
 	}
 	writeJSON(w, 200, p)
 }
@@ -2415,6 +2422,9 @@ func (s *webUIServer) handlePPTXExport(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, sld := range model.Slides {
 		sl := p.AddSlide()
+		if sld.Notes != "" {
+			sl.SetNotes(sld.Notes)
+		}
 		if model.Theme.Background != "" {
 			bg := model.Theme.Background
 			if strings.HasPrefix(strings.ToLower(bg), "data:image/") {

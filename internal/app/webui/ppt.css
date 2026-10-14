@@ -3201,3 +3201,16 @@ body.ppt-format-paint-active .tools button[aria-pressed="true"] {
 .ppt-compare-body.stack .ppt-compare-image {
     flex: 0 0 auto;
 }
+.ppt-notes-panel { margin: 0 auto 14px; width: min(1280px, calc(100% - 32px)); padding: 12px 14px; border: 1px solid var(--line, #e5e7eb); border-radius: 12px; background: var(--panel, #fff); box-sizing: border-box; }
+.ppt-notes-title { display:flex; align-items:center; gap:7px; margin-bottom:8px; color:#374151; font-size:13px; }
+.ppt-notes-title span { margin-left:auto; color:#9ca3af; font-size:12px; }
+.ppt-notes-panel textarea { display:block; width:100%; min-height:82px; resize:vertical; border:1px solid #e5e7eb; border-radius:8px; padding:9px 10px; box-sizing:border-box; font:inherit; line-height:1.55; color:#1f2937; background:#fafafa; }
+.ppt-notes-panel textarea:focus { outline:2px solid #93c5fd; border-color:#60a5fa; background:#fff; }
+.canvas-wrap { display: flex; flex-direction: column; align-items: flex-start; }
+.canvas-wrap > .canvas { order: 1; }
+.canvas-wrap > .ppt-notes-panel { order: 2; width: 100%; max-width: 100%; margin: 14px 0 0; box-sizing: border-box; }
+.zoom-tools > button { width: 30px; min-width: 30px; height: 30px; padding: 5px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.zoom-tools > button svg { width: 16px; height: 16px; }
+.zoom-tools .zoom-value { display: inline-block; width: 42px; min-width: 42px; text-align: center; color: #53627b; }
+.zoom-tools > button span { width: auto; min-width: 0; }
+.zoom-tools .zoom-glyph { display: inline-block; width: auto; min-width: 0; font-size: 17px; line-height: 1; }
