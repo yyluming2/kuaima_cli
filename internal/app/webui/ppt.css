@@ -420,6 +420,118 @@ main.inspector-collapsed>.side {
     color: #334155;
 }
 
+.ppt-layer-copy-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    background: rgba(15, 23, 42, .28);
+}
+
+.ppt-layer-copy-stage {
+    position: fixed;
+    overflow: hidden;
+    background: #0f172a;
+    cursor: crosshair;
+    user-select: none;
+    touch-action: none;
+    box-sizing: border-box;
+    outline: 2px solid #38bdf8;
+    box-shadow: 0 14px 50px rgba(15, 23, 42, .35);
+}
+
+.ppt-layer-copy-stage>img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.ppt-layer-copy-polygon {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.ppt-layer-copy-shade {
+    fill: rgba(2, 6, 23, .5);
+    pointer-events: none;
+}
+
+.ppt-layer-copy-region {
+    fill: rgba(56, 189, 248, .1);
+    stroke: #38bdf8;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    cursor: move;
+}
+
+.ppt-layer-copy-draft {
+    fill: none;
+    stroke: #38bdf8;
+    stroke-width: 2;
+    stroke-dasharray: 7 5;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
+}
+
+.ppt-layer-copy-vertex {
+    fill: #0284c7;
+    stroke: #fff;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    cursor: grab;
+}
+
+.ppt-layer-copy-vertex:active { cursor: grabbing; }
+
+.ppt-layer-copy-stage.drawing .ppt-layer-copy-vertex { cursor: crosshair; }
+.ppt-layer-copy-stage.drawing .ppt-layer-copy-vertex.first { fill: #22c55e; stroke-width: 3; }
+
+.ppt-layer-copy-midpoint {
+    fill: rgba(255, 255, 255, .95);
+    stroke: #0284c7;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    cursor: copy;
+}
+
+.ppt-layer-copy-actions {
+    position: absolute;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .97);
+    box-shadow: 0 6px 20px rgba(15, 23, 42, .25);
+    cursor: default;
+    white-space: nowrap;
+}
+
+.ppt-layer-copy-actions label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #334155; }
+.ppt-layer-copy-actions [data-status] { color: #64748b; font-size: 12px; }
+.ppt-layer-copy-actions select {
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 5px 24px 5px 8px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+}
+.ppt-layer-copy-actions button {
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 6px 11px;
+    background: #fff;
+    cursor: pointer;
+}
+.ppt-layer-copy-actions button.primary { border-color: #2563eb; background: #2563eb; color: #fff; }
+.ppt-layer-copy-actions button:disabled { cursor: wait; opacity: .6; }
+
 #pptInspectorReopen {
     position: fixed;
     right: 324px;

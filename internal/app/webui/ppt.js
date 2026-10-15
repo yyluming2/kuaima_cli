@@ -440,9 +440,108 @@
       trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const list = n.master.elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; const me = { ...e, id: "master-" + e.id, locked: false }; n.master.elements = [...list, me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), { ...me, locked: true }]; }); } else { const list = n.slides[slide].elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; list.push(e); } return n });
       setSelected(masterMode ? "master-" + e.id : e.id)
     };
+    const canvasBlob = canvas => new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("图片编码失败")), "image/png"));
+    const loadCanvasImage = src => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("图片读取失败")); image.src = src; });
+    const renderCanvasImage = async image => {
+      const source = await loadCanvasImage(image.assetUrl), output = document.createElement("canvas"), context = output.getContext("2d");
+      output.width = Math.max(1, Math.round(W)); output.height = Math.max(1, Math.round(H));
+      const crop = image.style?.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0));
+      const right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0));
+      context.drawImage(source, left * source.naturalWidth, top * source.naturalHeight, Math.max(1, (1 - left - right) * source.naturalWidth), Math.max(1, (1 - top - bottom) * source.naturalHeight), 0, 0, output.width, output.height);
+      return output;
+    };
+    const pointInPolygon = (x, y, polygon) => { let inside = false; for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) { const a = polygon[i], b = polygon[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y || 1e-9) + a.x) inside = !inside; } return inside; };
+    const polygonBounds = polygon => { const xs = polygon.map(point => point.x), ys = polygon.map(point => point.y), x = Math.min(...xs), y = Math.min(...ys); return { x, y, width: Math.max(1, Math.max(...xs) - x), height: Math.max(1, Math.max(...ys) - y) }; };
+    const maskCanvasPolygon = (source, polygon, rect) => { const output = document.createElement("canvas"); output.width = source.width; output.height = source.height; const context = output.getContext("2d"); context.drawImage(source, 0, 0); context.globalCompositeOperation = "destination-in"; context.beginPath(); polygon.forEach((point, index) => { const x = (point.x - rect.x) * output.width / rect.width, y = (point.y - rect.y) * output.height / rect.height; index ? context.lineTo(x, y) : context.moveTo(x, y); }); context.closePath(); context.fill(); return output; };
+    const repairCanvasRegion = (source, rect, polygon) => {
+      const output = document.createElement("canvas"); output.width = source.width; output.height = source.height;
+      const context = output.getContext("2d", { willReadFrequently: true }); context.drawImage(source, 0, 0);
+      const data = context.getImageData(0, 0, output.width, output.height), original = new Uint8ClampedArray(data.data);
+      const x0 = Math.max(1, Math.floor(rect.x)), y0 = Math.max(1, Math.floor(rect.y)), x1 = Math.min(output.width - 2, Math.ceil(rect.x + rect.width)), y1 = Math.min(output.height - 2, Math.ceil(rect.y + rect.height));
+      const sample = (x, y, channel) => original[(Math.max(0, Math.min(output.height - 1, y)) * output.width + Math.max(0, Math.min(output.width - 1, x))) * 4 + channel];
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        if (polygon && !pointInPolygon(x + .5, y + .5, polygon)) continue;
+        const horizontal = (x - x0) / Math.max(1, x1 - x0 - 1), vertical = (y - y0) / Math.max(1, y1 - y0 - 1);
+        const edgeX = Math.min(x - x0 + 1, x1 - x), edgeY = Math.min(y - y0 + 1, y1 - y), favorHorizontal = edgeX / Math.max(1, edgeX + edgeY), at = (y * output.width + x) * 4;
+        for (let channel = 0; channel < 3; channel++) {
+          const lr = sample(x0 - 1, y, channel) * (1 - horizontal) + sample(x1, y, channel) * horizontal;
+          const tb = sample(x, y0 - 1, channel) * (1 - vertical) + sample(x, y1, channel) * vertical;
+          data.data[at + channel] = Math.round(lr * (1 - favorHorizontal) + tb * favorHorizontal);
+        }
+        data.data[at + 3] = 255;
+      }
+      context.putImageData(data, 0, 0); return output;
+    };
+    const cutoutCanvas = async (source, profile) => {
+      const form = new FormData(); form.append("image", await canvasBlob(source), "layer.png"); form.append("edge", "fine"); if (profile) form.append("profile", profile);
+      const response = await fetch("/api/image/remove-background", { method: "POST", headers: { Accept: "image/png" }, body: form });
+      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "抠图失败"); }
+      const blob = await response.blob(), url = URL.createObjectURL(blob);
+      try { const image = await loadCanvasImage(url), output = document.createElement("canvas"); output.width = source.width; output.height = source.height; output.getContext("2d").drawImage(image, 0, 0); return output; } finally { URL.revokeObjectURL(url); }
+    };
+    const openLayerCopy = async image => {
+      if (!image?.assetUrl) return;
+      let rendered, cutoutProfiles = [];
+      try { rendered = await renderCanvasImage(image); } catch (error) { alert("复制图层失败：" + error.message); return; }
+      try { const response = await fetch("/api/image/remove-background/profiles", { cache: "no-store" }); const body = await response.json(); if (response.ok) cutoutProfiles = Array.isArray(body.profiles) ? body.profiles : []; } catch (_) { }
+      const canvasNode = document.querySelector('.canvas'); if (!canvasNode) return; const canvasBox = canvasNode.getBoundingClientRect();
+      const overlay = document.createElement("div"); overlay.className = "ppt-layer-copy-overlay";
+      overlay.innerHTML = `<div class="ppt-layer-copy-stage drawing" role="dialog" aria-modal="true" aria-label="复制图层"><img alt="当前底图"><svg class="ppt-layer-copy-polygon" preserveAspectRatio="none"><defs><mask id="pptLayerCopyShade"><rect width="100%" height="100%" fill="white"></rect><polygon data-hole fill="black"></polygon></mask></defs><rect width="100%" height="100%" class="ppt-layer-copy-shade" mask="url(#pptLayerCopyShade)"></rect><polygon data-region class="ppt-layer-copy-region"></polygon><polyline data-draft class="ppt-layer-copy-draft"></polyline><g data-handles></g></svg><div class="ppt-layer-copy-actions"><select data-shape aria-label="选区形状"><option value="rect">矩形</option><option value="ellipse">圆形</option><option value="polygon">多边形</option></select>${cutoutProfiles.length ? '<label title="使用本地模型移除选区背景"><input data-cutout type="checkbox" checked> 抠图</label>' : ''}<span data-status>按住并拖动画出矩形</span><button data-cancel>取消</button><button data-submit class="primary" disabled>复制</button></div></div>`;
+      document.body.appendChild(overlay); overlay.querySelector("img").src = rendered.toDataURL("image/png");
+      const stage = overlay.querySelector(".ppt-layer-copy-stage"), polygonSVG = overlay.querySelector(".ppt-layer-copy-polygon"), region = overlay.querySelector("[data-region]"), draft = overlay.querySelector("[data-draft]"), hole = overlay.querySelector("[data-hole]"), handles = overlay.querySelector("[data-handles]"), actions = overlay.querySelector(".ppt-layer-copy-actions"), shapeSelect = overlay.querySelector("[data-shape]"), status = overlay.querySelector("[data-status]"), submit = overlay.querySelector("[data-submit]"); Object.assign(stage.style, { left: canvasBox.left + "px", top: canvasBox.top + "px", width: canvasBox.width + "px", height: canvasBox.height + "px" }); polygonSVG.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      let selectionType = "rect", shapeBox = null, points = [], hoverPoint = null, drawing = true, operation = null;
+      const ellipsePoints = box => Array.from({ length: 64 }, (_, index) => { const angle = Math.PI * 2 * index / 64; return { x: box.x + box.width / 2 + Math.cos(angle) * box.width / 2, y: box.y + box.height / 2 + Math.sin(angle) * box.height / 2 }; });
+      const selectionPoints = () => selectionType === "polygon" ? points : !shapeBox ? [] : selectionType === "ellipse" ? ellipsePoints(shapeBox) : [{ x: shapeBox.x, y: shapeBox.y }, { x: shapeBox.x + shapeBox.width, y: shapeBox.y }, { x: shapeBox.x + shapeBox.width, y: shapeBox.y + shapeBox.height }, { x: shapeBox.x, y: shapeBox.y + shapeBox.height }];
+      const paint = () => { const selectedPoints = selectionPoints(), value = selectedPoints.map(item => `${item.x},${item.y}`).join(" "), sx = stage.clientWidth / W, sy = stage.clientHeight / H, radiusX = 7 / Math.max(.01, sx), radiusY = 7 / Math.max(.01, sy); region.setAttribute("points", drawing && selectionType === "polygon" ? "" : value); hole.setAttribute("points", drawing && selectionType === "polygon" ? "" : value); draft.setAttribute("points", drawing && selectionType === "polygon" ? [...points, ...(hoverPoint && points.length ? [hoverPoint] : [])].map(item => `${item.x},${item.y}`).join(" ") : ""); if (selectionType === "polygon") handles.innerHTML = points.map((item, index) => { const vertex = `<ellipse class="ppt-layer-copy-vertex${drawing && index === 0 ? " first" : ""}" data-vertex="${index}" cx="${item.x}" cy="${item.y}" rx="${radiusX}" ry="${radiusY}"></ellipse>`; if (drawing) return vertex; const next = points[(index + 1) % points.length], mx = (item.x + next.x) / 2, my = (item.y + next.y) / 2; return `<ellipse class="ppt-layer-copy-midpoint" data-midpoint="${index}" cx="${mx}" cy="${my}" rx="${radiusX * .7}" ry="${radiusY * .7}"></ellipse>${vertex}`; }).join(""); else if (!shapeBox || drawing) handles.innerHTML = ""; else { const x0 = shapeBox.x, y0 = shapeBox.y, x1 = x0 + shapeBox.width, y1 = y0 + shapeBox.height, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, positions = selectionType === "ellipse" ? [["w", x0, cy], ["n", cx, y0], ["e", x1, cy], ["s", cx, y1]] : [["nw", x0, y0], ["ne", x1, y0], ["se", x1, y1], ["sw", x0, y1]]; handles.innerHTML = positions.map(([name, x, y]) => `<ellipse class="ppt-layer-copy-vertex" data-shape-handle="${name}" cx="${x}" cy="${y}" rx="${radiusX}" ry="${radiusY}"></ellipse>`).join(""); } const anchorPoints = selectedPoints.length ? selectedPoints : points, anchor = anchorPoints.length ? polygonBounds(anchorPoints) : { x: 8 / sx, y: 8 / sy, width: 0, height: 0 }, actionWidth = actions.offsetWidth || 360, actionHeight = actions.offsetHeight || 38; let left = (anchor.x + anchor.width) * sx + 10, top = anchor.y * sy; if (left + actionWidth > stage.clientWidth) left = Math.max(6, anchor.x * sx - actionWidth - 10); if (top + actionHeight > stage.clientHeight) top = Math.max(6, stage.clientHeight - actionHeight - 6); Object.assign(actions.style, { left: left + "px", top: top + "px" }); };
+      const point = event => { const box = stage.getBoundingClientRect(); return { x: (event.clientX - box.left) * W / box.width, y: (event.clientY - box.top) * H / box.height }; };
+      const finishDrawing = () => { if (points.length < 3) return; drawing = false; hoverPoint = null; stage.classList.remove("drawing"); submit.disabled = false; status.textContent = "拖动顶点调整，拉中点可加点"; paint(); };
+      const start = event => { const p = point(event); if (drawing) { if (selectionType !== "polygon") operation = { type: "draw", start: p }; else if (event.target.dataset.vertex === "0" && points.length >= 3) finishDrawing(); else if (event.detail > 1 && points.length >= 3) finishDrawing(); else points.push({ x: Math.max(0, Math.min(W, p.x)), y: Math.max(0, Math.min(H, p.y)) }); paint(); event.preventDefault(); return; } if (selectionType === "polygon" && event.target.dataset.midpoint != null) { const insertAt = Number(event.target.dataset.midpoint) + 1; points.splice(insertAt, 0, p); operation = { type: "vertex", index: insertAt }; paint(); } else if (selectionType === "polygon" && event.target.dataset.vertex != null) operation = { type: "vertex", index: Number(event.target.dataset.vertex) }; else if (selectionType !== "polygon" && event.target.dataset.shapeHandle) operation = { type: "shape-handle", handle: event.target.dataset.shapeHandle, initial: { ...shapeBox } }; else if (event.target === region) operation = { type: "move", start: p, initial: selectionType === "polygon" ? points.map(item => ({ ...item })) : { ...shapeBox } }; else return; event.preventDefault(); };
+      const moveSelection = event => {
+        const p = point(event);
+        if (drawing && selectionType === "polygon") { hoverPoint = p; paint(); return; }
+        if (!operation) return;
+        if (operation.type === "draw") {
+          if (selectionType === "ellipse") {
+            const dx = p.x - operation.start.x, dy = p.y - operation.start.y, size = Math.min(Math.max(Math.abs(dx), Math.abs(dy)), dx < 0 ? operation.start.x : W - operation.start.x, dy < 0 ? operation.start.y : H - operation.start.y);
+            shapeBox = { x: operation.start.x + (dx < 0 ? -size : 0), y: operation.start.y + (dy < 0 ? -size : 0), width: size, height: size };
+          } else {
+            const x = Math.max(0, Math.min(operation.start.x, p.x)), y = Math.max(0, Math.min(operation.start.y, p.y)), x1 = Math.min(W, Math.max(operation.start.x, p.x)), y1 = Math.min(H, Math.max(operation.start.y, p.y));
+            shapeBox = { x, y, width: x1 - x, height: y1 - y };
+          }
+        } else if (operation.type === "vertex") points[operation.index] = { x: Math.max(0, Math.min(W, p.x)), y: Math.max(0, Math.min(H, p.y)) };
+        else if (operation.type === "shape-handle") {
+          if (selectionType === "ellipse") {
+            const initial = operation.initial, cx = initial.x + initial.width / 2, cy = initial.y + initial.height / 2, radius = Math.max(2, Math.min(operation.handle === "w" || operation.handle === "e" ? Math.abs(p.x - cx) : Math.abs(p.y - cy), cx, W - cx, cy, H - cy));
+            shapeBox = { x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2 };
+          } else {
+            let x0 = operation.initial.x, y0 = operation.initial.y, x1 = x0 + operation.initial.width, y1 = y0 + operation.initial.height;
+            if (operation.handle.includes("w")) x0 = Math.min(x1 - 4, Math.max(0, p.x)); if (operation.handle.includes("e")) x1 = Math.max(x0 + 4, Math.min(W, p.x));
+            if (operation.handle.includes("n")) y0 = Math.min(y1 - 4, Math.max(0, p.y)); if (operation.handle.includes("s")) y1 = Math.max(y0 + 4, Math.min(H, p.y));
+            shapeBox = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+          }
+        } else if (selectionType === "polygon") {
+          const bounds = polygonBounds(operation.initial), dx = Math.max(-bounds.x, Math.min(W - bounds.x - bounds.width, p.x - operation.start.x)), dy = Math.max(-bounds.y, Math.min(H - bounds.y - bounds.height, p.y - operation.start.y));
+          points = operation.initial.map(item => ({ x: item.x + dx, y: item.y + dy }));
+        } else {
+          const initial = operation.initial, dx = Math.max(-initial.x, Math.min(W - initial.x - initial.width, p.x - operation.start.x)), dy = Math.max(-initial.y, Math.min(H - initial.y - initial.height, p.y - operation.start.y));
+          shapeBox = { ...initial, x: initial.x + dx, y: initial.y + dy };
+        }
+        paint();
+      };
+      const stop = () => { if (operation?.type === "draw") { if (shapeBox?.width >= 4 && shapeBox?.height >= 4) { drawing = false; stage.classList.remove("drawing"); submit.disabled = false; status.textContent = selectionType === "ellipse" ? "拖动圆形或控制点调整" : "拖动矩形或控制点调整"; } else shapeBox = null; paint(); } operation = null; };
+      stage.addEventListener("pointerdown", start); actions.addEventListener("pointerdown", event => event.stopPropagation()); addEventListener("pointermove", moveSelection); addEventListener("pointerup", stop); requestAnimationFrame(paint);
+      polygonSVG.addEventListener("dblclick", event => { if (drawing) { finishDrawing(); event.preventDefault(); return; } if (event.target.dataset.vertex == null || points.length <= 3) return; points.splice(Number(event.target.dataset.vertex), 1); paint(); event.preventDefault(); });
+      shapeSelect.onchange = () => { selectionType = shapeSelect.value; shapeBox = null; points = []; hoverPoint = null; operation = null; drawing = true; stage.classList.add("drawing"); submit.disabled = true; status.textContent = selectionType === "polygon" ? "逐点点击，点击起点或按 Enter 完成" : selectionType === "ellipse" ? "按住并拖动画出圆形" : "按住并拖动画出矩形"; paint(); };
+      const blockWheel = event => event.preventDefault(); overlay.addEventListener("wheel", blockWheel, { passive: false });
+      const close = () => { removeEventListener("pointermove", moveSelection); removeEventListener("pointerup", stop); removeEventListener("keydown", onKey); overlay.removeEventListener("wheel", blockWheel); overlay.remove(); };
+      const onKey = event => { if (event.key === "Escape") close(); else if (drawing && selectionType === "polygon" && event.key === "Enter") { event.preventDefault(); finishDrawing(); } else if (drawing && selectionType === "polygon" && event.key === "Backspace" && points.length) { event.preventDefault(); points.pop(); paint(); } }; addEventListener("keydown", onKey);
+      overlay.querySelector("[data-cancel]").onclick = close; overlay.onclick = event => { if (event.target === overlay) close(); };
+      overlay.querySelector("[data-submit]").onclick = async event => { const button = event.currentTarget; button.disabled = true; status.textContent = "处理中…"; try { const selectedPoints = selectionPoints(), rect = polygonBounds(selectedPoints), crop = document.createElement("canvas"); crop.width = Math.max(1, Math.round(rect.width)); crop.height = Math.max(1, Math.round(rect.height)); crop.getContext("2d").drawImage(rendered, rect.x, rect.y, rect.width, rect.height, 0, 0, crop.width, crop.height); const useCutout = !!overlay.querySelector("[data-cutout]")?.checked, profile = cutoutProfiles.find(item => item.default)?.id || cutoutProfiles[0]?.id || "", processed = useCutout ? await cutoutCanvas(crop, profile) : crop, layerCanvas = maskCanvasPolygon(processed, selectedPoints, rect), repaired = repairCanvasRegion(rendered, rect, selectedPoints), layerId = "image-layer-" + Date.now(); trackedSetDeck(d => { const n = structuredClone(d), list = n.slides[slide].elements || [], background = list.find(item => item.id === image.id); if (!background) return d; background.assetUrl = repaired.toDataURL("image/png"); background.style = { ...(background.style || {}), crop: { left: 0, right: 0, top: 0, bottom: 0 }, objectFit: "fill" }; list.push({ id: layerId, type: "image", x: rect.x, y: rect.y, width: rect.width, height: rect.height, assetUrl: layerCanvas.toDataURL("image/png"), content: "", zIndex: list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1, style: { ...defaults, objectFit: "fill" } }); return n; }); setSelected(layerId); close(); } catch (error) { status.textContent = ""; button.disabled = false; alert("复制图层失败：" + error.message); } };
+    };
     const add = async type => {
       if (!deck) return;
       if (type === "ocr") { if (ocrProvider === "remote" && !window.confirm("远程 OCR 可能产生模型调用费用，继续吗？")) return; setOcrMode(v => !v); setOcrRect(null); return; }
+      if (type === "copy-layer") { openLayerCopy(current); return; }
       if (type === "undo") { undo(); return; }
       if (type === "redo") { redo(); return; }
       if (type === "image") { imageTarget.current = null; fileInput.current?.click(); return }
@@ -645,7 +744,8 @@
     const currentSlide = !masterMode ? deck?.slides?.[slide] : null;
     const onlyImagePage = !masterMode && slideImages.length === 1 && elements.length === 1;
     const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ...(current?.type === "text" || formatPaintActive ? [["format-paint", "paintbrush", "格式刷"]] : []), ["text", "type", "添加文本"], ["image", "image-plus", "添加图片"], ["shape", "shapes", "添加形状"]];
-    if (current?.type === "image") tools.push(["ocr", "scan-text", "识别文字"]);
+    const fullCanvasImage = current?.type === "image" && Math.abs(Number(current.x) || 0) <= 1 && Math.abs(Number(current.y) || 0) <= 1 && Math.abs(Number(current.width) - W) <= 1 && Math.abs(Number(current.height) - H) <= 1 && Math.abs(Number(current.rotation) || 0) < .01;
+    if (current?.type === "image") { tools.push(["ocr", "scan-text", "识别文字"]); if (fullCanvasImage && !masterMode && !current.locked) tools.push(["copy-layer", "copy-plus", "复制图层"]); }
     const originalImage = slideImages.find(e => e.originalAssetUrl);
     if (originalImage) tools.push(["original", "scan-eye", originalPreviewId === originalImage.id ? "查看编辑结果" : "查看原图"]);
     if (onlyImagePage) tools.push(["ocr-convert", "text-cursor-input", "一键转可编辑文字"]); const pageAction = (action, index = slide) => { if (action !== "delete" || (deck?.slides || []).length > 1) { if (action !== "delete") setSlide(index + 1); window.dispatchEvent(new CustomEvent("ppt:page", { detail: { action, index } })); } };
