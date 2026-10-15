@@ -53,6 +53,11 @@ if ($LASTEXITCODE -ne 0) { throw "Application build failed." }
 Copy-Item -LiteralPath $runtimeDLL -Destination (Join-Path $engine "onnxruntime.dll") -Force
 $modelFiles = Get-ChildItem -LiteralPath $modelCache -Filter "*.onnx" -File -ErrorAction SilentlyContinue
 if ($modelFiles) { $modelFiles | Copy-Item -Destination $models -Force }
+# Bundle repository-local top-level models (for example models\silueta.onnx)
+# alongside any models downloaded into the build cache.
+$localModels = Join-Path $root "models"
+$localModelFiles = Get-ChildItem -LiteralPath $localModels -Filter "*.onnx" -File -ErrorAction SilentlyContinue
+if ($localModelFiles) { $localModelFiles | Copy-Item -Destination $models -Force }
 # Bundle the repository's PaddleOCR packages (including the nested PP-OCRv6
 # det/rec bundle) so offline builds use the same models as development runs.
 $paddleModels = Join-Path $root "models\paddleocr"

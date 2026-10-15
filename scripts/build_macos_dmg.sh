@@ -74,6 +74,18 @@ if [[ ! -f "$runtime_extract_dir/lib/libonnxruntime.dylib" ]]; then
 fi
 cp -L "$runtime_extract_dir/lib/libonnxruntime.dylib" "$engine_dir/libonnxruntime.dylib"
 
+# Bundle repository-local top-level models (for example models/silueta.onnx)
+# and the PaddleOCR model bundle into the app resources.
+shopt -s nullglob
+local_model_files=("$root/models"/*.onnx)
+if (( ${#local_model_files[@]} > 0 )); then
+  cp "${local_model_files[@]}" "$models_dir/"
+fi
+local_paddle_models="$root/models/paddleocr"
+if [[ -d "$local_paddle_models" ]]; then
+  cp -R "$local_paddle_models" "$models_dir/"
+fi
+
 if [[ -n "$model_url" || -n "$model_name" ]]; then
   if [[ -z "$model_url" || -z "$model_name" ]]; then
     echo "REMBG_MODEL_URL and REMBG_MODEL_NAME must be set together." >&2
@@ -86,7 +98,9 @@ if [[ -n "$model_url" || -n "$model_name" ]]; then
   fi
   cp "$model_cache" "$models_dir/$model_name"
 else
-  echo "No rembg model configured; packaging an empty models directory."
+  if (( ${#local_model_files[@]} == 0 )) && [[ ! -d "$local_paddle_models" ]]; then
+    echo "No rembg model configured; packaging an empty models directory."
+  fi
 fi
 
 iconset_dir="$stage/kuaima_cli.iconset"
