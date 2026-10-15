@@ -888,23 +888,34 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		prompt := target.Content
+		// Clients may include referenceMode=material while referenceImage is an
+		// empty string (or an empty data URL). Treat that exactly like no
+		// reference so retries use normal generation.
+		if !usablePPTReferenceImage(in.ReferenceImage) {
+			in.ReferenceImage = ""
+		}
+		if in.Presentation.Master != nil && !usablePPTReferenceImage(in.Presentation.Master.Background) {
+			in.Presentation.Master.Background = ""
+		}
 		if strings.TrimSpace(in.Presentation.UnifiedPrompt) != "" {
 			prompt += "\n统一提示词：" + in.Presentation.UnifiedPrompt
 		}
+		if in.Presentation.Master != nil {
+			prompt += "\n保持与统一母版视觉风格一致，严格使用相同配色、字体层级、留白和装饰语言；生成16:9完整演示文稿页面，不要水印。"
+		}
 		var resp *responsePayload
 		var genErr error
-		if strings.TrimSpace(in.ReferenceImage) != "" {
+		if usablePPTReferenceImage(in.ReferenceImage) {
 			if in.ReferenceMode == "material" {
 				prompt += "\n参考图是本页的内容素材，结合图片主体、数据与页面大纲设计完整演示文稿页面，遵循统一视觉提示词。"
 			} else {
 				prompt += "\n参考图是需要美化的原页面。准确保留内容与数据，根据用户要求重新设计视觉，输出完整演示文稿页面。"
 			}
 			resp, genErr = c.createImageEdit(r.Context(), imageEditRequest{Model: imageModel, Prompt: prompt, Images: []imageRef{{ImageURL: in.ReferenceImage}}, N: 1, Size: defaultPptSize})
-		} else if in.Presentation.Master != nil && strings.TrimSpace(in.Presentation.Master.Background) != "" {
+		} else if in.Presentation.Master != nil && usablePPTReferenceImage(in.Presentation.Master.Background) {
 			// Keep the reference image out of the text prompt. Besides wasting context,
 			// embedding a data URL there can exceed the model's prompt limit. The image
 			// edit endpoint accepts it as a proper visual reference instead.
-			prompt += "\n保持与统一母版视觉风格一致，严格使用相同配色、字体层级、留白和装饰语言；生成16:9完整演示文稿页面，不要水印。"
 			reference := strings.TrimSpace(in.Presentation.Master.Background)
 			if strings.HasPrefix(reference, "/outputs/") {
 				rel := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(reference, "/outputs/")))
@@ -954,6 +965,37 @@ func (s *webUIServer) handlePPTImages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{"presentation": in.Presentation, "errors": errs})
+}
+
+// usablePPTReferenceImage filters the empty data URLs that can be left in a
+// presentation when a slide has no reference image. Passing one to the image
+// edit API makes it attempt base64 decoding and produces an opaque
+// "illegal base64 data" error instead of falling back to normal generation.
+func usablePPTReferenceImage(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToLower(value), "data:") {
+		// Only remote/local image references are usable here. Master backgrounds
+		// are often plain CSS colors (for example "#FFFFFF"), which must not be
+		// sent to the image edit API as if they were Base64 image data.
+		return isHTTPURL(value) || strings.HasPrefix(value, "/outputs/")
+	}
+	comma := strings.IndexByte(value, ',')
+	if comma < 0 || comma == len(value)-1 {
+		return false
+	}
+	header := strings.ToLower(value[:comma])
+	if !strings.Contains(header, ";base64") {
+		return true
+	}
+	encoded := strings.TrimSpace(value[comma+1:])
+	if encoded == "" {
+		return false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	return err == nil && len(decoded) > 0
 }
 
 // handlePPTImageToEditable wraps one generated page image in the normal editor
