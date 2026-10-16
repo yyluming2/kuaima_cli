@@ -162,7 +162,7 @@ body {
 }
 
 .canvas.image-drop-active::after {
-    content: "松开鼠标即可插入图片";
+    content: "松开鼠标即可插入图片或打开 PPTX";
     position: absolute;
     inset: 14px;
     display: grid;

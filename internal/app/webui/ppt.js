@@ -827,19 +827,27 @@
       return () => { canvas.removeEventListener("dragenter", enter); canvas.removeEventListener("dragover", over); canvas.removeEventListener("dragleave", leave); canvas.removeEventListener("drop", handleCanvasDrop); };
     }, [deck, slide, masterMode]);
     const imageFile = file => file && (file.type?.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name || ""));
+    const presentationFile = file => file && /\.(pptx|json)$/i.test(file.name || "");
     const readImageFile = file => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
     const canvasDropPoint = ev => { const canvas = ev.currentTarget, box = canvas.getBoundingClientRect(); return { x: (ev.clientX - box.left) * W / Math.max(1, box.width), y: (ev.clientY - box.top) * H / Math.max(1, box.height) }; };
-    const hasImageDrop = ev => [...(ev.dataTransfer?.items || [])].some(item => item.kind === "file" && item.type.startsWith("image/")) || [...(ev.dataTransfer?.files || [])].some(imageFile);
+    const hasImageDrop = ev => [...(ev.dataTransfer?.items || [])].some(item => item.kind === "file" && (item.type.startsWith("image/") || item.type === "application/json" || item.type.includes("presentation"))) || [...(ev.dataTransfer?.files || [])].some(file => imageFile(file) || presentationFile(file));
     const handleCanvasDrop = async ev => {
       if (!hasImageDrop(ev)) return;
       ev.preventDefault();
       imageDragDepth.current = 0;
       setImageDropActive(false);
-      const files = [...(ev.dataTransfer?.files || [])].filter(imageFile);
-      if (!files.length) return;
+      const files = [...(ev.dataTransfer?.files || [])];
+      const presentations = files.filter(presentationFile);
+      if (presentations.length) {
+        if (files.length !== 1) { alert("请一次拖入一个 PPTX 或 JSON 文件"); return; }
+        loadDeckFile({ target: { files: presentations, value: "" } });
+        return;
+      }
+      const images = files.filter(imageFile);
+      if (!images.length) return;
       const point = canvasDropPoint(ev);
       try {
-        for (const [index, file] of files.entries()) await readImageFile(file).then(data => insertImage(data, { x: point.x + index * 20, y: point.y + index * 20 }));
+        for (const [index, file] of images.entries()) await readImageFile(file).then(data => insertImage(data, { x: point.x + index * 20, y: point.y + index * 20 }));
       } catch (error) { alert("拖放图片失败：" + error.message); }
     };
     return h(React.Fragment, null, h("header", null, h("a", { className: "brand", onClick: () => location.href = "/" }, h("span", { className: "ppt-brand-mark", title: "返回首页" }), h("span", { id: "pptAppVersion", className: "app-version" })), h("b", null, "快马AI · PPT工作台"), h("div", { className: "bar" }, h("button", { "data-ppt-action": "import", onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { "data-ppt-action": "export", onClick: exportDeck, disabled: !deck || exporting, "aria-busy": exporting }, exporting ? h("span", { className: "ppt-export-spinner", "aria-hidden": true }) : icon("download"), h("span", { role: "status", "aria-live": "polite" }, exporting ? "正在导出…" : "导出 PPTX")), h("button", { onClick: () => { setShowPageJson(!current); setShowJson(true); }, disabled: !deck }, icon("code-2"), h("span", null, current ? "对象 JSON" : "页面 JSON")))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: `${t === "ocr" ? `ocr-tool-button${ocrMode ? " active" : ""}` : ""}${t === "format-paint" && formatPaintActive ? " active" : ""}`, "aria-pressed": t === "ocr" ? String(ocrMode) : t === "format-paint" ? String(formatPaintActive) : undefined, disabled: t === "format-paint" && !current, title: t === "format-paint" ? "先选中源对象，再点击格式刷，然后点击目标对象（Esc 取消）" : undefined, onClick: () => t === "original" ? openOriginalCompare(originalImage) : t === "format-paint" ? (formatPaintActive ? (formatPaintSource.current = null, setFormatPaintActive(false)) : (formatPaintSource.current = current?.id, setFormatPaintActive(!!current))) : t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("button", { className: "tool-ai-redesign", onClick: () => openAIDialog(slide), disabled: !deck, title: "AI重新设计当前页" }, icon("sparkles"), h("span", null, "AI重新生成")), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", { className: "zoom-value" }, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: fitZoom, title: "适应画布和备注", "aria-label": "适应画布和备注" }, h("span", { className: "zoom-glyph", "aria-hidden": true }, "⛶")), h("button", { onClick: () => setZoom(1), title: "重置缩放", "aria-label": "重置缩放" }, h("span", { className: "zoom-glyph", "aria-hidden": true }, "↺"))), current && h("button", {
