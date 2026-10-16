@@ -27,7 +27,7 @@
     const [localFonts, setLocalFonts] = useState(fallbackFonts);
     const [exporting, setExporting] = useState(false), exportLock = useRef(false);
     const formatPaintSource = useRef(null), [formatPaintActive, setFormatPaintActive] = useState(false);
-    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [thumbImages, setThumbImages] = useState({}), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), [originalPreviewId, setOriginalPreviewId] = useState(null), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), wheelLock = useRef(false), exported = useRef(false), selectedRef = useRef(null), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [thumbImages, setThumbImages] = useState({}), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [imageDropActive, setImageDropActive] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), [originalPreviewId, setOriginalPreviewId] = useState(null), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), clipboard = useRef(null), imageDragDepth = useRef(0), wheelLock = useRef(false), exported = useRef(false), selectedRef = useRef(null), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
     const fitZoom = () => { const main = document.querySelector("main"), canvasWrap = document.querySelector(".canvas-wrap"); if (!main || !canvasWrap || !W || !H) return; const availableW = Math.max(320, main.clientWidth - 170 - 40), availableH = Math.max(240, window.innerHeight - 210 - 140); setZoom(Math.max(.25, Math.min(2, Number(Math.min(availableW / W, availableH / H).toFixed(2))))); };
     const fitInitialized = useRef(false);
     useEffect(() => { if (!deck) { fitInitialized.current = false; return; } if (fitInitialized.current) return; fitInitialized.current = true; const id = requestAnimationFrame(fitZoom); return () => cancelAnimationFrame(id); }, [deck]);
@@ -388,6 +388,16 @@
       setSelected(copyId);
       return copyId;
     };
+    const copySelected = () => {
+      const source = selectedRef.current ? elements.find(item => item.id === selectedRef.current) : current;
+      if (!source || source.locked) return null;
+      clipboard.current = structuredClone(source);
+      return clipboard.current;
+    };
+    const pasteElement = source => {
+      if (!source || source.locked || !deck) return null;
+      return duplicateSelected(structuredClone(source));
+    };
     const W = Number(deck?.width) || 1280, H = Number(deck?.height) || 720;
     const jsonSnapshot = current ? structuredClone(current) : null;
     const pageJsonSnapshot = deck ? { ...deck, slides: (deck.slides || []).slice(slide, slide + 1) } : null;
@@ -434,9 +444,12 @@
     // Start with an empty canvas; the AI 制作入口 is the explicit creation flow.
     useEffect(() => { const color = deck?.theme?.background || "#fff"; document.querySelectorAll(".canvas, .thumb-preview").forEach(el => { el.style.background = color; }); }, [deck]);
     useEffect(() => { document.body.classList.toggle("ppt-master-editing", masterMode); const color = masterMode ? (deck?.master?.background || deck?.theme?.background || "#fff") : (deck?.theme?.background || deck?.master?.background || "#fff"); document.documentElement.style.setProperty("--ppt-master-bg", color); document.querySelectorAll(".canvas, .thumb-preview").forEach(el => { el.style.background = color; }); return () => document.body.classList.remove("ppt-master-editing"); }, [masterMode, deck]);
-    const insertImage = data => {
+    const insertImage = (data, point) => {
       if (!deck || !data) return;
-      const e = { id: "image-" + Date.now(), type: "image", x: 120, y: 120, width: 420, height: 260, content: "", assetUrl: data, style: { ...defaults } };
+      const width = 420, height = 260;
+      const x = Number.isFinite(point?.x) ? Math.max(0, Math.min(W - width, point.x - width / 2)) : 120;
+      const y = Number.isFinite(point?.y) ? Math.max(0, Math.min(H - height, point.y - height / 2)) : 120;
+      const e = { id: "image-" + Date.now(), type: "image", x, y, width, height, content: "", assetUrl: data, style: { ...defaults } };
       trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const list = n.master.elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; const me = { ...e, id: "master-" + e.id, locked: false }; n.master.elements = [...list, me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), { ...me, locked: true }]; }); } else { const list = n.slides[slide].elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; list.push(e); } return n });
       setSelected(masterMode ? "master-" + e.id : e.id)
     };
@@ -589,6 +602,12 @@
         const target = ev.target;
         const tag = target?.tagName?.toLowerCase();
         if (editing || tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "c" && selected) {
+          // Keep a structured copy in memory as a fallback for browsers that
+          // do not expose custom clipboard MIME types back to the page.
+          copySelected();
+          return;
+        }
         if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
         if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === "y" || (ev.key.toLowerCase() === "z" && ev.shiftKey))) { ev.preventDefault(); redo(); return; }
         if (!editing) {
@@ -641,7 +660,30 @@
       return () => removeEventListener("keydown", onKeyDown)
     }, [selected, editing, slide, deck, elements, masterMode]);
     useEffect(() => {
+      const MIME = "application/x-kuaima-ppt-element";
+      const copy = ev => {
+        if (editing || !selected) return;
+        const source = copySelected();
+        if (!source || !ev.clipboardData) return;
+        ev.clipboardData.setData(MIME, JSON.stringify(source));
+        // A readable fallback is useful when pasting into another app.
+        ev.clipboardData.setData("text/plain", source.content || "");
+        ev.preventDefault();
+      };
       const paste = ev => {
+        if (editing) return;
+        const raw = ev.clipboardData?.getData(MIME);
+        if (raw) {
+          try {
+            const source = JSON.parse(raw);
+            if (source && typeof source === "object") {
+              clipboard.current = structuredClone(source);
+              pasteElement(source);
+              ev.preventDefault();
+              return;
+            }
+          } catch (_) {}
+        }
         const i = [...(ev.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
         if (!i) return;
         const f = i.getAsFile();
@@ -651,9 +693,10 @@
         r.readAsDataURL(f);
         ev.preventDefault()
       };
+      addEventListener("copy", copy);
       addEventListener("paste", paste);
-      return () => removeEventListener("paste", paste)
-    }, [deck, slide]);
+      return () => { removeEventListener("copy", copy); removeEventListener("paste", paste); };
+    }, [deck, slide, selected, editing, elements]);
     const move = ev => {
       const d = drag.current, r = resize.current, c = (d || r)?.canvas;
       if (!c) return;
@@ -774,6 +817,31 @@
       let scale = 1; const images = overlay.querySelectorAll(".ppt-compare-body img"); const applyScale = () => { const body = overlay.querySelector(".ppt-compare-body"); const side = body.classList.contains("side"); images.forEach((item, i) => { item.style.transform = `scale(${scale})`; item.style.transformOrigin = side ? (i === 0 ? "right center" : "left center") : (i === 0 ? "center bottom" : "center top"); }); }; const setLayout = layout => { overlay.querySelector(".ppt-compare-body").className = `ppt-compare-body ${layout}`; requestAnimationFrame(applyScale); }; overlay.querySelector("[data-layout=side]").onclick = () => setLayout("side"); overlay.querySelector("[data-layout=stack]").onclick = () => setLayout("stack"); images.forEach(img => img.addEventListener("wheel", e => { e.preventDefault(); scale = Math.max(.25, Math.min(4, scale * (e.deltaY < 0 ? 1.1 : .9))); applyScale(); }, { passive: false }));
     };
     const fitImage = async element => { if (!element?.assetUrl || !deck) return; const img = new Image(); img.onload = () => { const tw = Number(deck.width) || 1280, th = Number(deck.height) || 720, ratio = img.naturalWidth / img.naturalHeight, target = tw / th, crop = ratio > target ? {left:(1-target/ratio)/2,right:(1-target/ratio)/2,top:0,bottom:0} : {left:0,right:0,top:(1-ratio/target)/2,bottom:(1-ratio/target)/2}; update(e => { e.x=0; e.y=0; e.width=tw; e.height=th; e.style={...(e.style||{}),crop}; }, element.id); }; img.src=element.assetUrl; };
+    useEffect(() => {
+      const canvas = document.querySelector(".canvas");
+      if (!canvas) return;
+      const enter = ev => { if (!hasImageDrop(ev)) return; ev.preventDefault(); imageDragDepth.current += 1; setImageDropActive(true); };
+      const over = ev => { if (!hasImageDrop(ev)) return; ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; };
+      const leave = ev => { if (!hasImageDrop(ev)) return; ev.preventDefault(); imageDragDepth.current = Math.max(0, imageDragDepth.current - 1); if (!imageDragDepth.current) setImageDropActive(false); };
+      canvas.addEventListener("dragenter", enter); canvas.addEventListener("dragover", over); canvas.addEventListener("dragleave", leave); canvas.addEventListener("drop", handleCanvasDrop);
+      return () => { canvas.removeEventListener("dragenter", enter); canvas.removeEventListener("dragover", over); canvas.removeEventListener("dragleave", leave); canvas.removeEventListener("drop", handleCanvasDrop); };
+    }, [deck, slide, masterMode]);
+    const imageFile = file => file && (file.type?.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name || ""));
+    const readImageFile = file => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
+    const canvasDropPoint = ev => { const canvas = ev.currentTarget, box = canvas.getBoundingClientRect(); return { x: (ev.clientX - box.left) * W / Math.max(1, box.width), y: (ev.clientY - box.top) * H / Math.max(1, box.height) }; };
+    const hasImageDrop = ev => [...(ev.dataTransfer?.items || [])].some(item => item.kind === "file" && item.type.startsWith("image/")) || [...(ev.dataTransfer?.files || [])].some(imageFile);
+    const handleCanvasDrop = async ev => {
+      if (!hasImageDrop(ev)) return;
+      ev.preventDefault();
+      imageDragDepth.current = 0;
+      setImageDropActive(false);
+      const files = [...(ev.dataTransfer?.files || [])].filter(imageFile);
+      if (!files.length) return;
+      const point = canvasDropPoint(ev);
+      try {
+        for (const [index, file] of files.entries()) await readImageFile(file).then(data => insertImage(data, { x: point.x + index * 20, y: point.y + index * 20 }));
+      } catch (error) { alert("拖放图片失败：" + error.message); }
+    };
     return h(React.Fragment, null, h("header", null, h("a", { className: "brand", onClick: () => location.href = "/" }, h("span", { className: "ppt-brand-mark", title: "返回首页" }), h("span", { id: "pptAppVersion", className: "app-version" })), h("b", null, "快马AI · PPT工作台"), h("div", { className: "bar" }, h("button", { "data-ppt-action": "import", onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { "data-ppt-action": "export", onClick: exportDeck, disabled: !deck || exporting, "aria-busy": exporting }, exporting ? h("span", { className: "ppt-export-spinner", "aria-hidden": true }) : icon("download"), h("span", { role: "status", "aria-live": "polite" }, exporting ? "正在导出…" : "导出 PPTX")), h("button", { onClick: () => { setShowPageJson(!current); setShowJson(true); }, disabled: !deck }, icon("code-2"), h("span", null, current ? "对象 JSON" : "页面 JSON")))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: `${t === "ocr" ? `ocr-tool-button${ocrMode ? " active" : ""}` : ""}${t === "format-paint" && formatPaintActive ? " active" : ""}`, "aria-pressed": t === "ocr" ? String(ocrMode) : t === "format-paint" ? String(formatPaintActive) : undefined, disabled: t === "format-paint" && !current, title: t === "format-paint" ? "先选中源对象，再点击格式刷，然后点击目标对象（Esc 取消）" : undefined, onClick: () => t === "original" ? openOriginalCompare(originalImage) : t === "format-paint" ? (formatPaintActive ? (formatPaintSource.current = null, setFormatPaintActive(false)) : (formatPaintSource.current = current?.id, setFormatPaintActive(!!current))) : t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("button", { className: "tool-ai-redesign", onClick: () => openAIDialog(slide), disabled: !deck, title: "AI重新设计当前页" }, icon("sparkles"), h("span", null, "AI重新生成")), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", { className: "zoom-value" }, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: fitZoom, title: "适应画布和备注", "aria-label": "适应画布和备注" }, h("span", { className: "zoom-glyph", "aria-hidden": true }, "⛶")), h("button", { onClick: () => setZoom(1), title: "重置缩放", "aria-label": "重置缩放" }, h("span", { className: "zoom-glyph", "aria-hidden": true }, "↺"))), current && h("button", {
       className: "danger", onClick: removeSelected
     }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {

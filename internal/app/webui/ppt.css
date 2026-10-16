@@ -155,6 +155,26 @@ body {
     background: var(--ppt-master-bg, #fff) !important;
 }
 
+.canvas.image-drop-active {
+    outline: 3px dashed #2563eb;
+    outline-offset: -3px;
+    position: relative;
+}
+
+.canvas.image-drop-active::after {
+    content: "松开鼠标即可插入图片";
+    position: absolute;
+    inset: 14px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: rgb(37 99 235 / 10%);
+    color: #1d4ed8;
+    font-size: 18px;
+    font-weight: 600;
+    pointer-events: none;
+}
+
 header,
 .bar,
 .tools {
