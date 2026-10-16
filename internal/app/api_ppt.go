@@ -530,7 +530,16 @@ func (s *webUIServer) handlePPTMaster(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close()
 	prompt := fmt.Sprintf("PPT视觉母版，主题：%s。内容方向：%s。统一视觉风格：%s。统一提示词：%s。生成一张16:9的高质感演示文稿母版示例图，包含清晰的版式、配色、字体层级和装饰元素，不要出现可读文字，不要水印。", strings.TrimSpace(in.Title), strings.TrimSpace(in.Brief), strings.TrimSpace(in.Style), strings.TrimSpace(in.UnifiedPrompt))
-	resp, err := c.createImageGeneration(r.Context(), imageGenerationRequest{Model: model, Prompt: prompt, N: 1, Size: defaultPptSize})
+	var resp *responsePayload
+	if reference := strings.TrimSpace(in.StyleReference); reference != "" {
+		// A user-supplied reference should guide the newly generated master while
+		// still allowing the model to redesign the composition. Use the edit
+		// endpoint so data URLs and local uploaded images are treated as visual
+		// input rather than leaking into the text prompt.
+		resp, err = c.createImageEdit(r.Context(), imageEditRequest{Model: model, Prompt: prompt + " 参考上传图片的视觉语言，但不要复制其中的文字或水印。", Images: []imageRef{{ImageURL: reference}}, N: 1, Size: defaultPptSize})
+	} else {
+		resp, err = c.createImageGeneration(r.Context(), imageGenerationRequest{Model: model, Prompt: prompt, N: 1, Size: defaultPptSize})
+	}
 	if err != nil {
 		writeError(w, 502, err.Error())
 		return
@@ -730,7 +739,10 @@ func (s *webUIServer) handlePPTGenerate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var plan pptPlan
-	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&plan); err != nil {
+	// Master/reference images are commonly embedded as data URLs. A 10 MB
+	// upload expands to roughly 13 MB in JSON, so keep enough headroom for the
+	// approved plan instead of truncating it and surfacing "unexpected EOF".
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<20)).Decode(&plan); err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}

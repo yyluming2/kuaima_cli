@@ -1676,6 +1676,26 @@ main.inspector-collapsed>.side {
     font-size: 12px;
 }
 
+.ppt-ai-master-reference {
+    display: block;
+    margin-top: 10px;
+    color: #475569;
+    font-size: 12px;
+}
+
+.ppt-ai-master-reference input {
+    display: block;
+    width: 100%;
+    margin-top: 5px;
+    font-size: 12px;
+}
+
+.ppt-ai-master-reference small {
+    display: block;
+    margin-top: 4px;
+    color: #94a3b8;
+}
+
 .ppt-ai-master-prompt textarea {
     display: block;
     width: 100%;
