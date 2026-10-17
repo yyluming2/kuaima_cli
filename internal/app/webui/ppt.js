@@ -38,7 +38,7 @@
       const sourceId = formatPaintSource.current, source = elements.find(e => e.id === sourceId), target = elements.find(e => e.id === targetId);
       if (!source || !target || sourceId === targetId || target.locked) return;
       update(e => { const textStyle = source.textStyle ? structuredClone(source.textStyle) : {}; const sourceRuns = Array.isArray(source.textRuns) ? source.textRuns : []; const baseRunStyle = sourceRuns[0]?.style || {}; e.style = { ...structuredClone(source.style || {}), ...textStyle, ...structuredClone(baseRunStyle) }; if (source.textStyle) e.textStyle = textStyle; if (Array.isArray(e.textRuns) && sourceRuns.length) e.textRuns = e.textRuns.map((run, index) => ({ ...run, style: { ...structuredClone(baseRunStyle), ...structuredClone(sourceRuns[index]?.style || {}) } })); }, targetId);
-      
+
     };
     // Selecting an object should reveal the inspector, but editing a field must
     // not close it.  An update rerenders the canvas and can briefly leave the
@@ -55,11 +55,13 @@
       deck.slides.forEach((s, si) => (s.elements || []).forEach((el, ei) => {
         if (el.type !== "image" || !el.assetUrl || el.style?.crop) return;
         const img = new Image();
-        jobs.push(new Promise(resolve => { img.onload = () => {
-          const boxRatio = Number(el.width) / Math.max(1, Number(el.height)), ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
-          const crop = ratio > boxRatio ? { left: (1 - boxRatio / ratio) / 2, right: (1 - boxRatio / ratio) / 2, top: 0, bottom: 0 } : { left: 0, right: 0, top: (1 - ratio / boxRatio) / 2, bottom: (1 - ratio / boxRatio) / 2 };
-          resolve({ si, ei, crop });
-        }; img.onerror = () => resolve(null); img.src = el.assetUrl; }));
+        jobs.push(new Promise(resolve => {
+          img.onload = () => {
+            const boxRatio = Number(el.width) / Math.max(1, Number(el.height)), ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
+            const crop = ratio > boxRatio ? { left: (1 - boxRatio / ratio) / 2, right: (1 - boxRatio / ratio) / 2, top: 0, bottom: 0 } : { left: 0, right: 0, top: (1 - ratio / boxRatio) / 2, bottom: (1 - ratio / boxRatio) / 2 };
+            resolve({ si, ei, crop });
+          }; img.onerror = () => resolve(null); img.src = el.assetUrl;
+        }));
       }));
       Promise.all(jobs).then(results => { if (cancelled || !results.some(Boolean)) return; setDeck(d => { const n = structuredClone(d); results.filter(Boolean).forEach(({ si, ei, crop }) => { const el = n.slides?.[si]?.elements?.[ei]; if (el && !el.style?.crop) el.style = { ...(el.style || {}), crop }; }); return n; }); });
       return () => { cancelled = true; };
@@ -85,10 +87,10 @@
       if (snapshotBatch.current) return undefined;
       if (!deck?.slides?.length) { thumbSignatures.current.clear(); setThumbImages({}); return; }
       let cancelled = false; const active = slide, missing = [];
-      deck.slides.forEach((s, i) => { const key = s.id || `slide-${i}`; let sig = ""; try { sig = JSON.stringify(s); } catch (_) {} if (thumbSignatures.current.get(key) !== sig || !thumbImages[key]) { thumbSignatures.current.set(key, sig); missing.push(i); } });
+      deck.slides.forEach((s, i) => { const key = s.id || `slide-${i}`; let sig = ""; try { sig = JSON.stringify(s); } catch (_) { } if (thumbSignatures.current.get(key) !== sig || !thumbImages[key]) { thumbSignatures.current.set(key, sig); missing.push(i); } });
       if (!missing.length) return undefined;
       // Keep the previous image visible while the refreshed thumbnail is rendered.
-      (async () => { for (const i of missing) { const key = deck.slides[i].id || `slide-${i}`; try { const src = await pageSnapshot(i, deck); if (!cancelled) setThumbImages(v => ({ ...v, [key]: src })); } catch (_) {} } if (!cancelled) setSlide(active); })();
+      (async () => { for (const i of missing) { const key = deck.slides[i].id || `slide-${i}`; try { const src = await pageSnapshot(i, deck); if (!cancelled) setThumbImages(v => ({ ...v, [key]: src })); } catch (_) { } } if (!cancelled) setSlide(active); })();
       return () => { cancelled = true; };
     }, [deck]);
     useEffect(() => { const node = document.querySelector('#slides .thumb.active'); node?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [slide]);
@@ -187,11 +189,11 @@
       // selected even if the canvas rerenders while the input is committing.
       if (targetId != null) selectElement(targetId);
       return (track ? trackedSetDeck : setDeck)(d => {
-      // Canvas editing can blur after another object has been selected.  Do
-      // not resolve the target from the mutable `selected` state at commit
-      // time; callers editing a specific object pass its id explicitly.
-      const n = structuredClone(d), e = masterMode ? n.master?.elements?.find(e => e.id === targetId) : n.slides[slide].elements.find(e => e.id === targetId);
-      if (e && (masterMode || !e.locked)) fn(e);
+        // Canvas editing can blur after another object has been selected.  Do
+        // not resolve the target from the mutable `selected` state at commit
+        // time; callers editing a specific object pass its id explicitly.
+        const n = structuredClone(d), e = masterMode ? n.master?.elements?.find(e => e.id === targetId) : n.slides[slide].elements.find(e => e.id === targetId);
+        if (e && (masterMode || !e.locked)) fn(e);
         return n
       });
     };
@@ -553,6 +555,7 @@
     };
     const add = async type => {
       if (!deck) return;
+      if (type === "enhance-image") { await applyImageEffect(); return; }
       if (type === "ocr") { if (ocrProvider === "remote" && !window.confirm("远程 OCR 可能产生模型调用费用，继续吗？")) return; setOcrMode(v => !v); setOcrRect(null); return; }
       if (type === "copy-layer") { openLayerCopy(current); return; }
       if (type === "undo") { undo(); return; }
@@ -682,7 +685,7 @@
               ev.preventDefault();
               return;
             }
-          } catch (_) {}
+          } catch (_) { }
         }
         const i = [...(ev.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
         if (!i) return;
@@ -787,16 +790,18 @@
     const currentSlide = !masterMode ? deck?.slides?.[slide] : null;
     const onlyImagePage = !masterMode && slideImages.length === 1 && elements.length === 1;
     const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ...(current?.type === "text" || formatPaintActive ? [["format-paint", "paintbrush", "格式刷"]] : []), ["text", "type", "添加文本"], ["image", "image-plus", "添加图片"], ["shape", "shapes", "添加形状"]];
+    if (onlyImagePage) tools.push(["enhance-image", "wand-sparkles", "图片滤镜"]);
     const fullCanvasImage = current?.type === "image" && Math.abs(Number(current.x) || 0) <= 1 && Math.abs(Number(current.y) || 0) <= 1 && Math.abs(Number(current.width) - W) <= 1 && Math.abs(Number(current.height) - H) <= 1 && Math.abs(Number(current.rotation) || 0) < .01;
     if (current?.type === "image") { tools.push(["ocr", "scan-text", "识别文字"]); if (fullCanvasImage && !masterMode && !current.locked) tools.push(["copy-layer", "copy-plus", "复制图层"]); }
     const originalImage = slideImages.find(e => e.originalAssetUrl);
+    const applyImageEffect = () => { const image = slideImages[0]; if (!image?.assetUrl || !window.KuaimaImageEffects) return; window.KuaimaImageEffects.openPicker(image.originalAssetUrl || image.assetUrl, src => update(e => { e.assetUrl = src; }, image.id)); };
     if (originalImage) tools.push(["original", "scan-eye", originalPreviewId === originalImage.id ? "查看编辑结果" : "查看原图"]);
     if (onlyImagePage) tools.push(["ocr-convert", "text-cursor-input", "一键转可编辑文字"]); const pageAction = (action, index = slide) => { if (action !== "delete" || (deck?.slides || []).length > 1) { if (action !== "delete") setSlide(index + 1); window.dispatchEvent(new CustomEvent("ppt:page", { detail: { action, index } })); } };
     const openAIDialog = (index = slide) => {
       const overlay = document.createElement("div"); overlay.className = "ppt-redesign-overlay"; overlay.innerHTML = `<div class="ppt-redesign-dialog"><h3>AI 重新设计第 ${index + 1} 页</h3><div class="ppt-redesign-current-thumb"><span>当前页面</span><img data-current-thumb alt="当前页缩略图"></div><textarea placeholder="例如：改成更简洁的科技风，突出数据结论"></textarea><label>参考图片（可选）<input type="file" accept="image/*"></label><div data-reference-preview></div><details class="ppt-redesign-model"><summary>生图模型（可选）</summary><select data-image-model><option value="">使用默认模型</option></select></details><div class="ppt-redesign-actions"><button data-cancel>取消</button><button class="primary" data-submit>开始设计</button></div></div>`; document.body.appendChild(overlay); let snapshot = ""; const submit = overlay.querySelector("[data-submit]"); submit.disabled = true; pageSnapshot(index).then(src => { const img = overlay.querySelector("[data-current-thumb]"); if (img) img.src = src; snapshot = src; submit.disabled = false; }).catch(error => { overlay.querySelector("[data-current-thumb]").alt = error.message; });
-      const saved = (() => { try { return JSON.parse(localStorage.getItem("ppt-redesign-preferences") || "{}"); } catch (_) { return {}; } })(); const textInput = overlay.querySelector("textarea"); textInput.value = saved.prompt || ""; const modelSelect = overlay.querySelector("[data-image-model]"); fetch("/api/ipricing").then(r => r.json()).then(d => { const models = d?.data?.img || d?.data?.image || []; modelSelect.innerHTML = '<option value="">使用默认模型</option>' + models.filter(x => x?.model_name).map(x => `<option value="${String(x.model_name).replace(/"/g, '&quot;')}">${x.model_name}</option>`).join(""); }).catch(() => {});
+      const saved = (() => { try { return JSON.parse(localStorage.getItem("ppt-redesign-preferences") || "{}"); } catch (_) { return {}; } })(); const textInput = overlay.querySelector("textarea"); textInput.value = saved.prompt || ""; const modelSelect = overlay.querySelector("[data-image-model]"); fetch("/api/ipricing").then(r => r.json()).then(d => { const models = d?.data?.img || d?.data?.image || []; modelSelect.innerHTML = '<option value="">使用默认模型</option>' + models.filter(x => x?.model_name).map(x => `<option value="${String(x.model_name).replace(/"/g, '&quot;')}">${x.model_name}</option>`).join(""); }).catch(() => { });
       const fileInput = overlay.querySelector("input[type=file]"), preview = overlay.querySelector("[data-reference-preview]"); fileInput.onchange = () => { const f = fileInput.files[0]; preview.innerHTML = f ? `<img class="ppt-reference-thumb" src="${URL.createObjectURL(f)}" alt="参考图片缩略图">` : ""; };
-      const close = () => overlay.remove(); overlay.querySelector("[data-cancel]").onclick = close; overlay.onclick = e => { if (e.target === overlay) close() }; overlay.querySelector("[data-submit]").onclick = () => { const prompt = textInput.value.trim(); const imageModel = modelSelect.value; try { localStorage.setItem("ppt-redesign-preferences", JSON.stringify({ prompt, imageModel })); } catch (_) {} const file = fileInput.files[0]; const btn = overlay.querySelector("[data-submit]"); btn.disabled = true; btn.textContent = "正在设计…"; overlay.querySelector(".ppt-redesign-dialog").classList.add("is-generating"); const send = referenceImage => { window.dispatchEvent(new CustomEvent("ppt:ai-page", { detail: { index, prompt, referenceImage, imageModel, pageImage: snapshot, redesignOverlay: overlay } })); close(); }; if (file) { const reader = new FileReader(); reader.onload = () => send(reader.result); reader.readAsDataURL(file); } else send(""); };
+      const close = () => overlay.remove(); overlay.querySelector("[data-cancel]").onclick = close; overlay.onclick = e => { if (e.target === overlay) close() }; overlay.querySelector("[data-submit]").onclick = () => { const prompt = textInput.value.trim(); const imageModel = modelSelect.value; try { localStorage.setItem("ppt-redesign-preferences", JSON.stringify({ prompt, imageModel })); } catch (_) { } const file = fileInput.files[0]; const btn = overlay.querySelector("[data-submit]"); btn.disabled = true; btn.textContent = "正在设计…"; overlay.querySelector(".ppt-redesign-dialog").classList.add("is-generating"); const send = referenceImage => { window.dispatchEvent(new CustomEvent("ppt:ai-page", { detail: { index, prompt, referenceImage, imageModel, pageImage: snapshot, redesignOverlay: overlay } })); close(); }; if (file) { const reader = new FileReader(); reader.onload = () => send(reader.result); reader.readAsDataURL(file); } else send(""); };
     };
     const openOriginalCompare = async image => {
       if (!image?.originalAssetUrl) return;
@@ -811,12 +816,12 @@
       if (originalFrame) originalFrame.style.aspectRatio = String(canvasRatio);
       overlay.querySelectorAll(".ppt-compare-image").forEach(frame => { frame.style.aspectRatio = String(canvasRatio); });
       Object.assign(original.style, imageCropStyle(image.style || {}));
-      try { overlay.querySelector("[data-current]").src = await pageSnapshot(slide); } catch (_) {}
+      try { overlay.querySelector("[data-current]").src = await pageSnapshot(slide); } catch (_) { }
       overlay.querySelector("[data-close]").onclick = () => overlay.remove(); overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
       overlay.querySelector("[data-restore]").onclick = () => { if (!confirm("确定删除当前页全部元素并恢复为原图吗？此操作可通过撤销恢复。")) return; trackedSetDeck(d => { const n = structuredClone(d), s = n?.slides?.[slide]; if (!s) return d; const restored = { ...structuredClone(image), assetUrl: image.originalAssetUrl }; delete restored.originalAssetUrl; s.elements = [restored]; return n; }); setSelected(null); overlay.remove(); };
       let scale = 1; const images = overlay.querySelectorAll(".ppt-compare-body img"); const applyScale = () => { const body = overlay.querySelector(".ppt-compare-body"); const side = body.classList.contains("side"); images.forEach((item, i) => { item.style.transform = `scale(${scale})`; item.style.transformOrigin = side ? (i === 0 ? "right center" : "left center") : (i === 0 ? "center bottom" : "center top"); }); }; const setLayout = layout => { overlay.querySelector(".ppt-compare-body").className = `ppt-compare-body ${layout}`; requestAnimationFrame(applyScale); }; overlay.querySelector("[data-layout=side]").onclick = () => setLayout("side"); overlay.querySelector("[data-layout=stack]").onclick = () => setLayout("stack"); images.forEach(img => img.addEventListener("wheel", e => { e.preventDefault(); scale = Math.max(.25, Math.min(4, scale * (e.deltaY < 0 ? 1.1 : .9))); applyScale(); }, { passive: false }));
     };
-    const fitImage = async element => { if (!element?.assetUrl || !deck) return; const img = new Image(); img.onload = () => { const tw = Number(deck.width) || 1280, th = Number(deck.height) || 720, ratio = img.naturalWidth / img.naturalHeight, target = tw / th, crop = ratio > target ? {left:(1-target/ratio)/2,right:(1-target/ratio)/2,top:0,bottom:0} : {left:0,right:0,top:(1-ratio/target)/2,bottom:(1-ratio/target)/2}; update(e => { e.x=0; e.y=0; e.width=tw; e.height=th; e.style={...(e.style||{}),crop}; }, element.id); }; img.src=element.assetUrl; };
+    const fitImage = async element => { if (!element?.assetUrl || !deck) return; const img = new Image(); img.onload = () => { const tw = Number(deck.width) || 1280, th = Number(deck.height) || 720, ratio = img.naturalWidth / img.naturalHeight, target = tw / th, crop = ratio > target ? { left: (1 - target / ratio) / 2, right: (1 - target / ratio) / 2, top: 0, bottom: 0 } : { left: 0, right: 0, top: (1 - ratio / target) / 2, bottom: (1 - ratio / target) / 2 }; update(e => { e.x = 0; e.y = 0; e.width = tw; e.height = th; e.style = { ...(e.style || {}), crop }; }, element.id); }; img.src = element.assetUrl; };
     useEffect(() => {
       const canvas = document.querySelector(".canvas");
       if (!canvas) return;

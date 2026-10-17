@@ -1,5 +1,6 @@
 (function () {
   const state = { sourceURL: "", sourceBytes: 0, original: null, tool: "pan", drawing: false, comparing: false, busy: false, cutoutProcessing: false, width: 0, height: 0, zoom: 1, panX: 0, panY: 0, spacePressed: false, panning: null, last: null, rectStart: null, sample: null, sampleDragging: null, cloneOffset: null, region: null, regionScope: "inside", regionTool: "", regionAdjusting: false, regionStart: null, regionPoints: [], regionHandleDrag: null, regionSelectedHandle: null, regionSelectedVertex: null, undo: [], redo: [], batch: [], batchDone: false, batchProcessing: false, batchCanceled: false, batchXHR: null, batchTimer: 0, estimateTimer: 0, estimateSeq: 0, profileNames: { product: "商品" } };
+  state.effectBaseURL = "";
   const el = (id) => document.getElementById(id);
   const canvas = () => el("retouchCanvas");
   const overlay = () => el("retouchOverlay");
@@ -7,6 +8,7 @@
   const ctx = () => canvas().getContext("2d", { willReadFrequently: true });
 
   function setHint(text) { el("fineEditorHint").textContent = text; }
+  function openEffectsPicker() { if (!state.sourceURL || !window.KuaimaImageEffects) return; window.KuaimaImageEffects.openPicker(state.effectBaseURL || state.sourceURL, (src, base) => open(src, "pan", base)); }
   function operationMode() {
     if (state.regionTool) return "绘制" + ({ rect: "矩形", circle: "圆形", polygon: "多边形" }[state.regionTool] || "") + "蒙版";
     if (state.regionAdjusting) return "调整" + ({ rect: "矩形", circle: "圆形", polygon: "多边形" }[state.region?.type] || "") + "蒙版";
@@ -598,12 +600,12 @@
     updateCanvasInfo();
     setHint(state.tool === "pan" ? "按住并拖动画布；滚轮缩放，选择涂抹工具后可编辑图片" : (state.tool === "cutout" ? "打开抠图设置并点击“开始抠图”" : (state.tool === "rect" ? "拖出矩形框，松开后自动消除框内内容" : (state.tool === "erase" ? "在需要移除的物体上涂抹，松开后自动修复" : "先点击取样位置，再在目标位置涂抹；按 Alt 点击可重新取样"))));
   }
-  function open(url, initialTool) {
+  function open(url, initialTool, effectBaseURL) {
     if (!url) return;
     el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false;
     document.querySelectorAll("[data-editor-tab]").forEach((button) => { const active = button.dataset.editorTab === "manual"; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
     if (state.sourceURL === url && state.width) { resizeDisplay(); setTool(initialTool || state.tool); return; }
-    state.sourceURL = url; const image = new Image(); image.crossOrigin = "anonymous"; setHint("正在读取图片...");
+    state.sourceURL = url; state.effectBaseURL = effectBaseURL || url; const image = new Image(); image.crossOrigin = "anonymous"; setHint("正在读取图片...");
     image.onload = () => {
       state.width = image.naturalWidth; state.height = image.naturalHeight;
       state.panX = 0; state.panY = 0;
@@ -626,6 +628,7 @@
     image.onerror = () => setHint("图片读取失败，可能不允许跨域编辑"); image.src = url;
   }
   function openEmpty(tool = "cutout") {
+    state.effectBaseURL = "";
     state.sourceURL = ""; state.sourceBytes = 0; state.width = 0; state.height = 0; state.original = null; state.undo = []; state.redo = []; updateHistoryButtons();
     el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false; el("fineEditor").hidden = false;
     const imageModal = el("imageModal");
@@ -649,6 +652,7 @@
     document.addEventListener("click", (event) => { if (event.target.closest("[data-cutout-tab]")) openEmpty("cutout"); });
     el("retouchEmpty").addEventListener("click", () => el("retouchSourceFiles").click());
     document.querySelectorAll("[data-retouch-tool]").forEach((button) => button.addEventListener("click", () => setTool(button.dataset.retouchTool)));
+    el("retouchEffectsButton")?.addEventListener("click", openEffectsPicker);
     document.querySelectorAll("[data-retouch-region-shape]").forEach((button) => button.addEventListener("click", () => setRegionTool(button.dataset.retouchRegionShape)));
     document.querySelectorAll("[data-retouch-region-scope]").forEach((button) => button.addEventListener("click", () => {
       state.regionScope = button.dataset.retouchRegionScope;

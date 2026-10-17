@@ -100,6 +100,7 @@
     syncSourceEmpty(); syncMarkerBounds();
   }
 
+
   function openEmpty() {
     state.sourceURL = ""; state.points = []; state.selectedIndex = -1; state.files = [];
     el("fineEditorImage").removeAttribute("src"); el("fineEditorNote").value = ""; el("fineEditorStatus").textContent = "";

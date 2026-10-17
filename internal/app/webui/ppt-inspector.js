@@ -60,7 +60,7 @@
 
   const primaryTab = element => element?.type === "text" ? "text" : element?.type === "image" ? "image" : element?.type === "shape" ? "shape" : element ? "content" : "layout";
 
-  function Inspector({ element, onChange, onReplaceImage, onEditImage, onFitImage, onPickBackground, onPickElementBackground, onLayer, onToggle, master, onMasterChange, themeColors = [], fontFamilies = [] }) {
+  function Inspector({ element, onChange, onReplaceImage, onEditImage, onEnhanceImage, onFitImage, onPickBackground, onPickElementBackground, onLayer, onToggle, master, onMasterChange, themeColors = [], fontFamilies = [] }) {
     const [activeTab, setActiveTab] = useState(primaryTab(element));
     useEffect(() => setActiveTab(primaryTab(element)), [element?.id, !!master]);
     useEffect(() => { window.lucide && window.lucide.createIcons(); }, [activeTab, element?.id]);

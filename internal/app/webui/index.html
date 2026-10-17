@@ -8,6 +8,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/ppt-effects.css">
   <script src="/lucide.1.2.1.min.js" defer></script>
 </head>
 
@@ -583,6 +584,7 @@
         <div class="retouch-toolbar">
           <button class="btn small active" type="button" data-retouch-tool="pan" title="拖动画布（H）"><i
               data-lucide="hand"></i><span></span></button>
+          <button id="retouchEffectsButton" class="btn small" type="button" title="滤镜"><i data-lucide="wand-sparkles"></i><span>滤镜</span></button>
           <details id="retouchPaintMenu" class="retouch-menu retouch-tool-picker">
             <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">修复</span><i
                 data-lucide="chevron-down"></i></summary>
@@ -845,7 +847,8 @@
     </div>
   </div>
 
-  <script src="/app-icons.js"></script>
+        <script src="/ppt-effects.js"></script>
+        <script src="/app-icons.js"></script>
   <script src="/app-shared.js"></script>
   <script src="/app-billing.js"></script>
   <script src="/app-history.js"></script>

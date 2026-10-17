@@ -4,6 +4,7 @@
 <title>快马AI · PPT工作台</title>
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/ppt.css">
+<link rel="stylesheet" href="/ppt-effects.css">
 <script src="/lucide.1.2.1.min.js" defer></script>
 <script src="/react.production.min.js"></script>
 <script src="/react-dom.production.min.js"></script>
@@ -236,6 +237,7 @@
         <div class="retouch-toolbar">
           <button class="btn small active" type="button" data-retouch-tool="pan" title="拖动画布（H）"><i
               data-lucide="hand"></i><span></span></button>
+          <button id="retouchEffectsButton" class="btn small" type="button" title="滤镜"><i data-lucide="wand-sparkles"></i><span>滤镜</span></button>
           <details id="retouchPaintMenu" class="retouch-menu retouch-tool-picker">
             <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">修复</span><i
                 data-lucide="chevron-down"></i></summary>
@@ -424,6 +426,7 @@
         <script src="/app-shared.js"></script>
         <script src="/app-retouch.js"></script>
         <script src="/app-fine-edit.js"></script>
+        <script src="/ppt-effects.js"></script>
         <script src="/ppt-core.js"></script>
         <script src="/ppt-inspector.js"></script>
         <script src="/ppt-image-editor.js"></script>
