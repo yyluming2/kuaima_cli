@@ -1,0 +1,3 @@
+(function () {
+  window.KuaimaImageEditor = { open(url, onResult) { const prompt = window.prompt("请描述要如何修改这张图片", ""); if (!prompt || !prompt.trim()) return; (async () => { const response = await fetch(url); if (!response.ok) throw new Error("图片读取失败"); const data = new FormData(); data.append("prompt", prompt.trim()); data.append("model", "gpt-image-2"); data.append("images", await response.blob(), "ppt-image.png"); const r = await fetch("/api/generate", { method: "POST", body: data }); const out = await r.json().catch(() => ({})); if (!r.ok) throw new Error(out.error || "图片编辑失败"); const result = out.images?.[0] || out.data?.[0]?.url || out.url; if (!result) throw new Error("编辑接口未返回图片"); onResult?.(result); })().catch(e => alert("图片编辑失败：" + e.message)); } };
+})();

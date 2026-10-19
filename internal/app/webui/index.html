@@ -8,6 +8,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/ppt-effects.css">
   <script src="/lucide.1.2.1.min.js" defer></script>
 </head>
 
@@ -19,8 +20,8 @@
       <span class="brand-name">快马AI</span>
     </a>
     <div class="topbar-workbench">
-      <div id="genStatus" class="status gen-status" aria-live="polite" role="button" tabindex="0"
-        aria-expanded="true" title="点击收起状态信息">准备生成图片</div>
+      <div id="genStatus" class="status gen-status" aria-live="polite" role="button" tabindex="0" aria-expanded="true"
+        title="点击收起状态信息">准备生成图片</div>
       <div class="workbench-tabs">
         <input id="workflowId" name="workflow_id" type="hidden" value="single">
         <input id="workflowTemplates" name="workflow_templates" type="hidden" value="">
@@ -28,11 +29,13 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <a class="btn small" href="/ppt.html" style="text-decoration:none;margin-right:8px"><i data-lucide="presentation"
+          aria-hidden="true"></i><span>PPT 工作台</span></a>
       <button id="promoContact" class="billing-promo topbar-promo" type="button">
-        <i data-lucide="gift" aria-hidden="true"></i>
+        <i data-lucide="message-circle" aria-hidden="true"></i>
         <span>
-          <strong>限时优惠</strong>
-          <small>添加客服免费获取100张图片额度</small>
+          <strong>联系客服</strong>
+          <small></small>
         </span>
       </button>
 
@@ -466,6 +469,7 @@
             </button>
           </div>
         </div>
+        <p id="agentModelStatus" class="field-note" role="status" hidden></p>
         <div id="agentChatLog" class="agent-chat-log" aria-live="polite"></div>
         <form id="agentForm" class="agent-composer">
           <input id="agentImageInput" class="sr-only" type="file" accept="image/*" multiple>
@@ -481,6 +485,10 @@
                 <i data-lucide="circle-x" aria-hidden="true"></i>
                 <span>取消</span>
               </button>
+              <label class="agent-model-picker" for="agentModel">
+                <span>模型</span>
+                <select id="agentModel" disabled><option value="">加载中…</option></select>
+              </label>
               <button class="btn primary" type="submit">
                 <i data-lucide="send-horizontal" aria-hidden="true"></i>
                 <span>发送</span>
@@ -557,6 +565,9 @@
           </div>
           <label class="field fine-note"><span>整体备注</span><textarea id="fineEditorNote"
               placeholder="例如：保持人物身份、构图和光影不变，整体风格要自然。"></textarea></label>
+          <label class="field fine-model"><span>生图模型</span><select id="fineEditorImageModel">
+              <option value="gpt-image-2">正在加载模型…</option>
+            </select></label>
           <div class="field fine-supplements">
             <label>补充参考图</label>
             <label class="upload-button" for="fineEditorFiles"><span class="upload-icon"><i data-lucide="images"
@@ -573,6 +584,7 @@
         <div class="retouch-toolbar">
           <button class="btn small active" type="button" data-retouch-tool="pan" title="拖动画布（H）"><i
               data-lucide="hand"></i><span></span></button>
+          <button id="retouchEffectsButton" class="btn small" type="button" title="滤镜"><i data-lucide="wand-sparkles"></i><span>滤镜</span></button>
           <details id="retouchPaintMenu" class="retouch-menu retouch-tool-picker">
             <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">修复</span><i
                 data-lucide="chevron-down"></i></summary>
@@ -765,7 +777,6 @@
               <li>欢迎反馈意见与bug</li>
               <li>单张图片/视频速度约1-5分钟，如遇算力波动，请耐心等待或者稍后重试</li>
               <li>如需稳定大量生图/视频 个性化工作流 API接口等 请联系开通SVIP </li>
-              <li><span style="color:var(--accent-2);">限时推广</span> 添加客服发送账号名可免费领取100张图片额度 </li>
             </ul>
           </div>
         </div>
@@ -836,7 +847,8 @@
     </div>
   </div>
 
-  <script src="/app-icons.js"></script>
+        <script src="/ppt-effects.js"></script>
+        <script src="/app-icons.js"></script>
   <script src="/app-shared.js"></script>
   <script src="/app-billing.js"></script>
   <script src="/app-history.js"></script>

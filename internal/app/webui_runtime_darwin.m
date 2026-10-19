@@ -6,6 +6,7 @@
 
 extern void goWebUITrayReady(void);
 extern void goWebUITrayOpen(void);
+extern void goWebUITrayPPT(void);
 extern void goWebUITrayExit(void);
 
 @interface KuaimaTrayTarget : NSObject
@@ -15,6 +16,11 @@ extern void goWebUITrayExit(void);
 - (void)openClicked:(id)sender {
 	(void)sender;
 	goWebUITrayOpen();
+}
+
+- (void)pptClicked:(id)sender {
+	(void)sender;
+	goWebUITrayPPT();
 }
 
 - (void)exitClicked:(id)sender {
@@ -92,6 +98,9 @@ void webui_tray_run(const void *iconBytes, size_t iconLen) {
 			NSMenuItem *openItem = [[NSMenuItem alloc] initWithTitle:@"打开 WebUI" action:@selector(openClicked:) keyEquivalent:@""];
 			[openItem setTarget:trayTarget];
 			[menu addItem:openItem];
+			NSMenuItem *pptItem = [[NSMenuItem alloc] initWithTitle:@"PPT 工作台" action:@selector(pptClicked:) keyEquivalent:@""];
+			[pptItem setTarget:trayTarget];
+			[menu addItem:pptItem];
 			[menu addItem:[NSMenuItem separatorItem]];
 			NSMenuItem *exitItem = [[NSMenuItem alloc] initWithTitle:@"退出" action:@selector(exitClicked:) keyEquivalent:@""];
 			[exitItem setTarget:trayTarget];

@@ -7,9 +7,10 @@
 
 主要功能
 
-AI gpt-image-2 生图
+AI gpt-image-2.5 生图
 AI Mimimax-h3 seedance 视频生成
 AI 对话
+AI PPT制作
 
 电商套图一键生成工作流
 

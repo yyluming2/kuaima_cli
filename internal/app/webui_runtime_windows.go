@@ -4,6 +4,7 @@ package app
 
 import (
 	"encoding/binary"
+	"net/url"
 	"runtime"
 	"sync"
 	"syscall"
@@ -38,6 +39,7 @@ const (
 	trayID         = 1
 	trayOpenID     = 1001
 	trayExitID     = 1002
+	trayPPTID      = 1003
 	idiApplication = 32512
 	iconVersion    = 0x00030000
 )
@@ -212,6 +214,8 @@ func webUITrayWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr 
 		switch uint32(wParam & 0xffff) {
 		case trayOpenID:
 			openTrayWebUI()
+		case trayPPTID:
+			openTrayWebUIPath("/ppt.html")
 		case trayExitID:
 			stopTrayWebUI()
 			procDestroyWindow.Call(hwnd)
@@ -316,8 +320,10 @@ func showTrayMenu(hwnd uintptr) {
 	}
 	defer procDestroyMenu.Call(menu)
 	openText := syscall.StringToUTF16Ptr("打开 WebUI")
+	pptText := syscall.StringToUTF16Ptr("PPT 工作台")
 	exitText := syscall.StringToUTF16Ptr("退出")
 	procAppendMenuW.Call(menu, mfString, trayOpenID, uintptr(unsafe.Pointer(openText)))
+	procAppendMenuW.Call(menu, mfString, trayPPTID, uintptr(unsafe.Pointer(pptText)))
 	procAppendMenuW.Call(menu, mfString, trayExitID, uintptr(unsafe.Pointer(exitText)))
 	var p point
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&p)))
@@ -329,6 +335,10 @@ func showTrayMenu(hwnd uintptr) {
 }
 
 func openTrayWebUI() {
+	openTrayWebUIPath("")
+}
+
+func openTrayWebUIPath(path string) {
 	trayStateMu.Lock()
 	rawURL := ""
 	if trayState != nil {
@@ -336,6 +346,13 @@ func openTrayWebUI() {
 	}
 	trayStateMu.Unlock()
 	if rawURL != "" {
+		if path != "" {
+			parsed, err := url.Parse(rawURL)
+			if err != nil {
+				return
+			}
+			rawURL = parsed.ResolveReference(&url.URL{Path: path}).String()
+		}
 		_ = openBrowser(rawURL)
 	}
 }

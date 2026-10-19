@@ -69,6 +69,12 @@ func (s *responseImageSaver) saveCandidates(candidates []imageCandidate) ([]stri
 	for _, candidate := range candidates {
 		path, err := s.saveCandidate(candidate)
 		if err != nil {
+			// Some providers include an empty/placeholder result alongside the
+			// actual image. Ignore malformed base64 candidates so PPT retries can
+			// still use a valid image returned later in the response.
+			if strings.Contains(err.Error(), "decode image:") {
+				continue
+			}
 			return saved, err
 		}
 		if path != "" {

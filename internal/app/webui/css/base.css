@@ -89,6 +89,7 @@ textarea {
   font-weight: 760;
   text-decoration: none;
   color: var(--muted);
+  cursor: pointer;
 }
 
 .topbar-workbench {

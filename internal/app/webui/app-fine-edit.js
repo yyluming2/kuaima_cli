@@ -1,6 +1,15 @@
 (function () {
-  const state = { sourceURL: "", points: [], files: [], selectedIndex: -1, dragging: null };
+  const state = { sourceURL: "", points: [], files: [], selectedIndex: -1, dragging: null, onApply: null };
   const el = (id) => document.getElementById(id);
+  async function loadImageModels() {
+    const select = el("fineEditorImageModel");
+    if (!select) return;
+    try {
+      const data = await fetch("/api/ipricing").then(r => r.json());
+      const models = (data?.data?.img || data?.data?.image || []).filter(x => x?.model_name);
+      if (models.length) select.innerHTML = models.map(x => '<option value="' + esc(x.model_name) + '">' + esc(x.model_name) + '</option>').join("");
+    } catch (_) { /* keep the built-in model */ }
+  }
 
   function syncMarkerBounds() {
     const img = el("fineEditorImage");
@@ -91,15 +100,16 @@
     syncSourceEmpty(); syncMarkerBounds();
   }
 
+
   function openEmpty() {
     state.sourceURL = ""; state.points = []; state.selectedIndex = -1; state.files = [];
     el("fineEditorImage").removeAttribute("src"); el("fineEditorNote").value = ""; el("fineEditorStatus").textContent = "";
-    renderPoints(); renderFiles(); showPointTab(); el("imageModal").hidden = true; el("fineEditor").hidden = false;
+    renderPoints(); renderFiles(); showPointTab(); el("imageModal") && (el("imageModal").hidden = true); el("fineEditor").hidden = false;
   }
 
-  function open(url) {
+  function open(url, options) {
     if (!url) return;
-    state.sourceURL = url;
+    state.onApply = options?.onApply || null;    state.sourceURL = url;
     state.points = [];
     state.selectedIndex = -1;
     state.files = [];
@@ -110,23 +120,23 @@
     el("fineEditorStatus").textContent = "";
     syncSourceEmpty(); renderPoints();
     renderFiles();
+    // PPT image editing starts in the full manual editor.
+    if ((options?.initialTab === "manual" || /(?:^|\/)ppt(?:\.html)?$/.test(location.pathname)) && window.KuaimaRetouchEditor) {
+      window.KuaimaRetouchEditor.open(url, "pan");
+      return;
+    }
     showPointTab();
-    el("imageModal").hidden = true;
+    el("imageModal") && (el("imageModal").hidden = true);
     el("fineEditor").hidden = false;
   }
 
   function pointPrompt() {
     const lines = state.points.map((point, index) => {
       const description = point.description.trim();
-      return description ? (index + 1) + ". 修改点（横向 " + Math.round(point.x) + "%，纵向 " + Math.round(point.y) + "%）：" + description : "";
+      return description ? (index + 1) + '. 修改点（横向 ' + Math.round(point.x) + '%，纵向 ' + Math.round(point.y) + '%）：' + description : '';
     }).filter(Boolean);
-    const note = el("fineEditorNote").value.trim();
-    return [
-      "请以第1张图片为原图进行精细编辑。除明确要求的位置外，保持原图的主体身份、构图、比例、光影和其他细节不变。",
-      lines.length ? "位置修改要求：\n" + lines.join("\n") : "",
-      note ? "整体备注：\n" + note : "",
-      state.files.length ? "后续图片是补充参考图，仅用于辅助理解修改要求。" : "",
-    ].filter(Boolean).join("\n\n");
+    const note = el('fineEditorNote').value.trim();
+    return ['请以第1张图片为原图进行精细编辑。除明确要求的位置外，保持原图的主体身份、构图、比例、光影和其他细节不变。', lines.length ? '位置修改要求：\\n' + lines.join('\\n') : '', note ? '整体备注：\\n' + note : '', state.files.length ? '后续图片是补充参考图，仅用于辅助理解修改要求。' : ''].filter(Boolean).join('\\n');
   }
 
   async function sourceFile() {
@@ -149,8 +159,19 @@
     button.disabled = true;
     button.innerHTML = '<span class="spinner small"></span><span>生成中...</span>';
     el("fineEditorStatus").textContent = "正在准备并提交...";
+    if (state.onApply) {
+      try {
+        const sourceResponse = await fetch(state.sourceURL); const sourceBlob = await sourceResponse.blob();
+        const formData = new FormData(); formData.append("prompt", pointPrompt()); formData.append("model", el("fineEditorImageModel")?.value || "gpt-image-2"); formData.append("images", sourceBlob, "ppt-image.png");
+        const response = await fetch("/api/generate", { method: "POST", body: formData }); const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "图片编辑失败");
+        const result = payload.images?.[0] || payload.data?.[0]?.url || payload.url; if (!result) throw new Error("编辑接口未返回图片");
+        await state.onApply(result); close(); button.disabled = false; button.innerHTML = iconHTML("wand-sparkles") + "<span>确定</span>"; return;
+      } catch (error) { el("fineEditorStatus").textContent = "编辑失败：" + error.message; el("fineEditorStatus").className = "status error"; button.disabled = false; button.innerHTML = iconHTML("wand-sparkles") + "<span>确定</span>"; return; }
+    }
     let previousImages = null;
     let previousPrompt = "";
+    let previousModel = "";
     try {
       const source = await sourceFile();
       const supplements = await dedupeReferenceFiles(state.files, [source]);
@@ -159,6 +180,8 @@
       if (generateTab) generateTab.click();
       previousImages = selectedImages;
       previousPrompt = form.elements.prompt.value;
+      previousModel = form.elements.image_model?.value || "";
+      if (form.elements.image_model && el("fineEditorImageModel")?.value) form.elements.image_model.value = el("fineEditorImageModel").value;
       selectedImages = [source].concat(supplements);
       form.elements.prompt.value = pointPrompt();
       activeGenerationController = new AbortController();
@@ -186,6 +209,7 @@
       if (previousImages) {
         selectedImages = previousImages;
         el("genForm").elements.prompt.value = previousPrompt;
+        if (el("genForm").elements.image_model && previousModel) el("genForm").elements.image_model.value = previousModel;
         syncImageInput();
         renderImagePreviews();
       }
@@ -195,6 +219,7 @@
   }
 
   function init() {
+    loadImageModels();
     document.addEventListener("click", (event) => {
       if (event.target.closest("[data-fine-edit-tab]")) el("fineEditorSourceFiles").click();
     });
@@ -204,7 +229,7 @@
       event.target.value = "";
       if (file) open(imagePreviewURL(file));
     });
-    el("openFineEditor").addEventListener("click", () => open(el("imageModal").dataset.previewUrl));
+    el("openFineEditor")?.addEventListener("click", () => open(el("imageModal")?.dataset.previewUrl));
     document.querySelector('[data-editor-tab="point"]').addEventListener("click", showPointTab);
     document.querySelector('[data-editor-tab="manual"]').addEventListener("click", () => state.sourceURL ? window.KuaimaRetouchEditor.open(state.sourceURL, "pan") : window.KuaimaRetouchEditor.openEmpty("pan"));
     el("closeFineEditor").addEventListener("click", close);
@@ -293,6 +318,13 @@
       if (event.target.dataset.fineFileRemove != null) { state.files.splice(Number(event.target.dataset.fineFileRemove), 1); renderFiles(); }
     });
     el("applyFineEdit").addEventListener("click", apply);
+    el("applyFineEditHeader")?.addEventListener("click", () => {
+      if (!el("retouchEditor").hidden && state.onApply && window.KuaimaRetouchEditor) {
+        const result = window.KuaimaRetouchEditor.exportDataURL();
+        if (result) { state.onApply(result); close(); return; }
+      }
+      apply();
+    });
     window.addEventListener("resize", syncMarkerBounds);
   }
 

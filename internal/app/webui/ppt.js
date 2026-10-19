@@ -1,0 +1,937 @@
+(() => {
+  "use strict";
+  const moveStreamStatusToCanvas = () => { const status = document.querySelector("body > .ppt-stream-status"), canvas = document.querySelector(".canvas-wrap"); if (status && canvas) canvas.appendChild(status); };
+  const moveStreamStatusOnce = () => { moveStreamStatusToCanvas(); if (document.querySelector("body > .ppt-stream-status")) requestAnimationFrame(moveStreamStatusOnce); };
+  requestAnimationFrame(moveStreamStatusOnce);
+  const { useState, useEffect, useRef } = React, h = React.createElement;
+  const { names, defaults, boxStyle, fillStyle, imageFill, shapeStyle, visualStyle, normalizeDeck, textAlign, verticalAlign, textRuns, readEditableRuns, customPath, ImageBlock, imageCropStyle, elementTransform, api, readSSE, icon, Inspector } = window.PPTEditor;
+  const fallbackFonts = ["Microsoft YaHei", "SimSun", "SimHei", "Arial", "Calibri", "Aptos", "Times New Roman"];
+  const presentationFonts = deck => {
+    const found = new Set(), add = value => { if (typeof value === "string") value.split(",").map(item => item.trim()).filter(Boolean).forEach(item => found.add(item)); };
+    (deck?.theme?.fonts || []).forEach(add); (deck?.master?.fonts || []).forEach(add); add(deck?.master?.fontFamily);
+    (deck?.fontAssets || []).forEach(font => add(font?.family));
+    const elements = [...(deck?.master?.elements || []), ...(deck?.slides || []).flatMap(slide => slide.elements || [])];
+    elements.forEach(element => { add(element?.style?.fontFamily); add(element?.textStyle?.fontFamily); (element?.textRuns || []).forEach(run => add(run?.style?.fontFamily)); });
+    return [...found];
+  };
+  const pptReferences = () => ({ text: document.querySelector("#pptReferenceText")?.value || "", images: [...(document.querySelector("#pptReferenceImages")?.files || [])], deck: document.querySelector("#pptReferenceDeck")?.files?.[0] || null });
+  const referenceStatus = () => { const r = pptReferences(), el = document.querySelector("#pptReferenceStatus"); if (el) el.textContent = [r.images.length ? `${r.images.length} 张图片` : "", r.deck ? r.deck.name : ""].filter(Boolean).join(" · "); };
+  document.querySelector("#pptReferenceImages")?.addEventListener("change", referenceStatus);
+  document.querySelector("#pptReferenceDeck")?.addEventListener("change", referenceStatus);
+  setTimeout(() => [...document.querySelectorAll("button")].forEach(btn => { if (btn.textContent.includes("生成草稿")) btn.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.includes("生成草稿")) n.textContent = n.textContent.replace("生成草稿", "生成 PPT"); }); }), 0);
+  function App() {
+    useEffect(() => { const button = document.querySelector("#pptAiOpen"), bar = document.querySelector(".bar"), entry = document.querySelector(".ppt-ai-entry"); if (button && bar) { bar.appendChild(button); if (entry) entry.remove();[...bar.querySelectorAll("button")].forEach(node => { if (node !== button && node.textContent.includes("AI 制作 PPT")) { const text = node.querySelector("span"); if (text) text.textContent = "新建 PPT"; } }); } }, []);
+    const [masterMode, setMasterMode] = useState(false), [inspectorOpen, setInspectorOpen] = useState(true);
+    useEffect(() => { const button = document.querySelector("#pptInspectorReopen"), panel = document.querySelector(".side"), main = document.querySelector("main"); if (!button) return; button.hidden = false; button.setAttribute("aria-expanded", String(inspectorOpen)); button.title = inspectorOpen ? "收起属性" : "展开属性"; button.onclick = () => setInspectorOpen(v => !v); const place = () => { const rect = panel?.getBoundingClientRect(); if (rect) { button.style.left = `${Math.max(4, rect.left - button.offsetWidth)}px`; button.style.top = `${rect.top + 10}px`; button.style.right = "auto"; } }; place(); addEventListener("resize", place); main?.addEventListener("transitionend", place); return () => { removeEventListener("resize", place); main?.removeEventListener("transitionend", place); }; }, [inspectorOpen]);
+    useEffect(() => { const toggle = () => setInspectorOpen(v => !v); addEventListener("ppt-toggle-inspector", toggle); return () => removeEventListener("ppt-toggle-inspector", toggle); }, []);
+    const [localFonts, setLocalFonts] = useState(fallbackFonts);
+    const [exporting, setExporting] = useState(false), exportLock = useRef(false);
+    const formatPaintSource = useRef(null), [formatPaintActive, setFormatPaintActive] = useState(false);
+    const [deck, setDeck] = useState(null), [slide, setSlide] = useState(0), [thumbImages, setThumbImages] = useState({}), [selected, setSelected] = useState(null), [editing, setEditing] = useState(null), [topic, setTopic] = useState("产品介绍"), [theme, setTheme] = useState(""), [audience, setAudience] = useState(""), [references, setReferences] = useState(""), [images, setImages] = useState(""), [plan, setPlan] = useState(null), [busy, setBusy] = useState(false), [imageDropActive, setImageDropActive] = useState(false), [ocrBusy, setOcrBusy] = useState(false), [ocrTarget, setOcrTarget] = useState(null), [showJson, setShowJson] = useState(false), [showPageJson, setShowPageJson] = useState(false), [jsonText, setJsonText] = useState(""), [zoom, setZoom] = useState(1), [ocrMode, setOcrMode] = useState(false), [ocrRect, setOcrRect] = useState(null), [ocrProvider, setOcrProvider] = useState("local:PaddleOCR"), [originalPreviewId, setOriginalPreviewId] = useState(null), drag = useRef(null), resize = useRef(null), slideDrag = useRef(null), fileInput = useRef(null), openFileInput = useRef(null), imageTarget = useRef(null), backgroundTarget = useRef(false), editRef = useRef(null), history = useRef({ past: new Map(), future: new Map() }), clipboard = useRef(null), imageDragDepth = useRef(0), wheelLock = useRef(false), exported = useRef(false), selectedRef = useRef(null), elements = (masterMode ? deck?.master?.elements : deck?.slides?.[slide]?.elements) || [], current = elements.find(e => e.id === selected);
+    const fitZoom = () => { const main = document.querySelector("main"), canvasWrap = document.querySelector(".canvas-wrap"); if (!main || !canvasWrap || !W || !H) return; const availableW = Math.max(320, main.clientWidth - 170 - 40), availableH = Math.max(240, window.innerHeight - 210 - 140); setZoom(Math.max(.25, Math.min(2, Number(Math.min(availableW / W, availableH / H).toFixed(2))))); };
+    const fitInitialized = useRef(false);
+    useEffect(() => { if (!deck) { fitInitialized.current = false; return; } if (fitInitialized.current) return; fitInitialized.current = true; const id = requestAnimationFrame(fitZoom); return () => cancelAnimationFrame(id); }, [deck]);
+    useEffect(() => { document.body.classList.toggle("ppt-format-paint-active", formatPaintActive); return () => document.body.classList.remove("ppt-format-paint-active"); }, [formatPaintActive]);
+    useEffect(() => { const onKey = ev => { if (ev.key === "Escape" && formatPaintActive) { formatPaintSource.current = null; setFormatPaintActive(false); } }; addEventListener("keydown", onKey); return () => removeEventListener("keydown", onKey); }, [formatPaintActive]);
+    const selectElement = value => { selectedRef.current = value; setSelected(value); };
+    const applyFormatPaint = targetId => {
+      const sourceId = formatPaintSource.current, source = elements.find(e => e.id === sourceId), target = elements.find(e => e.id === targetId);
+      if (!source || !target || sourceId === targetId || target.locked) return;
+      update(e => { const textStyle = source.textStyle ? structuredClone(source.textStyle) : {}; const sourceRuns = Array.isArray(source.textRuns) ? source.textRuns : []; const baseRunStyle = sourceRuns[0]?.style || {}; e.style = { ...structuredClone(source.style || {}), ...textStyle, ...structuredClone(baseRunStyle) }; if (source.textStyle) e.textStyle = textStyle; if (Array.isArray(e.textRuns) && sourceRuns.length) e.textRuns = e.textRuns.map((run, index) => ({ ...run, style: { ...structuredClone(baseRunStyle), ...structuredClone(sourceRuns[index]?.style || {}) } })); }, targetId);
+
+    };
+    // Selecting an object should reveal the inspector, but editing a field must
+    // not close it.  An update rerenders the canvas and can briefly leave the
+    // derived `current` value unavailable; tying the open state to the
+    // selection's truthiness made that transient state hide the whole panel.
+    useEffect(() => { if (selected != null) setInspectorOpen(true); }, [selected]);
+    // Imported images may already be rendered with cover semantics while
+    // lacking explicit normalized crop values. Materialize those values so
+    // the inspector matches what the canvas shows.
+    useEffect(() => {
+      if (!deck?.slides?.length) return;
+      let cancelled = false;
+      const jobs = [];
+      deck.slides.forEach((s, si) => (s.elements || []).forEach((el, ei) => {
+        if (el.type !== "image" || !el.assetUrl || el.style?.crop) return;
+        const img = new Image();
+        jobs.push(new Promise(resolve => {
+          img.onload = () => {
+            const boxRatio = Number(el.width) / Math.max(1, Number(el.height)), ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
+            const crop = ratio > boxRatio ? { left: (1 - boxRatio / ratio) / 2, right: (1 - boxRatio / ratio) / 2, top: 0, bottom: 0 } : { left: 0, right: 0, top: (1 - ratio / boxRatio) / 2, bottom: (1 - ratio / boxRatio) / 2 };
+            resolve({ si, ei, crop });
+          }; img.onerror = () => resolve(null); img.src = el.assetUrl;
+        }));
+      }));
+      Promise.all(jobs).then(results => { if (cancelled || !results.some(Boolean)) return; setDeck(d => { const n = structuredClone(d); results.filter(Boolean).forEach(({ si, ei, crop }) => { const el = n.slides?.[si]?.elements?.[ei]; if (el && !el.style?.crop) el.style = { ...(el.style || {}), crop }; }); return n; }); });
+      return () => { cancelled = true; };
+    }, [deck]);
+    useEffect(() => { document.body.classList.toggle("ppt-ocr-busy", ocrBusy); document.body.classList.toggle("ppt-ocr-mode", ocrMode && !ocrBusy); return () => { document.body.classList.remove("ppt-ocr-busy", "ppt-ocr-mode"); }; }, [ocrBusy, ocrMode]);
+    useEffect(() => {
+      let cancelled = false;
+      if (typeof window.queryLocalFonts !== "function") return undefined;
+      window.queryLocalFonts().then(fonts => {
+        if (!cancelled) setLocalFonts([...new Set([...fallbackFonts, ...fonts.map(font => font.family).filter(Boolean)])]);
+      }).catch(() => { });
+      return () => { cancelled = true; };
+    }, [ocrBusy, ocrMode]);
+    const fontFamilies = [...new Set([...localFonts, ...presentationFonts(deck)])].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    // PPTX object ids are often reused on every slide. Clear stale selection
+    // state when changing pages so old SVG connectors and resize handles are
+    // removed instead of being associated with the new page.
+    // Selection is cleared explicitly when switching slides/modes.  Do not
+    // clear it from an effect: deck updates from inspector edits can coincide
+    // with a slide state refresh and would otherwise cancel the selection.
+    const thumbSignatures = useRef(new Map()), snapshotBatch = useRef(0);
+    useEffect(() => {
+      if (snapshotBatch.current) return undefined;
+      if (!deck?.slides?.length) { thumbSignatures.current.clear(); setThumbImages({}); return; }
+      let cancelled = false; const active = slide, missing = [];
+      deck.slides.forEach((s, i) => { const key = s.id || `slide-${i}`; let sig = ""; try { sig = JSON.stringify(s); } catch (_) { } if (thumbSignatures.current.get(key) !== sig || !thumbImages[key]) { thumbSignatures.current.set(key, sig); missing.push(i); } });
+      if (!missing.length) return undefined;
+      // Keep the previous image visible while the refreshed thumbnail is rendered.
+      (async () => { for (const i of missing) { const key = deck.slides[i].id || `slide-${i}`; try { const src = await pageSnapshot(i, deck); if (!cancelled) setThumbImages(v => ({ ...v, [key]: src })); } catch (_) { } } if (!cancelled) setSlide(active); })();
+      return () => { cancelled = true; };
+    }, [deck]);
+    useEffect(() => { const node = document.querySelector('#slides .thumb.active'); node?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [slide]);
+    const applyMasterToSlides = d => { const n = structuredClone(d), m = n.master || {}; n.theme = { ...n.theme, background: m.background || n.theme?.background, foreground: m.foreground || n.theme?.foreground, accent: m.accent || n.theme?.accent, fonts: m.fonts?.length ? m.fonts : n.theme?.fonts }; (n.slides || []).forEach(s => { const own = (s.elements || []).filter(e => !String(e.id).startsWith("master-")); const shared = (m.elements || []).map(e => ({ ...structuredClone(e), locked: true })); s.elements = [...shared, ...own]; own.forEach(e => { if (e.type !== "text") return; const isTitle = /title|heading/i.test(e.id || "") || Number(e.y) < 150; const fontSize = isTitle ? Number(m.titleSize) : Number(m.bodySize), color = (isTitle ? m.accent : m.foreground) || e.style?.color, fontFamily = m.fontFamily || e.style?.fontFamily; e.style = { ...e.style, ...(fontSize > 0 ? { fontSize } : {}), ...(fontFamily ? { fontFamily } : {}), ...(color ? { color } : {}) }; if (e.textStyle) e.textStyle = { ...e.textStyle, ...(fontSize > 0 ? { fontSize } : {}), ...(fontFamily ? { fontFamily } : {}) }; if (Array.isArray(e.textRuns)) e.textRuns = e.textRuns.map(run => ({ ...run, style: { ...run.style, ...(fontSize > 0 ? { fontSize } : {}), ...(fontFamily ? { fontFamily } : {}), ...(color ? { color } : {}) } })); }); }); return n; };
+    // Entering/leaving the master canvas is only an editing-mode change.  Do
+    // not materialize master typography when leaving it: doing so overwrites
+    // every slide's explicitly formatted text (and cannot be recovered by
+    // undo).  Master property changes are propagated by changeMaster itself.
+    const toggleMasterMode = () => { if (!deck) return; setMasterMode(v => !v); setSelected(null); setEditing(null); };
+    useEffect(() => { const m = document.querySelector("#pptMasterMode"), toolsBar = document.querySelector(".tools"), actions = document.querySelector(".ppt-toolbar-actions"); if (!m || !toolsBar || !actions) return; toolsBar.appendChild(actions); m.onclick = toggleMasterMode; if (m.dataset.mode !== String(masterMode)) { m.innerHTML = `<i data-lucide="layout-template"></i><span>${masterMode ? "退出母版画布" : "进入母版画布"}</span>`; m.dataset.mode = String(masterMode); window.lucide && window.lucide.createIcons(); } m.classList.toggle("active", masterMode); }, [masterMode, deck]);
+    useEffect(() => { const onPageMaster = () => { if (!deck?.master?.elements?.length) return; setDeck(d => { if (!d) return d; const n = structuredClone(d), shared = n.master.elements.map(e => ({ ...structuredClone(e), locked: true })); n.slides = (n.slides || []).map(s => ({ ...s, elements: [...shared, ...(s.elements || []).filter(e => !String(e.id).startsWith("master-"))] })); return n; }); }; addEventListener("ppt:page", onPageMaster); return () => removeEventListener("ppt:page", onPageMaster); }, [deck]);
+    const slideKey = (value, index = slide) => value?.slides?.[index]?.id || "slide-" + index;
+    const historyBucket = (value, index = slide) => { const key = slideKey(value, index), h = history.current; if (!h.past.has(key)) h.past.set(key, []); if (!h.future.has(key)) h.future.set(key, []); return { key, past: h.past.get(key), future: h.future.get(key) }; };
+    const resetHistory = () => { history.current = { past: new Map(), future: new Map() }; };
+    // All consumers capture the same editor canvas after committing the requested page.
+    const pageSnapshot = async (index = slide, value = deck) => {
+      if (!value?.slides?.[index]) throw new Error("页面不存在");
+      // Snapshot rendering is triggered after ordinary edits (for example by
+      // thumbnail refresh). It must not clear the user's active selection.
+      ReactDOM.flushSync(() => { if (value !== deck) setDeck(value); setSlide(index); setMasterMode(false); setEditing(null); });
+      // React may commit the slide change one frame later when thumbnails are
+      // rendered in a loop. Wait for the canvas to explicitly report the
+      // requested slide instead of capturing whichever page happened to be
+      // visible first.
+      await new Promise((resolve, reject) => {
+        const started = performance.now();
+        const wait = () => {
+          const node = document.querySelector('.canvas[data-slide-index]');
+          if (node && Number(node.dataset.slideIndex) === index) return resolve();
+          if (performance.now() - started > 5000) return reject(new Error('页面 Canvas 渲染超时'));
+          requestAnimationFrame(wait);
+        };
+        wait();
+      });
+      await document.fonts.ready;
+      const source = document.querySelector(".canvas");
+      if (!source) throw new Error("页面 Canvas 尚未就绪");
+      await Promise.all([...source.querySelectorAll("img")].map(img => img.decode()));
+      const clone = source.cloneNode(true), originals = [source, ...source.querySelectorAll("*")], copies = [clone, ...clone.querySelectorAll("*")];
+      const inline = async url => {
+        if (url.startsWith("data:")) return url;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("页面图片读取失败");
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); });
+      };
+      await Promise.all(copies.map(async (node, i) => {
+        const computed = getComputedStyle(originals[i]);
+        for (const property of computed) node.style.setProperty(property, computed.getPropertyValue(property));
+        if (node.tagName === "IMG") node.src = await inline(originals[i].currentSrc || originals[i].src);
+        const background = computed.backgroundImage;
+        const urls = [...background.matchAll(/url\(["']?(.*?)["']?\)/g)];
+        let next = background;
+        for (const match of urls) next = next.replace(match[0], `url("${await inline(match[1])}")`);
+        node.style.backgroundImage = next;
+      }));
+      clone.querySelectorAll(".handles, .resize-handle, .selection-box, .ocr-selection").forEach(node => node.remove());
+      clone.querySelectorAll(".selected").forEach(node => { node.style.outline = "none"; });
+      const width = Number(value.width) || 1280, height = Number(value.height) || 720;
+      Object.assign(clone.style, { transform: "none", width: width + "px", height: height + "px", margin: "0", border: "none", boxShadow: "none" });
+      const fonts = (value.fontAssets || []).filter(font => font.family && font.assetUrl).map(font => `@font-face{font-family:${JSON.stringify(font.family)};src:url("${font.assetUrl}");font-weight:${font.weight || 400};font-style:${font.style || "normal"};}`).join("");
+      const root = document.createElement("div"); root.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+      const style = document.createElement("style"); style.textContent = fonts; root.append(style, clone);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%">${new XMLSerializer().serializeToString(root)}</foreignObject></svg>`;
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => { try { const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height; canvas.getContext("2d").drawImage(image, 0, 0); resolve(canvas.toDataURL("image/png")); } catch (error) { reject(error); } };
+        image.onerror = () => reject(new Error("页面快照生成失败"));
+        image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      });
+    };
+    useEffect(() => {
+      window.PPTPageSnapshot = pageSnapshot;
+      window.PPTRenderDeckSnapshots = async value => {
+        const normalized = normalizeDeck(value), shots = [];
+        snapshotBatch.current++;
+        try { for (let index = 0; index < normalized.slides.length; index++) shots.push(await pageSnapshot(index, normalized)); }
+        finally { snapshotBatch.current--; }
+        ReactDOM.flushSync(() => setSlide(0));
+        return shots;
+      };
+    }, [deck, slide]);
+    useEffect(() => { const onGenerated = ev => { if (!ev.detail) return; setDeck(normalizeDeck(ev.detail)); resetHistory(); setSlide(0); setSelected(null); }; const onPage = ev => setDeck(d => { if (!d) return d; const detail = ev.detail || {}, n = structuredClone(d), at = Math.max(0, Math.min(Number.isInteger(detail.index) ? detail.index : slide, n.slides.length - 1)); if ((detail.action || detail) === "add") n.slides.splice(at + 1, 0, { id: "slide-" + Date.now(), layout: "content", elements: [] }); if ((ev.detail?.action || ev.detail) === "duplicate") n.slides.splice(at + 1, 0, structuredClone({ ...n.slides[at], id: "slide-" + Date.now() })); if ((ev.detail?.action || ev.detail) === "delete" && n.slides.length > 1) n.slides.splice(at, 1); return n; }); const onImagePage = async ev => { const index = Number(ev.detail); if (!deck || !Number.isInteger(index) || index < 0 || index >= deck.slides.length) return; setBusy(true); try { const r = await api("/api/ppt/images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ presentation: deck, slideIndex: index }) }); const out = await r.json(); if (out.presentation) { const bucket = historyBucket(deck, index); bucket.past.push(structuredClone(deck.slides[index])); bucket.future.length = 0; setDeck(normalizeDeck(out.presentation)); setSlide(index); } if (out.errors?.length) alert("配图生成失败：" + out.errors.join("\n")); } catch (e) { alert("配图生成失败，文字内容已保留：" + e.message); } finally { setBusy(false); } }; const onAIPage = async ev => { const detail = ev.detail || {}, index = Number(detail.index ?? detail); if (!deck || !Number.isInteger(index) || index < 0 || index >= deck.slides.length) return; setBusy(true); const status = document.createElement("div"); status.className = "ppt-stream-status ppt-regenerate-blocker"; status.textContent = "AI 正在用生图模型重绘当前页…"; (document.querySelector(".canvas-wrap") || document.body).appendChild(status); document.body.classList.add("ppt-regenerating"); try { const r = await api("/api/ppt/slide?stream=1", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "text/event-stream" }, body: JSON.stringify({ presentation: deck, slideIndex: index, prompt: detail.prompt || "", referenceImage: detail.referenceImage || "", imageModel: detail.imageModel || "", pageImage: detail.pageImage || await pageSnapshot(index) }) }); const out = await readSSE(r); if (!out || !out.slide) throw new Error("未返回生成页面数据"); setDeck(d => { const n = structuredClone(d), bucket = historyBucket(d, index); bucket.past.push(structuredClone(d.slides[index])); bucket.future.length = 0; n.slides[index] = { ...out.slide, id: d.slides[index].id || out.slide.id || "slide-" + index }; return n; }); setSlide(index); setSelected(null); detail.redesignOverlay?.remove(); } catch (e) { alert("AI 生成页面失败：" + e.message); } finally { if (status.parentNode) status.parentNode.removeChild(status); document.body.classList.remove("ppt-regenerating"); setBusy(false); } }; addEventListener("ppt:generated", onGenerated); addEventListener("ppt:page", onPage); addEventListener("ppt:image-page", onImagePage); addEventListener("ppt:ai-page", onAIPage); return () => { removeEventListener("ppt:generated", onGenerated); removeEventListener("ppt:page", onPage); removeEventListener("ppt:image-page", onImagePage); removeEventListener("ppt:ai-page", onAIPage); }; }, [slide, deck]);
+    const trackedSetDeck = fn => setDeck(d => {
+      const n = typeof fn === "function" ? fn(d) : fn;
+      if (!d || !n || n === d) return n;
+      if (d?.slides?.[slide] && n?.slides?.[slide] && JSON.stringify(d.slides[slide]) !== JSON.stringify(n.slides[slide])) {
+        const bucket = historyBucket(d); bucket.past.push(structuredClone(d.slides[slide]));
+        if (bucket.past.length > 100) bucket.past.shift();
+        bucket.future.length = 0;
+      }
+      return n;
+    });
+    const update = (fn, targetId = selectedRef.current ?? selected, track = true) => {
+      // Property edits originate in the inspector, so keep the edited object
+      // selected even if the canvas rerenders while the input is committing.
+      if (targetId != null) selectElement(targetId);
+      return (track ? trackedSetDeck : setDeck)(d => {
+        // Canvas editing can blur after another object has been selected.  Do
+        // not resolve the target from the mutable `selected` state at commit
+        // time; callers editing a specific object pass its id explicitly.
+        const n = structuredClone(d), e = masterMode ? n.master?.elements?.find(e => e.id === targetId) : n.slides[slide].elements.find(e => e.id === targetId);
+        if (e && (masterMode || !e.locked)) fn(e);
+        return n
+      });
+    };
+    const ocrCache = useRef(new Map());
+    const imageAtPoint = (x, y) => (deck?.slides?.[slide]?.elements || []).filter(e => e.type === "image" && e.assetUrl && x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height).sort((a, b) => (Number(b.zIndex) || 0) - (Number(a.zIndex) || 0))[0] || null;
+    const ocrKey = image => {
+      const src = String(image?.assetUrl || "");
+      return `${slideKey(deck, slide)}|${image?.id || "image"}|${ocrProvider}|${src.length}:${src.slice(0, 24)}:${src.slice(-24)}`;
+    };
+    const cachedOCRAtPoint = (image, x, y) => {
+      const entry = image ? ocrCache.current.get(ocrKey(image)) : null;
+      const item = (entry?.items || []).filter(e => x >= e.x && x <= e.x + e.width && y >= e.y && y <= e.y + e.height)
+        .sort((a, b) => (a.width * a.height) - (b.width * b.height))[0] || null;
+      return { scanned: !!entry?.scanned, item };
+    };
+    const materializeOCR = item => {
+      if (!item) return false;
+      setDeck(d => {
+        const n = structuredClone(d), list = n.slides[slide].elements || (n.slides[slide].elements = []);
+        if (!list.some(e => e.id === item.id)) list.push(structuredClone(item));
+        return n;
+      });
+      setSelected(item.id); setEditing(item.id);
+      return true;
+    };
+    const runOCR = async (rect, image) => {
+      if (!deck || !rect || !image) return;
+      setBusy(true); setOcrBusy(true); setOcrTarget({ x: image.x, y: image.y, width: image.width, height: image.height, rotation: image.rotation || 0 }); setOcrRect(null);
+      try {
+        let imageData = image?.assetUrl || "";
+        // Data URLs are already inline. Generated images may be served from a
+        // short URL, so materialize the actual bytes before sending OCR.
+        if (imageData && !imageData.startsWith("data:image/")) {
+          const response = await fetch(imageData);
+          if (!response.ok) throw new Error(`图片读取失败（HTTP ${response.status}）`);
+          const blob = await response.blob();
+          imageData = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); });
+        }
+        const localRect = { ...rect, x: rect.x - Number(image.x || 0), y: rect.y - Number(image.y || 0), asset: imageData, cropWidth: image.width, cropHeight: image.height, imageOffsetX: image.x || 0, imageOffsetY: image.y || 0, scanAll: true };
+        const deckForOCR = structuredClone(deck);
+        if (imageData.startsWith("data:image/")) (deckForOCR.slides || []).forEach(s => (s.elements || []).forEach(e => { if (e.type === "image") e.assetUrl = ""; }));
+        const payload = { presentation: deckForOCR, slideIndex: slide, provider: ocrProvider, imageData, ...localRect };
+        console.info("[ppt-ocr] request", { provider: ocrProvider, slideIndex: slide, rect, bytes: new Blob([JSON.stringify(payload)]).size });
+        const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const out = await r.json().catch(() => ({}));
+        console.info("[ppt-ocr] response", { status: r.status, ok: r.ok, body: out });
+        if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`);
+        const items = (out.elements || []).filter(e => e?.type === "text");
+        ocrCache.current.set(ocrKey(image), { scanned: true, items });
+        const hit = items.filter(e => rect.x >= e.x && rect.x <= e.x + e.width && rect.y >= e.y && rect.y <= e.y + e.height).sort((a, b) => (a.width * a.height) - (b.width * b.height))[0];
+        materializeOCR(hit);
+      } catch (e) { alert("OCR 失败：" + e.message); } finally { setOcrBusy(false); setOcrTarget(null); setBusy(false); }
+    };
+    const convertImageToEditable = async image => {
+      if (!deck || !image) return;
+      setBusy(true); setOcrBusy(true); setOcrTarget({ x: image.x, y: image.y, width: image.width, height: image.height, rotation: image.rotation || 0 });
+      try {
+        let workingDeck = structuredClone(deck);
+        for (let pageIndex = slide; pageIndex < (workingDeck.slides || []).length; pageIndex++) {
+          const page = workingDeck.slides[pageIndex];
+          const pageImages = (page.elements || []).filter(e => e?.type === "image");
+          if (pageIndex !== slide && (pageImages.length !== 1 || (page.elements || []).length !== 1)) break;
+          const currentImage = pageImages[0];
+          if (!currentImage.originalAssetUrl) currentImage.originalAssetUrl = currentImage.assetUrl;
+          setSlide(pageIndex); setSelected(null); setEditing(null);
+          setOcrTarget({ x: currentImage.x, y: currentImage.y, width: currentImage.width, height: currentImage.height, rotation: currentImage.rotation || 0 });
+          let imageData = currentImage.assetUrl || "";
+          if (imageData && !imageData.startsWith("data:image/")) { const response = await fetch(imageData); if (!response.ok) throw new Error(`图片读取失败（HTTP ${response.status}）`); const blob = await response.blob(); imageData = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); }); }
+          const deckForOCR = structuredClone(workingDeck);
+          (deckForOCR.slides || []).forEach(s => (s.elements || []).forEach(e => { if (e.type === "image") e.assetUrl = ""; }));
+          const payload = { presentation: deckForOCR, slideIndex: pageIndex, provider: ocrProvider, imageData, asset: imageData, x: 0, y: 0, width: currentImage.width, height: currentImage.height, cropWidth: currentImage.width, cropHeight: currentImage.height, imageOffsetX: currentImage.x || 0, imageOffsetY: currentImage.y || 0, scanAll: true, convertAll: true, repairBackground: true };
+          const r = await fetch("/api/ppt/ocr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const out = await r.json().catch(() => ({})); if (!r.ok) throw new Error(out.error || `OCR 请求失败（HTTP ${r.status}）`); if (!out.presentation) throw new Error("OCR 未返回转换后的页面");
+          const convertedPage = structuredClone(out.presentation.slides?.[pageIndex] || page);
+          // The server returns boxes in the full-image coordinate space. Map
+          // them into the image frame's normalized crop space on the client.
+          const crop = currentImage.style?.crop;
+          if (crop) {
+            const l = Math.max(0, Math.min(1, Number(crop.left) || 0)), t = Math.max(0, Math.min(1, Number(crop.top) || 0));
+            const sx = Math.max(1e-6, 1 - l - Math.max(0, Math.min(1, Number(crop.right) || 0))), sy = Math.max(1e-6, 1 - t - Math.max(0, Math.min(1, Number(crop.bottom) || 0)));
+            (convertedPage.elements || []).forEach(el => { if (el.type !== "text") return; el.x = (Number(el.x) - l * currentImage.width) / sx; el.y = (Number(el.y) - t * currentImage.height) / sy; el.width = Number(el.width) / sx; el.height = Number(el.height) / sy; });
+            const bg = (convertedPage.elements || []).find(el => el.type === "image");
+            if (bg) bg.style = { ...(bg.style || {}), crop: structuredClone(crop) };
+          }
+          const convertedImage = (convertedPage.elements || []).find(e => e?.type === "image");
+          if (convertedImage && currentImage.originalAssetUrl) convertedImage.originalAssetUrl = currentImage.originalAssetUrl;
+          workingDeck.slides[pageIndex] = convertedPage;
+          setDeck(normalizeDeck(structuredClone(workingDeck)));
+        }
+        setDeck(normalizeDeck(workingDeck)); setSelected(null); setEditing(null);
+      } catch (e) { alert("转换失败：" + e.message); } finally { setOcrBusy(false); setOcrTarget(null); setBusy(false); }
+    };
+    const ocrAtPoint = ev => {
+      const c = ev.target?.closest?.('.canvas'); if (!c) return false;
+      ev.preventDefault(); ev.stopPropagation();
+      const q = c.getBoundingClientRect();
+      const x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
+      const image = imageAtPoint(x, y); if (!image) return false;
+      const cached = cachedOCRAtPoint(image, x, y);
+      if (cached.scanned) {
+        materializeOCR(cached.item);
+      } else runOCR({ x, y, width: 0, height: 0 }, image);
+      return true;
+    };
+    const editImage = image => {
+      if (image?.assetUrl && window.KuaimaFineEditor) {
+        window.KuaimaFineEditor.open(image.assetUrl, { initialTab: "manual", onApply: next => update(e => { e.assetUrl = next; }, image.id) });
+      }
+    };
+    useEffect(() => {
+      if (!deck || !ocrMode) return;
+      const pick = ev => {
+        const el = ev.target?.closest?.('.el');
+        if (el && !el.classList.contains('image-el')) return;
+        const c = ev.target?.closest?.('.canvas'); if (!c) return;
+        const q = c.getBoundingClientRect(), x = (ev.clientX - q.left) * W / q.width, y = (ev.clientY - q.top) * H / q.height;
+        ocrAtPoint(ev);
+      };
+      document.addEventListener('dblclick', pick, true);
+      return () => document.removeEventListener('dblclick', pick, true);
+    }, [deck, slide, ocrProvider, ocrMode]);
+    useEffect(() => {
+      document.querySelectorAll('.ocr-selection').forEach(n => n.remove());
+      if (!ocrMode || !ocrRect) return;
+      const c = document.querySelector('.canvas'); if (!c) return;
+      const n = document.createElement('div'); n.className = 'ocr-selection'; Object.assign(n.style, { left: `${ocrRect.x}px`, top: `${ocrRect.y}px`, width: `${ocrRect.width}px`, height: `${ocrRect.height}px` }); c.appendChild(n);
+      return () => n.remove();
+    }, [ocrMode, ocrRect, slide]);
+    useEffect(() => {
+      const tools = document.querySelector('.tools'); if (!tools) return;
+      const wrap = document.createElement('label'); wrap.className = 'ocr-engine-picker'; wrap.title = 'OCR 引擎';
+      const select = document.createElement('select'); select.setAttribute('aria-label', 'OCR 引擎');
+      select.innerHTML = '<option disabled>正在读取本地模型…</option>';
+      wrap.appendChild(select); wrap.hidden = true; const ocrButton = tools.querySelector('.ocr-tool-button'); if (ocrButton) { ocrButton.insertAdjacentElement('afterend', wrap); wrap.style.left = `${ocrButton.offsetLeft}px`; ocrButton.addEventListener('click', () => { wrap.hidden = !wrap.hidden; }); } else tools.insertBefore(wrap, tools.firstChild);
+      fetch('/api/ppt/ocr/models').then(r => r.json()).then(out => {
+        select.innerHTML = '';
+        (out.models || []).forEach(m => {
+          const o = document.createElement('option'); o.value = 'local:' + m.id;
+          o.textContent = '本地 PaddleOCR · ' + m.name;
+          if (m.available === false) { o.disabled = true; o.textContent += '（本地推理暂不可用）'; }
+          select.appendChild(o);
+        });
+        // Keep the paid/remote provider as the final option in the list.
+        const remote = document.createElement('option'); remote.value = 'remote'; remote.textContent = '远程 OCR（可能收费）'; select.appendChild(remote);
+        const local = [...select.options].find(option => option.value.startsWith('local:') && !option.disabled);
+        select.value = local ? local.value : 'local:PaddleOCR';
+        if (local) setOcrProvider(local.value);
+      }).catch(() => { select.innerHTML = '<option value="local:PaddleOCR">本地 PaddleOCR（未检测到模型）</option><option value="remote">远程 OCR（可能收费）</option>'; select.value = 'local:PaddleOCR'; });
+      select.onchange = () => setOcrProvider(select.value);
+      return () => wrap.remove();
+    }, [current?.type]);
+    const changeLayer = direction => {
+      if (!selected) return;
+      trackedSetDeck(d => {
+        const n = structuredClone(d);
+        const list = masterMode ? (n.master?.elements || []) : (n.slides?.[slide]?.elements || []);
+        const target = list.find(element => element.id === selected);
+        if (!target || (!masterMode && target.locked)) return d;
+        const ordered = list.map((element, index) => ({ element, index })).sort((a, b) => (Number(a.element.zIndex) || 0) - (Number(b.element.zIndex) || 0) || a.index - b.index).map(item => item.element);
+        const from = ordered.findIndex(element => element.id === selected);
+        const to = direction === "front" ? ordered.length - 1 : direction === "back" ? 0 : Math.max(0, Math.min(ordered.length - 1, from + (direction === "up" ? 1 : -1)));
+        if (from === to) return d;
+        ordered.splice(to, 0, ordered.splice(from, 1)[0]);
+        ordered.forEach((element, index) => { element.zIndex = index; });
+        if (masterMode) {
+          n.master.elements = ordered;
+          const layers = new Map(ordered.map(element => [element.id, element.zIndex]));
+          (n.slides || []).forEach(page => (page.elements || []).forEach(element => { if (layers.has(element.id)) element.zIndex = layers.get(element.id); }));
+        } else n.slides[slide].elements = ordered;
+        return n;
+      });
+    };
+    // Keyboard and modifier-drag operations share the same element model as
+    // the inspector, so they remain undoable and work on the master canvas.
+    const duplicateSelected = source => {
+      if (!source || source.locked || !deck) return null;
+      const copyId = `${source.id}-copy-${Date.now()}`;
+      const copy = structuredClone(source);
+      copy.id = copyId;
+      copy.x = Number(copy.x) + 10;
+      copy.y = Number(copy.y) + 10;
+      trackedSetDeck(d => {
+        const n = structuredClone(d);
+        const list = masterMode ? ((n.master || (n.master = {})).elements || (n.master.elements = [])) : (n.slides?.[slide]?.elements || []);
+        const maxZ = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1);
+        copy.zIndex = maxZ + 1;
+        list.push(structuredClone(copy));
+        if (masterMode) {
+          (n.slides || []).forEach(page => {
+            page.elements = [...(page.elements || []).filter(item => item.id !== copy.id), { ...structuredClone(copy), locked: true }];
+          });
+        }
+        return n;
+      });
+      setSelected(copyId);
+      return copyId;
+    };
+    const copySelected = () => {
+      const source = selectedRef.current ? elements.find(item => item.id === selectedRef.current) : current;
+      if (!source || source.locked) return null;
+      clipboard.current = structuredClone(source);
+      return clipboard.current;
+    };
+    const pasteElement = source => {
+      if (!source || source.locked || !deck) return null;
+      return duplicateSelected(structuredClone(source));
+    };
+    const W = Number(deck?.width) || 1280, H = Number(deck?.height) || 720;
+    const jsonSnapshot = current ? structuredClone(current) : null;
+    const pageJsonSnapshot = deck ? { ...deck, slides: (deck.slides || []).slice(slide, slide + 1) } : null;
+    useEffect(() => { if (showJson) setJsonText(JSON.stringify((current ? jsonSnapshot : pageJsonSnapshot) || {}, null, 2)); }, [showJson, selected, slide, deck]);
+    useEffect(() => { const onWheel = ev => { const target = ev.target; if (!target || !target.closest || !target.closest('.canvas-wrap') || target.closest('.ppt-notes-panel')) return; if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); ev.stopPropagation(); setZoom(z => Math.max(.25, Math.min(2, +(z + (ev.deltaY < 0 ? .1 : -.1)).toFixed(2)))); return; } ev.preventDefault(); if (wheelLock.current) return; wheelLock.current = true; setSlide(i => Math.max(0, Math.min((deck?.slides?.length || 1) - 1, i + (ev.deltaY > 0 ? 1 : -1)))); setSelected(null); setTimeout(() => { wheelLock.current = false; }, 180); }; document.addEventListener('wheel', onWheel, { passive: false, capture: true }); return () => document.removeEventListener('wheel', onWheel, { capture: true }); }, [deck]);
+    const undo = () => setDeck(d => { if (!d?.slides?.[slide]) return d; const bucket = historyBucket(d); if (!bucket.past.length) return d; bucket.future.push(structuredClone(d.slides[slide])); const n = structuredClone(d); n.slides[slide] = bucket.past.pop(); setSelected(null); setEditing(null); return n; });
+    const redo = () => setDeck(d => { if (!d?.slides?.[slide]) return d; const bucket = historyBucket(d); if (!bucket.future.length) return d; bucket.past.push(structuredClone(d.slides[slide])); const n = structuredClone(d); n.slides[slide] = bucket.future.pop(); setSelected(null); setEditing(null); return n; });
+    useEffect(() => {
+      if (!editing || !editRef.current) return;
+      editRef.current.focus();
+      const range = document.createRange();
+      range.selectNodeContents(editRef.current);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }, [editing]);
+    useEffect(() => { const onEditable = async ev => { const index = Number(ev.detail); if (!deck || !Number.isInteger(index)) return; setBusy(true); try { const r = await api("/api/ppt/image-to-editable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ presentation: deck, slideIndex: index }) }); const out = await r.json(); if (!r.ok) throw new Error(out.error || "转换失败"); setDeck(normalizeDeck(out.presentation)); setSlide(index); } catch (e) { alert("转换失败：" + e.message); } finally { setBusy(false); } }; addEventListener("ppt:image-editable", onEditable); return () => removeEventListener("ppt:image-editable", onEditable); }, [deck]);
+    const generate = async () => {
+      const hasContent = !!deck?.slides?.some(s => (s.elements || []).length > 0);
+      if (hasContent && !window.confirm("新建 PPT 将清空当前内容，且当前编辑无法恢复。确定继续吗？")) return;
+      setBusy(true);
+      try {
+        const refs = pptReferences();
+        const r = await api("/api/ppt/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: topic, theme, references: refs.text ? [refs.text] : [] }) });
+        setDeck(normalizeDeck(await r.json()));
+        resetHistory();
+        setSlide(0);
+        setSelected(null)
+      } catch (e) { alert("生成草稿失败：" + e.message) } finally { setBusy(false) }
+    };
+    const generateApproved = async () => {
+      if (!plan) return;
+      setBusy(true);
+      try {
+        const r = await api("/api/ppt/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(plan) });
+        setDeck(normalizeDeck(await r.json()));
+        resetHistory();
+        setSlide(0);
+        setSelected(null)
+        setPlan(null);
+      } catch (e) { alert("生成 PPT 失败：" + e.message) } finally { setBusy(false) }
+    };
+    // Start with an empty canvas; the AI 制作入口 is the explicit creation flow.
+    useEffect(() => { const color = deck?.theme?.background || "#fff"; document.querySelectorAll(".canvas, .thumb-preview").forEach(el => { el.style.background = color; }); }, [deck]);
+    useEffect(() => { document.body.classList.toggle("ppt-master-editing", masterMode); const color = masterMode ? (deck?.master?.background || deck?.theme?.background || "#fff") : (deck?.theme?.background || deck?.master?.background || "#fff"); document.documentElement.style.setProperty("--ppt-master-bg", color); document.querySelectorAll(".canvas, .thumb-preview").forEach(el => { el.style.background = color; }); return () => document.body.classList.remove("ppt-master-editing"); }, [masterMode, deck]);
+    const insertImage = (data, point) => {
+      if (!deck || !data) return;
+      const width = 420, height = 260;
+      const x = Number.isFinite(point?.x) ? Math.max(0, Math.min(W - width, point.x - width / 2)) : 120;
+      const y = Number.isFinite(point?.y) ? Math.max(0, Math.min(H - height, point.y - height / 2)) : 120;
+      const e = { id: "image-" + Date.now(), type: "image", x, y, width, height, content: "", assetUrl: data, style: { ...defaults } };
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const list = n.master.elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; const me = { ...e, id: "master-" + e.id, locked: false }; n.master.elements = [...list, me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), { ...me, locked: true }]; }); } else { const list = n.slides[slide].elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; list.push(e); } return n });
+      setSelected(masterMode ? "master-" + e.id : e.id)
+    };
+    const canvasBlob = canvas => new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("图片编码失败")), "image/png"));
+    const loadCanvasImage = src => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("图片读取失败")); image.src = src; });
+    const renderCanvasImage = async image => {
+      const source = await loadCanvasImage(image.assetUrl), output = document.createElement("canvas"), context = output.getContext("2d");
+      output.width = Math.max(1, Math.round(W)); output.height = Math.max(1, Math.round(H));
+      const crop = image.style?.crop || {}, left = Math.max(0, Math.min(.99, Number(crop.left) || 0)), top = Math.max(0, Math.min(.99, Number(crop.top) || 0));
+      const right = Math.max(0, Math.min(.99 - left, Number(crop.right) || 0)), bottom = Math.max(0, Math.min(.99 - top, Number(crop.bottom) || 0));
+      context.drawImage(source, left * source.naturalWidth, top * source.naturalHeight, Math.max(1, (1 - left - right) * source.naturalWidth), Math.max(1, (1 - top - bottom) * source.naturalHeight), 0, 0, output.width, output.height);
+      return output;
+    };
+    const pointInPolygon = (x, y, polygon) => { let inside = false; for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) { const a = polygon[i], b = polygon[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y || 1e-9) + a.x) inside = !inside; } return inside; };
+    const polygonBounds = polygon => { const xs = polygon.map(point => point.x), ys = polygon.map(point => point.y), x = Math.min(...xs), y = Math.min(...ys); return { x, y, width: Math.max(1, Math.max(...xs) - x), height: Math.max(1, Math.max(...ys) - y) }; };
+    const maskCanvasPolygon = (source, polygon, rect) => { const output = document.createElement("canvas"); output.width = source.width; output.height = source.height; const context = output.getContext("2d"); context.drawImage(source, 0, 0); context.globalCompositeOperation = "destination-in"; context.beginPath(); polygon.forEach((point, index) => { const x = (point.x - rect.x) * output.width / rect.width, y = (point.y - rect.y) * output.height / rect.height; index ? context.lineTo(x, y) : context.moveTo(x, y); }); context.closePath(); context.fill(); return output; };
+    const repairCanvasRegion = (source, rect, polygon) => {
+      const output = document.createElement("canvas"); output.width = source.width; output.height = source.height;
+      const context = output.getContext("2d", { willReadFrequently: true }); context.drawImage(source, 0, 0);
+      const data = context.getImageData(0, 0, output.width, output.height), original = new Uint8ClampedArray(data.data);
+      const x0 = Math.max(1, Math.floor(rect.x)), y0 = Math.max(1, Math.floor(rect.y)), x1 = Math.min(output.width - 2, Math.ceil(rect.x + rect.width)), y1 = Math.min(output.height - 2, Math.ceil(rect.y + rect.height));
+      const sample = (x, y, channel) => original[(Math.max(0, Math.min(output.height - 1, y)) * output.width + Math.max(0, Math.min(output.width - 1, x))) * 4 + channel];
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        if (polygon && !pointInPolygon(x + .5, y + .5, polygon)) continue;
+        const horizontal = (x - x0) / Math.max(1, x1 - x0 - 1), vertical = (y - y0) / Math.max(1, y1 - y0 - 1);
+        const edgeX = Math.min(x - x0 + 1, x1 - x), edgeY = Math.min(y - y0 + 1, y1 - y), favorHorizontal = edgeX / Math.max(1, edgeX + edgeY), at = (y * output.width + x) * 4;
+        for (let channel = 0; channel < 3; channel++) {
+          const lr = sample(x0 - 1, y, channel) * (1 - horizontal) + sample(x1, y, channel) * horizontal;
+          const tb = sample(x, y0 - 1, channel) * (1 - vertical) + sample(x, y1, channel) * vertical;
+          data.data[at + channel] = Math.round(lr * (1 - favorHorizontal) + tb * favorHorizontal);
+        }
+        data.data[at + 3] = 255;
+      }
+      context.putImageData(data, 0, 0); return output;
+    };
+    const cutoutCanvas = async (source, profile) => {
+      const form = new FormData(); form.append("image", await canvasBlob(source), "layer.png"); form.append("edge", "fine"); if (profile) form.append("profile", profile);
+      const response = await fetch("/api/image/remove-background", { method: "POST", headers: { Accept: "image/png" }, body: form });
+      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "抠图失败"); }
+      const blob = await response.blob(), url = URL.createObjectURL(blob);
+      try { const image = await loadCanvasImage(url), output = document.createElement("canvas"); output.width = source.width; output.height = source.height; output.getContext("2d").drawImage(image, 0, 0); return output; } finally { URL.revokeObjectURL(url); }
+    };
+    const openLayerCopy = async image => {
+      if (!image?.assetUrl) return;
+      let rendered, cutoutProfiles = [];
+      try { rendered = await renderCanvasImage(image); } catch (error) { alert("提取图层失败：" + error.message); return; }
+      try { const response = await fetch("/api/image/remove-background/profiles", { cache: "no-store" }); const body = await response.json(); if (response.ok) cutoutProfiles = Array.isArray(body.profiles) ? body.profiles : []; } catch (_) { }
+      const canvasNode = document.querySelector('.canvas'); if (!canvasNode) return; const canvasBox = canvasNode.getBoundingClientRect();
+      const overlay = document.createElement("div"); overlay.className = "ppt-layer-copy-overlay";
+      overlay.innerHTML = `<div class="ppt-layer-copy-stage drawing" role="dialog" aria-modal="true" aria-label="提取图层"><img alt="当前底图"><svg class="ppt-layer-copy-polygon" preserveAspectRatio="none"><defs><mask id="pptLayerCopyShade"><rect width="100%" height="100%" fill="white"></rect><polygon data-hole fill="black"></polygon></mask></defs><rect width="100%" height="100%" class="ppt-layer-copy-shade" mask="url(#pptLayerCopyShade)"></rect><polygon data-region class="ppt-layer-copy-region"></polygon><polyline data-draft class="ppt-layer-copy-draft"></polyline><g data-handles></g></svg><div class="ppt-layer-copy-actions"><select data-shape aria-label="选区形状"><option value="rect">矩形</option><option value="ellipse">圆形</option><option value="polygon">多边形</option></select>${cutoutProfiles.length ? '<label title="使用本地模型移除选区背景"><input data-cutout type="checkbox" checked> 抠图</label>' : ''}<span data-status>按住并拖动画出矩形</span><button data-cancel>取消</button><button data-submit class="primary" disabled>复制</button></div></div>`;
+      document.body.appendChild(overlay); overlay.querySelector("img").src = rendered.toDataURL("image/png");
+      const stage = overlay.querySelector(".ppt-layer-copy-stage"), polygonSVG = overlay.querySelector(".ppt-layer-copy-polygon"), region = overlay.querySelector("[data-region]"), draft = overlay.querySelector("[data-draft]"), hole = overlay.querySelector("[data-hole]"), handles = overlay.querySelector("[data-handles]"), actions = overlay.querySelector(".ppt-layer-copy-actions"), shapeSelect = overlay.querySelector("[data-shape]"), status = overlay.querySelector("[data-status]"), submit = overlay.querySelector("[data-submit]"); Object.assign(stage.style, { left: canvasBox.left + "px", top: canvasBox.top + "px", width: canvasBox.width + "px", height: canvasBox.height + "px" }); polygonSVG.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      let selectionType = "rect", shapeBox = null, points = [], hoverPoint = null, drawing = true, operation = null;
+      const ellipsePoints = box => Array.from({ length: 64 }, (_, index) => { const angle = Math.PI * 2 * index / 64; return { x: box.x + box.width / 2 + Math.cos(angle) * box.width / 2, y: box.y + box.height / 2 + Math.sin(angle) * box.height / 2 }; });
+      const selectionPoints = () => selectionType === "polygon" ? points : !shapeBox ? [] : selectionType === "ellipse" ? ellipsePoints(shapeBox) : [{ x: shapeBox.x, y: shapeBox.y }, { x: shapeBox.x + shapeBox.width, y: shapeBox.y }, { x: shapeBox.x + shapeBox.width, y: shapeBox.y + shapeBox.height }, { x: shapeBox.x, y: shapeBox.y + shapeBox.height }];
+      const paint = () => { const selectedPoints = selectionPoints(), value = selectedPoints.map(item => `${item.x},${item.y}`).join(" "), sx = stage.clientWidth / W, sy = stage.clientHeight / H, radiusX = 7 / Math.max(.01, sx), radiusY = 7 / Math.max(.01, sy); region.setAttribute("points", drawing && selectionType === "polygon" ? "" : value); hole.setAttribute("points", drawing && selectionType === "polygon" ? "" : value); draft.setAttribute("points", drawing && selectionType === "polygon" ? [...points, ...(hoverPoint && points.length ? [hoverPoint] : [])].map(item => `${item.x},${item.y}`).join(" ") : ""); if (selectionType === "polygon") handles.innerHTML = points.map((item, index) => { const vertex = `<ellipse class="ppt-layer-copy-vertex${drawing && index === 0 ? " first" : ""}" data-vertex="${index}" cx="${item.x}" cy="${item.y}" rx="${radiusX}" ry="${radiusY}"></ellipse>`; if (drawing) return vertex; const next = points[(index + 1) % points.length], mx = (item.x + next.x) / 2, my = (item.y + next.y) / 2; return `<ellipse class="ppt-layer-copy-midpoint" data-midpoint="${index}" cx="${mx}" cy="${my}" rx="${radiusX * .7}" ry="${radiusY * .7}"></ellipse>${vertex}`; }).join(""); else if (!shapeBox || drawing) handles.innerHTML = ""; else { const x0 = shapeBox.x, y0 = shapeBox.y, x1 = x0 + shapeBox.width, y1 = y0 + shapeBox.height, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, positions = selectionType === "ellipse" ? [["w", x0, cy], ["n", cx, y0], ["e", x1, cy], ["s", cx, y1]] : [["nw", x0, y0], ["ne", x1, y0], ["se", x1, y1], ["sw", x0, y1]]; handles.innerHTML = positions.map(([name, x, y]) => `<ellipse class="ppt-layer-copy-vertex" data-shape-handle="${name}" cx="${x}" cy="${y}" rx="${radiusX}" ry="${radiusY}"></ellipse>`).join(""); } const anchorPoints = selectedPoints.length ? selectedPoints : points, anchor = anchorPoints.length ? polygonBounds(anchorPoints) : { x: 8 / sx, y: 8 / sy, width: 0, height: 0 }, actionWidth = actions.offsetWidth || 360, actionHeight = actions.offsetHeight || 38; let left = (anchor.x + anchor.width) * sx + 10, top = anchor.y * sy; if (left + actionWidth > stage.clientWidth) left = Math.max(6, anchor.x * sx - actionWidth - 10); if (top + actionHeight > stage.clientHeight) top = Math.max(6, stage.clientHeight - actionHeight - 6); Object.assign(actions.style, { left: left + "px", top: top + "px" }); };
+      const point = event => { const box = stage.getBoundingClientRect(); return { x: (event.clientX - box.left) * W / box.width, y: (event.clientY - box.top) * H / box.height }; };
+      const finishDrawing = () => { if (points.length < 3) return; drawing = false; hoverPoint = null; stage.classList.remove("drawing"); submit.disabled = false; status.textContent = "拖动顶点调整，拉中点可加点"; paint(); };
+      const start = event => { const p = point(event); if (drawing) { if (selectionType !== "polygon") operation = { type: "draw", start: p }; else if (event.target.dataset.vertex === "0" && points.length >= 3) finishDrawing(); else if (event.detail > 1 && points.length >= 3) finishDrawing(); else points.push({ x: Math.max(0, Math.min(W, p.x)), y: Math.max(0, Math.min(H, p.y)) }); paint(); event.preventDefault(); return; } if (selectionType === "polygon" && event.target.dataset.midpoint != null) { const insertAt = Number(event.target.dataset.midpoint) + 1; points.splice(insertAt, 0, p); operation = { type: "vertex", index: insertAt }; paint(); } else if (selectionType === "polygon" && event.target.dataset.vertex != null) operation = { type: "vertex", index: Number(event.target.dataset.vertex) }; else if (selectionType !== "polygon" && event.target.dataset.shapeHandle) operation = { type: "shape-handle", handle: event.target.dataset.shapeHandle, initial: { ...shapeBox } }; else if (event.target === region) operation = { type: "move", start: p, initial: selectionType === "polygon" ? points.map(item => ({ ...item })) : { ...shapeBox } }; else return; event.preventDefault(); };
+      const moveSelection = event => {
+        const p = point(event);
+        if (drawing && selectionType === "polygon") { hoverPoint = p; paint(); return; }
+        if (!operation) return;
+        if (operation.type === "draw") {
+          if (selectionType === "ellipse") {
+            const dx = p.x - operation.start.x, dy = p.y - operation.start.y, size = Math.min(Math.max(Math.abs(dx), Math.abs(dy)), dx < 0 ? operation.start.x : W - operation.start.x, dy < 0 ? operation.start.y : H - operation.start.y);
+            shapeBox = { x: operation.start.x + (dx < 0 ? -size : 0), y: operation.start.y + (dy < 0 ? -size : 0), width: size, height: size };
+          } else {
+            const x = Math.max(0, Math.min(operation.start.x, p.x)), y = Math.max(0, Math.min(operation.start.y, p.y)), x1 = Math.min(W, Math.max(operation.start.x, p.x)), y1 = Math.min(H, Math.max(operation.start.y, p.y));
+            shapeBox = { x, y, width: x1 - x, height: y1 - y };
+          }
+        } else if (operation.type === "vertex") points[operation.index] = { x: Math.max(0, Math.min(W, p.x)), y: Math.max(0, Math.min(H, p.y)) };
+        else if (operation.type === "shape-handle") {
+          if (selectionType === "ellipse") {
+            const initial = operation.initial, cx = initial.x + initial.width / 2, cy = initial.y + initial.height / 2, radius = Math.max(2, Math.min(operation.handle === "w" || operation.handle === "e" ? Math.abs(p.x - cx) : Math.abs(p.y - cy), cx, W - cx, cy, H - cy));
+            shapeBox = { x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2 };
+          } else {
+            let x0 = operation.initial.x, y0 = operation.initial.y, x1 = x0 + operation.initial.width, y1 = y0 + operation.initial.height;
+            if (operation.handle.includes("w")) x0 = Math.min(x1 - 4, Math.max(0, p.x)); if (operation.handle.includes("e")) x1 = Math.max(x0 + 4, Math.min(W, p.x));
+            if (operation.handle.includes("n")) y0 = Math.min(y1 - 4, Math.max(0, p.y)); if (operation.handle.includes("s")) y1 = Math.max(y0 + 4, Math.min(H, p.y));
+            shapeBox = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+          }
+        } else if (selectionType === "polygon") {
+          const bounds = polygonBounds(operation.initial), dx = Math.max(-bounds.x, Math.min(W - bounds.x - bounds.width, p.x - operation.start.x)), dy = Math.max(-bounds.y, Math.min(H - bounds.y - bounds.height, p.y - operation.start.y));
+          points = operation.initial.map(item => ({ x: item.x + dx, y: item.y + dy }));
+        } else {
+          const initial = operation.initial, dx = Math.max(-initial.x, Math.min(W - initial.x - initial.width, p.x - operation.start.x)), dy = Math.max(-initial.y, Math.min(H - initial.y - initial.height, p.y - operation.start.y));
+          shapeBox = { ...initial, x: initial.x + dx, y: initial.y + dy };
+        }
+        paint();
+      };
+      const stop = () => { if (operation?.type === "draw") { if (shapeBox?.width >= 4 && shapeBox?.height >= 4) { drawing = false; stage.classList.remove("drawing"); submit.disabled = false; status.textContent = selectionType === "ellipse" ? "拖动圆形或控制点调整" : "拖动矩形或控制点调整"; } else shapeBox = null; paint(); } operation = null; };
+      stage.addEventListener("pointerdown", start); actions.addEventListener("pointerdown", event => event.stopPropagation()); addEventListener("pointermove", moveSelection); addEventListener("pointerup", stop); requestAnimationFrame(paint);
+      polygonSVG.addEventListener("dblclick", event => { if (drawing) { finishDrawing(); event.preventDefault(); return; } if (event.target.dataset.vertex == null || points.length <= 3) return; points.splice(Number(event.target.dataset.vertex), 1); paint(); event.preventDefault(); });
+      shapeSelect.onchange = () => { selectionType = shapeSelect.value; shapeBox = null; points = []; hoverPoint = null; operation = null; drawing = true; stage.classList.add("drawing"); submit.disabled = true; status.textContent = selectionType === "polygon" ? "逐点点击，点击起点或按 Enter 完成" : selectionType === "ellipse" ? "按住并拖动画出圆形" : "按住并拖动画出矩形"; paint(); };
+      const blockWheel = event => event.preventDefault(); overlay.addEventListener("wheel", blockWheel, { passive: false });
+      const close = () => { removeEventListener("pointermove", moveSelection); removeEventListener("pointerup", stop); removeEventListener("keydown", onKey); overlay.removeEventListener("wheel", blockWheel); overlay.remove(); };
+      const onKey = event => { if (event.key === "Escape") close(); else if (drawing && selectionType === "polygon" && event.key === "Enter") { event.preventDefault(); finishDrawing(); } else if (drawing && selectionType === "polygon" && event.key === "Backspace" && points.length) { event.preventDefault(); points.pop(); paint(); } }; addEventListener("keydown", onKey);
+      overlay.querySelector("[data-cancel]").onclick = close; overlay.onclick = event => { if (event.target === overlay) close(); };
+      overlay.querySelector("[data-submit]").onclick = async event => { const button = event.currentTarget; button.disabled = true; status.textContent = "处理中…"; try { const selectedPoints = selectionPoints(), rect = polygonBounds(selectedPoints), crop = document.createElement("canvas"); crop.width = Math.max(1, Math.round(rect.width)); crop.height = Math.max(1, Math.round(rect.height)); crop.getContext("2d").drawImage(rendered, rect.x, rect.y, rect.width, rect.height, 0, 0, crop.width, crop.height); const useCutout = !!overlay.querySelector("[data-cutout]")?.checked, profile = cutoutProfiles.find(item => item.default)?.id || cutoutProfiles[0]?.id || "", processed = useCutout ? await cutoutCanvas(crop, profile) : crop, layerCanvas = maskCanvasPolygon(processed, selectedPoints, rect), repaired = repairCanvasRegion(rendered, rect, selectedPoints), layerId = "image-layer-" + Date.now(); trackedSetDeck(d => { const n = structuredClone(d), list = n.slides[slide].elements || [], background = list.find(item => item.id === image.id); if (!background) return d; background.assetUrl = repaired.toDataURL("image/png"); background.style = { ...(background.style || {}), crop: { left: 0, right: 0, top: 0, bottom: 0 }, objectFit: "fill" }; list.push({ id: layerId, type: "image", x: rect.x, y: rect.y, width: rect.width, height: rect.height, assetUrl: layerCanvas.toDataURL("image/png"), content: "", zIndex: list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1, style: { ...defaults, objectFit: "fill" } }); return n; }); setSelected(layerId); close(); } catch (error) { status.textContent = ""; button.disabled = false; alert("提取图层失败：" + error.message); } };
+    };
+    const add = async type => {
+      if (!deck) return;
+      if (type === "enhance-image") { await applyImageEffect(); return; }
+      if (type === "ocr") { if (ocrProvider === "remote" && !window.confirm("远程 OCR 可能产生模型调用费用，继续吗？")) return; setOcrMode(v => !v); setOcrRect(null); return; }
+      if (type === "copy-layer") { openLayerCopy(current); return; }
+      if (type === "undo") { undo(); return; }
+      if (type === "redo") { redo(); return; }
+      if (type === "image") { imageTarget.current = null; fileInput.current?.click(); return }
+      const e = { id: type + "-" + Date.now(), type, x: 120, y: 120, width: 300, height: 100, content: { text: "双击编辑", shape: "", table: "A | B\n1 | 2", chart: "数据图表" }[type], style: { ...defaults, background: type === "shape" ? "#dbeafe" : "transparent", ...(type === "shape" ? { shape: "rect" } : {}) }, ...(type === "text" ? { textRuns: [{ content: "双击编辑", style: { ...defaults } }] } : {}) };
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode) { n.master = n.master || {}; const list = n.master.elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; const me = { ...e, id: "master-" + e.id, locked: false }; n.master.elements = [...list, me]; (n.slides || []).forEach(s => { s.elements = [...(s.elements || []).filter(x => x.id !== me.id), { ...me, locked: true }]; }); } else { const list = n.slides[slide].elements || []; e.zIndex = list.reduce((max, item) => Math.max(max, Number(item.zIndex) || 0), -1) + 1; list.push(e); } return n });
+      setSelected(masterMode ? "master-" + e.id : e.id);
+      if (type === "image") fileInput.current?.click()
+    };
+    const removeSelected = () => {
+      if (!selected || editing) return;
+      if (!window.confirm("确定要删除当前选中的元素吗？删除后无法恢复。")) return;
+      trackedSetDeck(d => { const n = structuredClone(d); if (masterMode && String(selected).startsWith("master-")) { n.master.elements = (n.master.elements || []).filter(e => e.id !== selected); (n.slides || []).forEach(s => { s.elements = (s.elements || []).filter(e => e.id !== selected); }); } else n.slides[slide].elements = n.slides[slide].elements.filter(e => e.id !== selected); return n });
+      setSelected(null)
+    };
+    const openDeck = () => { if (openFileInput.current) { openFileInput.current.accept = ".json,.pptx,image/*"; openFileInput.current.multiple = true; openFileInput.current.click(); } };
+    const loadDeckFile = ev => {
+      const files = [...(ev.target.files || [])]; ev.target.value = "";
+      if (!files.length) return;
+      const imageFiles = files.filter(file => file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name));
+      if (imageFiles.length === files.length) {
+        Promise.all(imageFiles.map(file => new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, data: reader.result });
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        }))).then(items => {
+          const width = 1280, height = 720;
+          const value = {
+            width, height, title: "图片演示文稿", theme: { background: "#ffffff", foreground: "#111827", accent: "#2563eb" }, master: { elements: [] }, slides: items.map((item, index) => ({
+              id: "slide-" + (index + 1), layout: "image", elements: [{ id: "image-" + (index + 1), type: "image", x: 0, y: 0, width, height, content: "", assetUrl: item.data, style: { ...defaults } }]
+            }))
+          };
+          setDeck(normalizeDeck(value)); resetHistory(); setSlide(0); setSelected(null); setEditing(null); setTopic("图片演示文稿");
+        }).catch(e => alert("打开图片失败：" + e.message));
+        return;
+      }
+      if (files.length > 1 || imageFiles.length) { alert("请一次选择一个 PPT/JSON 文件，或仅选择图片文件"); return; }
+      const file = files[0];
+      const reader = new FileReader();
+      reader.onload = async () => { const button = document.querySelector('[data-ppt-action="import"]'); button?.classList.add("ppt-io-active"); try { const isPptx = file.name.toLowerCase().endsWith(".pptx"); const response = await fetch("/api/pptx/import", { method: "POST", headers: { "Content-Type": isPptx ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/json" }, body: reader.result }); if (!response.ok) throw Error((await response.text()) || ("请求失败（" + response.status + "）")); const value = await response.json(); if (!value || !Array.isArray(value.slides) || !value.slides.length) throw Error("文件不是有效的 PPT 数据"); setDeck(normalizeDeck(value)); resetHistory(); setSlide(0); setSelected(null); setEditing(null); setTopic(value.title || "产品介绍"); } catch (e) { alert("打开 PPT 文件失败：" + e.message); } finally { button?.classList.remove("ppt-io-active"); } };
+      reader.readAsArrayBuffer(file);
+    };
+    useEffect(() => {
+      const onKeyDown = ev => {
+        const target = ev.target;
+        const tag = target?.tagName?.toLowerCase();
+        if (editing || tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "c" && selected) {
+          // Keep a structured copy in memory as a fallback for browsers that
+          // do not expose custom clipboard MIME types back to the page.
+          copySelected();
+          return;
+        }
+        if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
+        if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === "y" || (ev.key.toLowerCase() === "z" && ev.shiftKey))) { ev.preventDefault(); redo(); return; }
+        if (!editing) {
+          const key = ev.key;
+          if (key === "Tab") {
+            const ordered = [...elements].filter(item => masterMode || !item.locked).sort((a, b) => (Number(a.zIndex) || 0) - (Number(b.zIndex) || 0));
+            if (ordered.length) {
+              ev.preventDefault();
+              const at = ordered.findIndex(item => item.id === selected);
+              const next = at < 0 ? (ev.shiftKey ? ordered.length - 1 : 0) : (at + (ev.shiftKey ? -1 : 1) + ordered.length) % ordered.length;
+              setSelected(ordered[next].id);
+            }
+            return;
+          }
+        }
+        if (selected && !editing) {
+          const key = ev.key;
+          if (key === "PageUp" || key === "PageDown") {
+            ev.preventDefault();
+            if (key === "PageUp") changeLayer("up");
+            else changeLayer("down");
+            return;
+          }
+          if ((ev.ctrlKey || ev.metaKey) && (key === "ArrowUp" || key === "ArrowDown")) {
+            ev.preventDefault();
+            changeLayer(ev.shiftKey ? (key === "ArrowUp" ? "front" : "back") : (key === "ArrowUp" ? "up" : "down"));
+            return;
+          }
+          // Ctrl/Cmd+Shift+[ / ] sends to back/front, respectively.
+          if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && (key === "[" || key === "]" || key === "{" || key === "}")) {
+            ev.preventDefault();
+            changeLayer(key === "]" || key === "}" ? "front" : "back");
+            return;
+          }
+          if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key)) {
+            ev.preventDefault();
+            const step = ev.shiftKey ? 10 : 1;
+            const dx = key === "ArrowLeft" ? -step : key === "ArrowRight" ? step : 0;
+            const dy = key === "ArrowUp" ? -step : key === "ArrowDown" ? step : 0;
+            update(item => { item.x = Number(item.x || 0) + dx; item.y = Number(item.y || 0) + dy; });
+            return;
+          }
+        }
+        if ((ev.key === "Delete" || ev.key === "Backspace") && selected) {
+          ev.preventDefault();
+          removeSelected();
+        }
+      };
+      addEventListener("keydown", onKeyDown);
+      return () => removeEventListener("keydown", onKeyDown)
+    }, [selected, editing, slide, deck, elements, masterMode]);
+    useEffect(() => {
+      const MIME = "application/x-kuaima-ppt-element";
+      const copy = ev => {
+        if (editing || !selected) return;
+        const source = copySelected();
+        if (!source || !ev.clipboardData) return;
+        ev.clipboardData.setData(MIME, JSON.stringify(source));
+        // A readable fallback is useful when pasting into another app.
+        ev.clipboardData.setData("text/plain", source.content || "");
+        ev.preventDefault();
+      };
+      const paste = ev => {
+        if (editing) return;
+        const raw = ev.clipboardData?.getData(MIME);
+        if (raw) {
+          try {
+            const source = JSON.parse(raw);
+            if (source && typeof source === "object") {
+              clipboard.current = structuredClone(source);
+              pasteElement(source);
+              ev.preventDefault();
+              return;
+            }
+          } catch (_) { }
+        }
+        const i = [...(ev.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+        if (!i) return;
+        const f = i.getAsFile();
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = () => insertImage(r.result);
+        r.readAsDataURL(f);
+        ev.preventDefault()
+      };
+      addEventListener("copy", copy);
+      addEventListener("paste", paste);
+      return () => { removeEventListener("copy", copy); removeEventListener("paste", paste); };
+    }, [deck, slide, selected, editing, elements]);
+    const move = ev => {
+      const d = drag.current, r = resize.current, c = (d || r)?.canvas;
+      if (!c) return;
+      const q = c.getBoundingClientRect(), dx = (ev.clientX - (d || r).x) * W / q.width, dy = (ev.clientY - (d || r).y) * H / q.height;
+      if (d) {
+        d.current = { x: d.ex + dx, y: d.ey + dy };
+        const node = c.querySelector(`[data-ppt-id="${CSS.escape(d.id)}"]`);
+        if (node) { node.style.left = d.current.x / W * 100 + "%"; node.style.top = d.current.y / H * 100 + "%"; }
+      } else {
+        let x = r.ex, y = r.ey, w = r.ew, h = r.eh;
+        if (r.dir.includes("e")) w = Math.max(40, r.ew + dx);
+        if (r.dir.includes("s")) h = Math.max(30, r.eh + dy);
+        if (r.dir.includes("w")) {
+          w = Math.max(40, r.ew - dx);
+          x = r.ex + dx
+        } if (r.dir.includes("n")) {
+          h = Math.max(30, r.eh - dy);
+          y = r.ey + dy
+        }
+        r.current = { x, y, width: w, height: h };
+        const node = c.querySelector(`[data-ppt-id="${CSS.escape(r.id)}"]`);
+        if (node) { node.style.left = x / W * 100 + "%"; node.style.top = y / H * 100 + "%"; node.style.width = w / W * 100 + "%"; node.style.height = h / H * 100 + "%"; }
+      }
+    };
+    useEffect(() => {
+      const up = () => {
+        const operation = drag.current || resize.current;
+        if (operation?.before && operation.current) setDeck(d => {
+          const n = structuredClone(d), target = (masterMode ? (n.master?.elements || []) : (n.slides?.[slide]?.elements || [])).find(e => e.id === operation.id);
+          if (!target) return d;
+          Object.assign(target, operation.current);
+          if (!masterMode) {
+            if (!operation.duplicated) {
+              const bucket = historyBucket(operation.before, 0);
+              bucket.past.push(structuredClone(operation.before.slides[0]));
+              if (bucket.past.length > 100) bucket.past.shift();
+              bucket.future.length = 0;
+            }
+          } else {
+            const moved = (n.master?.elements || []).find(e => e.id === operation.id);
+            (n.slides || []).forEach(page => { const item = (page.elements || []).find(e => e.id === operation.id); if (item && moved) Object.assign(item, moved); });
+          }
+          return n;
+        });
+        drag.current = null;
+        resize.current = null
+      };
+      addEventListener("mousemove", move);
+      addEventListener("mouseup", up);
+      return () => {
+        removeEventListener("mousemove", move);
+        removeEventListener("mouseup", up)
+      }
+    }, [selected, slide, deck]);
+    const changeMaster = fn => setDeck(d => { const n = structuredClone(d); n.master = n.master || {}; fn(n.master); return applyMasterToSlides(n); });
+    const exportDeck = async () => {
+      if (!deck || exportLock.current) return;
+      exportLock.current = true;
+      setExporting(true);
+      try {
+        // Let the loading state paint before serializing a large deck.
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        const r = await api("/api/pptx/export", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(deck) }), a = document.createElement("a");
+        let blob;
+        if ((r.headers.get("Content-Type") || "").includes("application/json")) {
+          const file = await r.json();
+          if (!file.data) throw new Error("导出接口未返回文件数据");
+          const binary = atob(file.data), chunks = [];
+          for (let offset = 0; offset < binary.length; offset += 65536) {
+            const part = binary.slice(offset, offset + 65536);
+            chunks.push(Uint8Array.from(part, ch => ch.charCodeAt(0)));
+          }
+          blob = new Blob(chunks, { type: file.contentType });
+        } else {
+          blob = await r.blob();
+        }
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = "presentation.pptx";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        exported.current = true;
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (e) { alert("导出失败：" + e.message) } finally { exportLock.current = false; setExporting(false); }
+    };
+    const slideImages = elements.filter(e => e.type === "image");
+    const currentSlide = !masterMode ? deck?.slides?.[slide] : null;
+    const onlyImagePage = !masterMode && slideImages.length === 1 && elements.length === 1;
+    const tools = [["undo", "undo-2", "撤销"], ["redo", "redo-2", "重做"], ...(current?.type === "text" || formatPaintActive ? [["format-paint", "paintbrush", "格式刷"]] : []), ["text", "type", "添加文本"], ["image", "image-plus", "添加图片"], ["shape", "shapes", "添加形状"]];
+    if (onlyImagePage) tools.push(["enhance-image", "wand-sparkles", "图片滤镜"]);
+    const fullCanvasImage = current?.type === "image" && Math.abs(Number(current.x) || 0) <= 1 && Math.abs(Number(current.y) || 0) <= 1 && Math.abs(Number(current.width) - W) <= 1 && Math.abs(Number(current.height) - H) <= 1 && Math.abs(Number(current.rotation) || 0) < .01;
+    if (current?.type === "image") { tools.push(["ocr", "scan-text", "识别文字"]); if (fullCanvasImage && !masterMode && !current.locked) tools.push(["copy-layer", "copy-plus", "提取图层"]); }
+    const originalImage = slideImages.find(e => e.originalAssetUrl);
+    const applyImageEffect = () => { const image = slideImages[0]; if (!image?.assetUrl || !window.KuaimaImageEffects) return; window.KuaimaImageEffects.openPicker(image.originalAssetUrl || image.assetUrl, src => update(e => { e.assetUrl = src; }, image.id)); };
+    if (originalImage) tools.push(["original", "scan-eye", originalPreviewId === originalImage.id ? "查看编辑结果" : "查看原图"]);
+    if (onlyImagePage) tools.push(["ocr-convert", "text-cursor-input", "一键转可编辑文字"]); const pageAction = (action, index = slide) => { if (action !== "delete" || (deck?.slides || []).length > 1) { if (action !== "delete") setSlide(index + 1); window.dispatchEvent(new CustomEvent("ppt:page", { detail: { action, index } })); } };
+    const openAIDialog = (index = slide) => {
+      const overlay = document.createElement("div"); overlay.className = "ppt-redesign-overlay"; overlay.innerHTML = `<div class="ppt-redesign-dialog"><h3>AI 重新设计第 ${index + 1} 页</h3><div class="ppt-redesign-current-thumb"><span>当前页面</span><img data-current-thumb alt="当前页缩略图"></div><textarea placeholder="例如：改成更简洁的科技风，突出数据结论"></textarea><label>参考图片（可选）<input type="file" accept="image/*"></label><div data-reference-preview></div><details class="ppt-redesign-model"><summary>生图模型（可选）</summary><select data-image-model><option value="">使用默认模型</option></select></details><div class="ppt-redesign-actions"><button data-cancel>取消</button><button class="primary" data-submit>开始设计</button></div></div>`; document.body.appendChild(overlay); let snapshot = ""; const submit = overlay.querySelector("[data-submit]"); submit.disabled = true; pageSnapshot(index).then(src => { const img = overlay.querySelector("[data-current-thumb]"); if (img) img.src = src; snapshot = src; submit.disabled = false; }).catch(error => { overlay.querySelector("[data-current-thumb]").alt = error.message; });
+      const saved = (() => { try { return JSON.parse(localStorage.getItem("ppt-redesign-preferences") || "{}"); } catch (_) { return {}; } })(); const textInput = overlay.querySelector("textarea"); textInput.value = saved.prompt || ""; const modelSelect = overlay.querySelector("[data-image-model]"); fetch("/api/ipricing").then(r => r.json()).then(d => { const models = d?.data?.img || d?.data?.image || []; modelSelect.innerHTML = '<option value="">使用默认模型</option>' + models.filter(x => x?.model_name).map(x => `<option value="${String(x.model_name).replace(/"/g, '&quot;')}">${x.model_name}</option>`).join(""); }).catch(() => { });
+      const fileInput = overlay.querySelector("input[type=file]"), preview = overlay.querySelector("[data-reference-preview]"); fileInput.onchange = () => { const f = fileInput.files[0]; preview.innerHTML = f ? `<img class="ppt-reference-thumb" src="${URL.createObjectURL(f)}" alt="参考图片缩略图">` : ""; };
+      const close = () => overlay.remove(); overlay.querySelector("[data-cancel]").onclick = close; overlay.onclick = e => { if (e.target === overlay) close() }; overlay.querySelector("[data-submit]").onclick = () => { const prompt = textInput.value.trim(); const imageModel = modelSelect.value; try { localStorage.setItem("ppt-redesign-preferences", JSON.stringify({ prompt, imageModel })); } catch (_) { } const file = fileInput.files[0]; const btn = overlay.querySelector("[data-submit]"); btn.disabled = true; btn.textContent = "正在设计…"; overlay.querySelector(".ppt-redesign-dialog").classList.add("is-generating"); const send = referenceImage => { window.dispatchEvent(new CustomEvent("ppt:ai-page", { detail: { index, prompt, referenceImage, imageModel, pageImage: snapshot, redesignOverlay: overlay } })); close(); }; if (file) { const reader = new FileReader(); reader.onload = () => send(reader.result); reader.readAsDataURL(file); } else send(""); };
+    };
+    const openOriginalCompare = async image => {
+      if (!image?.originalAssetUrl) return;
+      const overlay = document.createElement("div"); overlay.className = "ppt-compare-overlay";
+      overlay.innerHTML = `<div class="ppt-compare-dialog"><div class="ppt-compare-head"><b>原图对比</b><div><button data-restore title="删除当前页全部元素并恢复原图" aria-label="删除当前页全部元素并恢复原图"><i data-lucide="rotate-ccw"></i></button><button data-layout="side" title="左右对比" aria-label="左右对比"><i data-lucide="columns-2"></i></button><button data-layout="stack" title="上下对比" aria-label="上下对比"><i data-lucide="rows-2"></i></button><button data-close title="关闭" aria-label="关闭"><i data-lucide="x"></i></button></div></div><div class="ppt-compare-body side"><figure><div class="ppt-compare-image"><img data-original alt="原图"></div></figure><figure><div class="ppt-compare-image"><img data-current alt="当前页面"></div></figure></div></div>`;
+      document.body.appendChild(overlay);
+      window.lucide?.createIcons?.({ attrs: { "stroke-width": 2 } });
+      const original = overlay.querySelector("[data-original]");
+      original.src = image.originalAssetUrl;
+      const originalFrame = original.closest(".ppt-compare-image");
+      const canvasRatio = Number(deck?.width) > 0 && Number(deck?.height) > 0 ? Number(deck.width) / Number(deck.height) : 16 / 9;
+      if (originalFrame) originalFrame.style.aspectRatio = String(canvasRatio);
+      overlay.querySelectorAll(".ppt-compare-image").forEach(frame => { frame.style.aspectRatio = String(canvasRatio); });
+      Object.assign(original.style, imageCropStyle(image.style || {}));
+      try { overlay.querySelector("[data-current]").src = await pageSnapshot(slide); } catch (_) { }
+      overlay.querySelector("[data-close]").onclick = () => overlay.remove(); overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+      overlay.querySelector("[data-restore]").onclick = () => { if (!confirm("确定删除当前页全部元素并恢复为原图吗？此操作可通过撤销恢复。")) return; trackedSetDeck(d => { const n = structuredClone(d), s = n?.slides?.[slide]; if (!s) return d; const restored = { ...structuredClone(image), assetUrl: image.originalAssetUrl }; delete restored.originalAssetUrl; s.elements = [restored]; return n; }); setSelected(null); overlay.remove(); };
+      let scale = 1; const images = overlay.querySelectorAll(".ppt-compare-body img"); const applyScale = () => { const body = overlay.querySelector(".ppt-compare-body"); const side = body.classList.contains("side"); images.forEach((item, i) => { item.style.transform = `scale(${scale})`; item.style.transformOrigin = side ? (i === 0 ? "right center" : "left center") : (i === 0 ? "center bottom" : "center top"); }); }; const setLayout = layout => { overlay.querySelector(".ppt-compare-body").className = `ppt-compare-body ${layout}`; requestAnimationFrame(applyScale); }; overlay.querySelector("[data-layout=side]").onclick = () => setLayout("side"); overlay.querySelector("[data-layout=stack]").onclick = () => setLayout("stack"); images.forEach(img => img.addEventListener("wheel", e => { e.preventDefault(); scale = Math.max(.25, Math.min(4, scale * (e.deltaY < 0 ? 1.1 : .9))); applyScale(); }, { passive: false }));
+    };
+    const fitImage = async element => { if (!element?.assetUrl || !deck) return; const img = new Image(); img.onload = () => { const tw = Number(deck.width) || 1280, th = Number(deck.height) || 720, ratio = img.naturalWidth / img.naturalHeight, target = tw / th, crop = ratio > target ? { left: (1 - target / ratio) / 2, right: (1 - target / ratio) / 2, top: 0, bottom: 0 } : { left: 0, right: 0, top: (1 - ratio / target) / 2, bottom: (1 - ratio / target) / 2 }; update(e => { e.x = 0; e.y = 0; e.width = tw; e.height = th; e.style = { ...(e.style || {}), crop }; }, element.id); }; img.src = element.assetUrl; };
+    useEffect(() => {
+      const canvas = document.querySelector(".canvas");
+      if (!canvas) return;
+      const enter = ev => { if (!hasImageDrop(ev)) return; ev.preventDefault(); imageDragDepth.current += 1; setImageDropActive(true); };
+      const over = ev => { if (!hasImageDrop(ev)) return; ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; };
+      const leave = ev => { if (!hasImageDrop(ev)) return; ev.preventDefault(); imageDragDepth.current = Math.max(0, imageDragDepth.current - 1); if (!imageDragDepth.current) setImageDropActive(false); };
+      canvas.addEventListener("dragenter", enter); canvas.addEventListener("dragover", over); canvas.addEventListener("dragleave", leave); canvas.addEventListener("drop", handleCanvasDrop);
+      return () => { canvas.removeEventListener("dragenter", enter); canvas.removeEventListener("dragover", over); canvas.removeEventListener("dragleave", leave); canvas.removeEventListener("drop", handleCanvasDrop); };
+    }, [deck, slide, masterMode]);
+    const imageFile = file => file && (file.type?.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name || ""));
+    const presentationFile = file => file && /\.(pptx|json)$/i.test(file.name || "");
+    const readImageFile = file => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
+    const canvasDropPoint = ev => { const canvas = ev.currentTarget, box = canvas.getBoundingClientRect(); return { x: (ev.clientX - box.left) * W / Math.max(1, box.width), y: (ev.clientY - box.top) * H / Math.max(1, box.height) }; };
+    const hasImageDrop = ev => [...(ev.dataTransfer?.items || [])].some(item => item.kind === "file" && (item.type.startsWith("image/") || item.type === "application/json" || item.type.includes("presentation"))) || [...(ev.dataTransfer?.files || [])].some(file => imageFile(file) || presentationFile(file));
+    const handleCanvasDrop = async ev => {
+      if (!hasImageDrop(ev)) return;
+      ev.preventDefault();
+      imageDragDepth.current = 0;
+      setImageDropActive(false);
+      const files = [...(ev.dataTransfer?.files || [])];
+      const presentations = files.filter(presentationFile);
+      if (presentations.length) {
+        if (files.length !== 1) { alert("请一次拖入一个 PPTX 或 JSON 文件"); return; }
+        loadDeckFile({ target: { files: presentations, value: "" } });
+        return;
+      }
+      const images = files.filter(imageFile);
+      if (!images.length) return;
+      const point = canvasDropPoint(ev);
+      try {
+        for (const [index, file] of images.entries()) await readImageFile(file).then(data => insertImage(data, { x: point.x + index * 20, y: point.y + index * 20 }));
+      } catch (error) { alert("拖放图片失败：" + error.message); }
+    };
+    return h(React.Fragment, null, h("header", null, h("a", { className: "brand", onClick: () => location.href = "/" }, h("span", { className: "ppt-brand-mark", title: "返回首页" }), h("span", { id: "pptAppVersion", className: "app-version" })), h("b", null, "快马AI · PPT工作台"), h("div", { className: "bar" }, h("button", { "data-ppt-action": "import", onClick: openDeck }, icon("folder-open"), h("span", null, "打开 PPT 文件")), h("button", { onClick: generate, disabled: busy }, icon("sparkles"), h("span", null, "新建PPT")), h("button", { "data-ppt-action": "export", onClick: exportDeck, disabled: !deck || exporting, "aria-busy": exporting }, exporting ? h("span", { className: "ppt-export-spinner", "aria-hidden": true }) : icon("download"), h("span", { role: "status", "aria-live": "polite" }, exporting ? "正在导出…" : "导出 PPTX")), h("button", { onClick: () => { setShowPageJson(!current); setShowJson(true); }, disabled: !deck }, icon("code-2"), h("span", null, current ? "对象 JSON" : "页面 JSON")))), h("div", { className: "tools" }, ...tools.map(([t, i, l]) => h("button", { key: t, className: `${t === "ocr" ? `ocr-tool-button${ocrMode ? " active" : ""}` : ""}${t === "format-paint" && formatPaintActive ? " active" : ""}`, "aria-pressed": t === "ocr" ? String(ocrMode) : t === "format-paint" ? String(formatPaintActive) : undefined, disabled: t === "format-paint" && !current, title: t === "format-paint" ? "先选中源对象，再点击格式刷，然后点击目标对象（Esc 取消）" : undefined, onClick: () => t === "original" ? openOriginalCompare(originalImage) : t === "format-paint" ? (formatPaintActive ? (formatPaintSource.current = null, setFormatPaintActive(false)) : (formatPaintSource.current = current?.id, setFormatPaintActive(!!current))) : t === "ocr-convert" ? convertImageToEditable(slideImages[0]) : add(t) }, icon(i), h("span", null, l))), h("button", { className: "tool-ai-redesign", onClick: () => openAIDialog(slide), disabled: !deck, title: "AI重新设计当前页" }, icon("sparkles"), h("span", null, "AI重新生成")), h("span", { className: "zoom-tools" }, h("button", { onClick: () => setZoom(z => Math.max(.25, +(z - .1).toFixed(2))), disabled: zoom <= .25 }, "−"), h("span", { className: "zoom-value" }, `${Math.round(zoom * 100)}%`), h("button", { onClick: () => setZoom(z => Math.min(2, +(z + .1).toFixed(2))), disabled: zoom >= 2 }, "+"), h("button", { onClick: fitZoom, title: "适应画布和备注", "aria-label": "适应画布和备注" }, h("span", { className: "zoom-glyph", "aria-hidden": true }, "⛶")), h("button", { onClick: () => setZoom(1), title: "重置缩放", "aria-label": "重置缩放" }, h("span", { className: "zoom-glyph", "aria-hidden": true }, "↺"))), current && h("button", {
+      className: "danger", onClick: removeSelected
+    }, icon("trash-2"), h("span", null, "删除"))), h("main", { className: inspectorOpen ? "" : "inspector-collapsed" }, h("div", { id: "slides" }, (deck?.slides || []).map((s, i) => h("div", {
+      key: s.id || i, className: "thumb " + (i === slide ? "active" : ""), draggable: true,
+      onDragStart: ev => { slideDrag.current = i; ev.dataTransfer.effectAllowed = "move"; ev.currentTarget.classList.add("dragging"); },
+      onDragEnd: ev => { slideDrag.current = null; ev.currentTarget.classList.remove("dragging"); },
+      onDragOver: ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; },
+      onDrop: ev => { ev.preventDefault(); const from = slideDrag.current; if (from == null || from === i) return; const target = from < i ? i - 1 : i; trackedSetDeck(d => { const n = structuredClone(d), moved = n.slides.splice(from, 1)[0]; n.slides.splice(i, 0, moved); return n; }); setSlide(target); slideDrag.current = null; }, onClick: () => {
+        if (masterMode) toggleMasterMode();
+        setSlide(i);
+        setSelected(null)
+      }
+    }, h("div", { className: "thumb-preview" }, thumbImages[s.id || `slide-${i}`] ? h("img", { src: thumbImages[s.id || `slide-${i}`], alt: `第${i + 1}页缩略图`, draggable: false }) : null), h("span", { className: "thumb-label" }, `第${i + 1}页`), h("span", { className: "thumb-actions" }, h("button", { onClick: ev => { ev.stopPropagation(); pageAction("add", i); }, title: "新建一页" }, icon("plus")), h("button", { onClick: ev => { ev.stopPropagation(); pageAction("duplicate", i); }, title: "复制当前页" }, icon("copy")), h("button", { onClick: ev => { ev.stopPropagation(); if (confirm("确定删除当前页吗？")) pageAction("delete", i); }, title: "删除当前页" }, icon("trash-2")), h("button", { onClick: ev => { ev.stopPropagation(); openAIDialog(i); }, title: "AI重新设计当前页" }, icon("sparkles")))))), h("div", { key: `canvas-page-${slide}`, className: "canvas-wrap", style: { width: W * zoom + "px", height: (H * zoom + 125) + "px" } }, !masterMode && currentSlide && h("section", { className: "ppt-notes-panel", style: { width: (W * zoom) + "px", marginTop: (H * (zoom - 1) + 14) + "px" } }, h("div", { className: "ppt-notes-title" }, icon("sticky-note"), h("b", null, "页面备注")), h("textarea", { value: currentSlide.notes || "", placeholder: "记录页面标题、大纲、讲稿或修改提示…", onChange: ev => { const value = ev.target.value; setDeck(d => { const n = structuredClone(d); if (n?.slides?.[slide]) n.slides[slide].notes = value; return n; }); } })), h("div", { className: "canvas", "data-slide-index": slide, style: { width: W + "px", height: H + "px", transform: `scale(${zoom})` }, onClick: () => setSelected(null) }, !elements.length && !(deck?.slides?.length) && h("div", { className: "ppt-welcome", onClick: ev => ev.stopPropagation() }, h("img", { src: "/logo.png", alt: "快马AI" }), h("h1", null, "快马AI PPT 工作台"), h("p", null, "从灵感到演示文稿，一键完成创作"), h("div", { className: "ppt-welcome-actions" }, h("button", { className: "ppt-welcome-primary", onClick: () => window.dispatchEvent(new CustomEvent("ppt:ai-open", { detail: { mode: "create" } })) }, icon("sparkles"), h("span", null, "AI制作PPT")), h("button", { onClick: () => window.dispatchEvent(new CustomEvent("ppt:ai-open", { detail: { mode: "beautify" } })) }, icon("wand-sparkles"), h("span", null, "美化PPT")), h("button", { onClick: openDeck, className: "ppt-free-action" }, icon("file-image"), h("span", null, "图片转可编辑文字PPT"), h("em", { className: "ppt-free-badge" }, "免消耗 token")))), [...elements].sort((a, b) => (Number(a.zIndex) || 0) - (Number(b.zIndex) || 0)).map(e => {
+      const st = { ...defaults, ...e.style, ...visualStyle(e, e.style || {}) }, bold = st.bold || Number(st.fontWeight) >= 600, isEditing = editing === e.id;
+      const geometryOnly = e.geometry?.type === "custom" || e.geometry?.type === "line";
+      return h("div", {
+        key: e.id, "data-ppt-id": e.id, className: "el " + (e.type === "image" ? "image-el " : "") + (String(e.id).startsWith("ocr-") ? "ocr-el " : "") + (e.id === selected ? "sel" : "") + (isEditing ? " editing" : ""), onClick: ev => {
+          ev.stopPropagation();
+          if (formatPaintActive) { applyFormatPaint(e.id); return; }
+          selectElement(e.id)
+        }, onDoubleClick: ev => {
+          ev.stopPropagation();
+          if (e.type === "image") { if (ocrMode) ocrAtPoint(ev); else editImage(e); }
+          else if (ocrMode && e.type === "text") { ocrAtPoint(ev); }
+          else if (e.type === "text") setEditing(e.id)
+        }, onMouseDown: ev => {
+          if (ev.button === 0 && !e.locked && !isEditing) {
+            const duplicate = ev.ctrlKey || ev.metaKey;
+            const id = duplicate ? duplicateSelected(e) : e.id;
+            selectElement(id || e.id);
+            drag.current = { id: id || e.id, duplicated: duplicate, x: ev.clientX, y: ev.clientY, ex: Number(e.x) + (duplicate ? 10 : 0), ey: Number(e.y) + (duplicate ? 10 : 0), canvas: ev.currentTarget.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } };
+            if (duplicate) ev.preventDefault();
+          }
+        }, style: { left: e.x / W * 100 + "%", top: e.y / H * 100 + "%", width: e.width / W * 100 + "%", height: e.height / H * 100 + "%", opacity: st.opacity ?? e.opacity ?? 1, fontSize: st.fontSize, fontFamily: st.fontFamily, textAlign: textAlign(st.align), textAlignLast: textAlign(st.align) === "justify" ? "justify" : undefined, lineHeight: st.lineHeight || undefined, letterSpacing: st.letterSpacing ? st.letterSpacing + "px" : undefined, fontWeight: bold ? "bold" : "normal", fontStyle: st.italic ? "italic" : "normal", textDecoration: st.underline ? "underline" : "none", color: st.color, paddingTop: st.paddingTop != null ? Number(st.paddingTop) : undefined, paddingLeft: st.paddingLeft != null ? Number(st.paddingLeft) : undefined, zIndex: Number(e.zIndex) || 0, transform: elementTransform(e), transformOrigin: "center" }
+      }, h("div", { className: "el-content", style: { ...(geometryOnly ? {} : fillStyle(st.background || e.fill?.image?.assetUrl)), ...shapeStyle(st.shape, st, e.width, e.height), ...(geometryOnly ? {} : boxStyle(st)) } }, geometryOnly ? null : imageFill(st.background || e.fill?.image?.assetUrl), customPath(e, st), e.type === "image" && e.assetUrl ? h(ImageBlock, { src: originalPreviewId === e.id && e.originalAssetUrl ? e.originalAssetUrl : e.assetUrl, alt: "图片", style: st }) : e.type === "image" ? h("div", { className: "image-placeholder" }, icon("image")) : e.type === "text" && isEditing ? h("div", { ref: editRef, className: "inline-editor", contentEditable: true, suppressContentEditableWarning: true, onBlur: ev => { const node = ev.currentTarget; const runs = readEditableRuns(node); update(x => { x.textRuns = runs.length ? runs : [{ content: node?.textContent || "", style: { ...x.style } }]; x.content = runs.map((r, i) => (i && r.paragraph !== runs[i - 1].paragraph ? "\n" : "") + r.content).join(""); }, e.id); setEditing(null) }, onKeyDown: ev => { if (ev.key === "Escape") { ev.preventDefault(); setEditing(null) } } }, textRuns(e, st)) : textRuns(e, st)), e.id === selected && !isEditing && ["nw", "ne", "sw", "se"].map(dir => h("span", {
+        key: dir, className: "handle " + dir, onMouseDown: ev => {
+          ev.stopPropagation();
+          resize.current = { id: e.id, x: ev.clientX, y: ev.clientY, ex: e.x, ey: e.y, ew: e.width, eh: e.height, dir, canvas: ev.currentTarget.parentElement.parentElement, before: { slides: [{ id: deck.slides[slide].id, elements: structuredClone(deck.slides[slide].elements) }] } }
+        }
+      })))
+    })), ocrBusy && ocrTarget && h("div", { className: "ocr-scan-overlay", role: "status", "aria-label": "正在扫描图片文字", style: { left: (ocrTarget.x * zoom) + "px", top: (ocrTarget.y * zoom) + "px", width: (ocrTarget.width * zoom) + "px", height: (ocrTarget.height * zoom) + "px", transform: `rotate(${ocrTarget.rotation}deg)`, transformOrigin: "center" } }, h("div", { className: "ocr-scan-line", style: { height: Math.max(2, 3 * zoom) + "px" } }))), h("input", {
+      ref: fileInput, type: "file", accept: "image/*", style: { display: "none" }, onChange: ev => {
+        const f = ev.target.files?.[0];
+        if (f) {
+          const r = new FileReader();
+          r.onload = () => { if (backgroundTarget.current === "master") { setDeck(d => { const n = structuredClone(d); n.master = n.master || {}; n.master.background = r.result; n.theme = { ...n.theme, background: r.result }; return n }); backgroundTarget.current = false; } else if (backgroundTarget.current) { const id = backgroundTarget.current; update(e => { e.style = { ...e.style, background: r.result }; e.fill = { type: "image", image: { assetUrl: r.result, rotateWithShape: true } } }, id); setSelected(id); backgroundTarget.current = false; } else if (imageTarget.current) { const id = imageTarget.current; update(e => { e.assetUrl = r.result }, id); setSelected(id); imageTarget.current = null } else insertImage(r.result) };
+          r.readAsDataURL(f)
+        } ev.target.value = ""
+      }
+    }), h("input", { ref: openFileInput, type: "file", accept: ".json,.pptx,image/*", multiple: true, style: { display: "none" }, onChange: loadDeckFile }), h(Inspector, { element: current, onChange: update, onLayer: changeLayer, master: masterMode ? (deck?.master || {}) : null, onMasterChange: changeMaster, fontFamilies, onPickBackground: () => { backgroundTarget.current = "master"; fileInput.current?.click() }, onPickElementBackground: id => { backgroundTarget.current = id; fileInput.current?.click() }, themeColors: [{ label: "主题", value: deck?.master?.accent || deck?.theme?.accent }, { label: "前景", value: deck?.master?.foreground || deck?.theme?.foreground }, { label: "背景", value: deck?.master?.background || deck?.theme?.background }], onReplaceImage: id => { imageTarget.current = id; fileInput.current?.click() }, onFitImage: fitImage, onEditImage: id => { const target = elements.find(e => e.id === id); if (target?.assetUrl && window.KuaimaFineEditor) window.KuaimaFineEditor?.open(target.assetUrl, { onApply: next => update(e => { e.assetUrl = next; }, id) }); } }), showJson && h("div", { className: "json-overlay", onClick: () => setShowJson(false) }, h("div", { className: "json-panel", onClick: e => e.stopPropagation() }, h("div", { className: "json-head" }, h("b", null, current ? `对象 JSON · ${names[current.type] || current.type}` : "页面 JSON"), h("button", { onClick: () => setShowJson(false) }, "关闭")), deck ? h("textarea", { className: "json-editor", value: jsonText, onChange: e => setJsonText(e.target.value), spellCheck: false }) : h("div", { className: "json-empty" }, "当前没有页面数据"), current && h("div", { className: "json-actions" }, h("button", { className: "btn primary", onClick: () => { try { const parsed = JSON.parse(jsonText); update(x => { Object.keys(x).forEach(k => delete x[k]); Object.assign(x, parsed); }); setShowJson(false); } catch (e) { alert("JSON 格式错误：" + e.message); } } }, "应用修改"), h("button", { onClick: () => setJsonText(JSON.stringify(jsonSnapshot || {}, null, 2)) }, "还原"))))))
+  }
+  ReactDOM.createRoot(document.getElementById("app")).render(h(App));
+})();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
