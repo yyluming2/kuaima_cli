@@ -120,6 +120,11 @@
     el("fineEditorStatus").textContent = "";
     syncSourceEmpty(); renderPoints();
     renderFiles();
+    // PPT image editing starts in the full manual editor.
+    if ((options?.initialTab === "manual" || /(?:^|\/)ppt(?:\.html)?$/.test(location.pathname)) && window.KuaimaRetouchEditor) {
+      window.KuaimaRetouchEditor.open(url, "pan");
+      return;
+    }
     showPointTab();
     el("imageModal") && (el("imageModal").hidden = true);
     el("fineEditor").hidden = false;

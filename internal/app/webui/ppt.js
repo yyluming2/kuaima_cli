@@ -299,7 +299,7 @@
     };
     const editImage = image => {
       if (image?.assetUrl && window.KuaimaFineEditor) {
-        window.KuaimaFineEditor.open(image.assetUrl, { onApply: next => update(e => { e.assetUrl = next; }, image.id) });
+        window.KuaimaFineEditor.open(image.assetUrl, { initialTab: "manual", onApply: next => update(e => { e.assetUrl = next; }, image.id) });
       }
     };
     useEffect(() => {
