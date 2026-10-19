@@ -55,7 +55,7 @@
                     placeholder="粘贴资料、数据、案例或需要保留的原文"></textarea></label>
                 <label class="ppt-file ppt-file-compact">参考素材 <small>可添加多个文件</small><input id="pptAiReferenceFiles"
                     type="file" multiple
-                    accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pptx,.ppt,.doc,.docx,.pdf"><small>支持图片、Word（DOC/DOCX）、PDF、TXT、Markdown、CSV、JSON
+                    accept="image/png,image/jpeg,image/webp,.txt,.md,.csv,.json,.pptx,.doc,.docx,.pdf"><small>支持图片、Word（DOC/DOCX）、PDF、TXT、Markdown、CSV、JSON
                     和 PPT/PPTX，单个文件不宜过大</small></label>
                 <small id="pptAiReferenceStatus" role="status" aria-live="polite"></small>
                 <div id="pptAiReferenceList" class="ppt-ai-materials"></div>
@@ -63,7 +63,7 @@
             </div>
             <div id="pptAiBeautifyPanel" role="tabpanel" aria-labelledby="pptAiBeautifyTab" hidden>
               <label class="ppt-file ppt-file-compact">参考 PPT 文件<input id="pptAiDeck" type="file"
-                  accept=".pptx,.ppt,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json；.ppt 文件请先另存为
+                  accept=".pptx,.json"><small id="pptAiDeckHint">支持 .pptx 或 .json；.ppt 文件请先另存为
                   .pptx</small></label>
               <label>美化要求 <small>选填</small><textarea id="pptAiBeautifyBrief" rows="3"
                   placeholder="例如：保留原有内容，优化排版和字体层级，整体更简洁"></textarea></label>
@@ -139,8 +139,13 @@
             </div>
             <aside class="ppt-ai-master-card">
               <div class="ppt-ai-master-head"><b>视觉参考</b><button id="pptAiRegenerate" type="button">重新生成</button></div>
-              <div id="pptAiMasterPreviewWrap" class="ppt-ai-master-preview-wrap"><img id="pptAiSample" class="ppt-ai-master-preview" alt="PPT 视觉母版预览" hidden><div class="ppt-ai-master-loading" aria-live="polite"><i></i><span>正在生成视觉参考…</span></div></div>
-              <label class="ppt-ai-master-reference">上传参考图（选填）<input id="pptAiMasterReference" type="file" accept="image/png,image/jpeg,image/webp"><small id="pptAiMasterReferenceHint">用于参考配色、构图和视觉语言</small></label>
+              <div id="pptAiMasterPreviewWrap" class="ppt-ai-master-preview-wrap"><img id="pptAiSample"
+                  class="ppt-ai-master-preview" alt="PPT 视觉母版预览" hidden>
+                <div class="ppt-ai-master-loading" aria-live="polite"><i></i><span>正在生成视觉参考…</span></div>
+              </div>
+              <label class="ppt-ai-master-reference">上传参考图（选填）<input id="pptAiMasterReference" type="file"
+                  accept="image/png,image/jpeg,image/webp"><small
+                  id="pptAiMasterReferenceHint">用于参考配色、构图和视觉语言</small></label>
               <label class="ppt-ai-master-prompt">母版修改提示词（选填）<textarea id="pptAiMasterPrompt" rows="3"
                   placeholder="例如：增加科技感，使用深色背景和蓝紫色光效"></textarea></label>
               <p>母版用于统一各页的配色、版式和视觉风格，可重新生成后确认。</p>
@@ -237,7 +242,8 @@
         <div class="retouch-toolbar">
           <button class="btn small active" type="button" data-retouch-tool="pan" title="拖动画布（H）"><i
               data-lucide="hand"></i><span></span></button>
-          <button id="retouchEffectsButton" class="btn small" type="button" title="滤镜"><i data-lucide="wand-sparkles"></i><span>滤镜</span></button>
+          <button id="retouchEffectsButton" class="btn small" type="button" title="滤镜"><i
+              data-lucide="wand-sparkles"></i><span>滤镜</span></button>
           <details id="retouchPaintMenu" class="retouch-menu retouch-tool-picker">
             <summary class="btn small active"><i data-lucide="brush"></i><span id="retouchPaintLabel">修复</span><i
                 data-lucide="chevron-down"></i></summary>

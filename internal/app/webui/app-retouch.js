@@ -604,7 +604,16 @@
     if (!url) return;
     el("finePointEditorView").hidden = true; el("retouchEditor").hidden = false;
     document.querySelectorAll("[data-editor-tab]").forEach((button) => { const active = button.dataset.editorTab === "manual"; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
-    if (state.sourceURL === url && state.width) { resizeDisplay(); setTool(initialTool || state.tool); return; }
+    // Reusing the already loaded image avoids decoding it again, but closing the
+    // editor only hides the shared modal. Restore the modal visibility before
+    // returning through this fast path, otherwise opening the same PPT image a
+    // second time appears to do nothing until another slide changes the URL.
+    if (state.sourceURL === url && state.width) {
+      const imageModal = el("imageModal");
+      if (imageModal) imageModal.hidden = true;
+      el("fineEditor").hidden = false;
+      resizeDisplay(); setTool(initialTool || state.tool); return;
+    }
     state.sourceURL = url; state.effectBaseURL = effectBaseURL || url; const image = new Image(); image.crossOrigin = "anonymous"; setHint("正在读取图片...");
     image.onload = () => {
       state.width = image.naturalWidth; state.height = image.naturalHeight;
