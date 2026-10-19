@@ -10,7 +10,8 @@ import (
 )
 
 func TestLoadImageCandidateWithStandardizedRemotePNG(t *testing.T) {
-	const imageURL = "https://download.xmimage2.cc.cd/r2/chatgpt2api/standardized/img-7dc42a24ab34d943ed37147b5c68cb75.png"
+	//const imageURL = "https://download.xmimage2.cc.cd/r2/chatgpt2api/standardized/img-7dc42a24ab34d943ed37147b5c68cb75.png"
+	const imageURL = "https://download.xmimage2.cc.cd/r2/chatgpt2api/standardized/img-192c8d2c6bf288104cb6d8636ca1037d.png"
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 
 	data, mediaType, err := loadImageCandidate(context.Background(), httpClient, imageCandidate{
