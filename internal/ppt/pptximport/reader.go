@@ -1280,7 +1280,14 @@ func Read(r io.ReaderAt, size int64) (ppt.Presentation, error) {
 				rel = parseRels(rd)
 			}
 		}
-		s := ppt.Slide{ID: "slide-" + strings.TrimSuffix(filepath.Base(f.Name), filepath.Ext(f.Name))[5:], Layout: "imported"}
+		// Keep Elements non-nil even when the slide has no shapes. A nil slice
+		// marshals to JSON null, while the editor/API contract expects an empty
+		// array so callers can add elements to a blank slide.
+		s := ppt.Slide{
+			ID:       "slide-" + strings.TrimSuffix(filepath.Base(f.Name), filepath.Ext(f.Name))[5:],
+			Layout:   "imported",
+			Elements: make([]ppt.Element, 0),
+		}
 		// Speaker notes are stored in a separate notesSlide part. The bundled
 		// genppt exporter uses the matching slide number, while Office files may
 		// use the same conventional numbering.

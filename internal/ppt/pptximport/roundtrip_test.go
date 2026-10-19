@@ -73,6 +73,28 @@ func TestReadGenerated(t *testing.T) {
 	}
 }
 
+func TestReadGeneratedBlankSlideUsesEmptyElements(t *testing.T) {
+	p := genppt.New().SetTitle("blank")
+	p.AddSlide()
+	b, err := p.ToBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Slides) != 1 {
+		t.Fatalf("slides=%d, want 1", len(got.Slides))
+	}
+	if got.Slides[0].Elements == nil {
+		t.Fatal("blank slide elements is nil, want an empty slice")
+	}
+	if len(got.Slides[0].Elements) != 0 {
+		t.Fatalf("blank slide elements=%d, want 0", len(got.Slides[0].Elements))
+	}
+}
+
 func TestReadGeneratedRichText(t *testing.T) {
 	p := genppt.New().SetTitle("rich")
 	s := p.AddSlide()
